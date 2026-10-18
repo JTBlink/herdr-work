@@ -3780,7 +3780,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "workdesk"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -3794,14 +3794,14 @@ dependencies = [
 
 [[package]]
 name = "workdesk-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "workdesk-engine"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "fs2",
@@ -3816,7 +3816,7 @@ dependencies = [
 
 [[package]]
 name = "workdesk-tui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "crossterm",

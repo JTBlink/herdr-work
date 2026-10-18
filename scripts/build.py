@@ -34,7 +34,7 @@ def metadata(target, tag=None):
 
 def build(target, tag=None):
     info = metadata(target, tag)
-    subprocess.run(['cargo', 'build', '--release', '--locked', '--target', target, '-p', 'workdesk'], cwd=ROOT, check=True)
+    subprocess.run(['cargo', 'build', '--release', '--locked', '--target', target, '-p', 'workdesk', '--bin', 'herdr-work'], cwd=ROOT, check=True)
     if info['projects_backend']:
         subprocess.run(['cargo', 'build', '--release', '--locked', '--target', target,
                         '--manifest-path', 'upstream/herdr-projects/Cargo.toml', '--bin', 'herdr-projects'], cwd=ROOT, check=True)

@@ -19,7 +19,7 @@
 | #10 | engine/tasks.rs、Projects CLI/keeper 补丁 | 原 add/delegate/stop/reopen；实际 launcher 在全新子进程中保持 managed/home/data/config/reports 隔离及原 Agent caller/report 语义；独立 keeper；UI 退出、暂停自动调度和停止 Agent 为不同操作 |
 | #11 | engine/lib.rs、review.rs、tasks.rs | 恢复执行选择/草稿，Sending 转 Unknown，不自动重试；reconcile 保存显式核对证据 |
 | #12 | engine/migration.rs | 只读预览、源/复制 SHA、备份、持久化导入 intent、中断恢复及拒绝覆盖新数据的回滚测试 |
-| #13 | scripts/package.py、install.py、smoke.py | macOS 真实归档、许可、manifest、SHA、安装运行、升级回滚与卸载后保留数据 |
+| #13 | scripts/package.py、install.py、smoke.py | macOS 真实归档、许可、manifest、SHA、安装运行、升级回滚与卸载后保留数据；旧 `workdesk` 升级为 `herdr-work`、回滚恢复原命令名且不覆盖非本项目命令 |
 | #14 | .github/workflows/ci.yml、build.yml、release.yml | 三平台原生编译/测试/打包/安装；全部成功后 draft 上传附件，最后发布 |
 
 ## 本机已验证命令

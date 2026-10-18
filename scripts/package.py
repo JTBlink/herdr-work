@@ -20,7 +20,7 @@ def package(target, output, tag=None):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     suffix = '.exe' if 'windows' in target else ''
-    binaries = {'workdesk': ROOT / f'target/{target}/release/workdesk{suffix}'}
+    binaries = {'herdr-work': ROOT / f'target/{target}/release/herdr-work{suffix}'}
     if info['projects_backend']:
         binaries['workdesk-projects'] = ROOT / f'upstream/herdr-projects/target/{target}/release/herdr-projects'
     for path in binaries.values():
@@ -87,7 +87,7 @@ def verify(archive):
             if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()) or digest(path) != sha:
                 raise ValueError(f'Manifest checksum mismatch: {rel}')
         suffix = '.exe' if 'windows' in manifest['target'] else ''
-        required = {'bin/workdesk' + suffix, 'install.py', 'LICENSE'} | {f'licenses/{name}.txt' for name in ['herdr-projects','herdr-sidebar','herdr-reviewr']}
+        required = {'bin/herdr-work' + suffix, 'install.py', 'LICENSE'} | {f'licenses/{name}.txt' for name in ['herdr-projects','herdr-sidebar','herdr-reviewr']}
         if manifest['projects_backend']: required.add('bin/workdesk-projects')
         if not required <= actual_files: raise ValueError('Required executable or license missing')
         return manifest

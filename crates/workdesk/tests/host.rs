@@ -84,7 +84,7 @@ fn ambiguous_post_send_receipt_is_unknown_and_cannot_resend() {
         ),
     );
     let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_workdesk"))
+        Command::new(env!("CARGO_BIN_EXE_herdr-work"))
             .args(["--home", temp.path().join("profile").to_str().unwrap()])
             .args(args)
             .env("HERDR_SOCKET_PATH", &socket)
