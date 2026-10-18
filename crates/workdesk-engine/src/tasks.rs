@@ -64,7 +64,10 @@ impl Workdesk {
             cmd.arg("--json");
         }
         if let Some(root) = cwd {
-            cmd.current_dir(root);
+            cmd.current_dir(root).env(
+                "HERDR_PLUGIN_CONTEXT_JSON",
+                serde_json::to_string(&json!({"focused_pane_cwd":root.canonicalize()?}))?,
+            );
         }
             .context("Projects backend unavailable or failed")?;
         if output.is_empty() {

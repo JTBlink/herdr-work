@@ -42,7 +42,6 @@ pub fn board_env() -> Vec<(String, String)> {
     if std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1") {
         pairs.extend([
             ("WORKDESK_MANAGED".into(), "1".into()),
-            ("HERDR_PLUGIN_ID".into(), "jtblink.workdesk".into()),
             ("HERDR_PROJECTS_HOME".into(), absolute(&home_dir()).display().to_string()),
             ("HERDR_PROJECTS_REPORTS_DIR".into(), absolute(&reports_dir()).display().to_string()),
         ]);

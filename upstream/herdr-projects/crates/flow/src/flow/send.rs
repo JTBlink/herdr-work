@@ -49,6 +49,10 @@ pub fn shim() -> PathBuf {
     let file = launcher_file();
     let dir = data_dir().join("bin");
     let mut text = "#!/bin/sh\n".to_string();
+    // This launcher is an Agent command, not the plugin UI: preserve caller/report semantics.
+    if std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1") {
+        text.push_str("unset HERDR_PLUGIN_ID HERDR_PLUGIN_CONTEXT_JSON HERDR_PLUGIN_EVENT HERDR_PLUGIN_EVENT_JSON\n");
+    }
     for (k, v) in board_env() { text.push_str(&format!("export {k}={}\n", shq(&v))); }
     text.push_str(&format!("exec {} \"$@\"\n", shq(&bin().display().to_string())));
     let is_link = std::fs::symlink_metadata(&file).map(|m| m.file_type().is_symlink()).unwrap_or(false);
