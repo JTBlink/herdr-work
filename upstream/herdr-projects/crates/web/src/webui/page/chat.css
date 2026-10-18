@@ -1,0 +1,45 @@
+/* The chat at the foot of the web board (chat.js, said.js): the switch with the two you can talk to, the line on where
+   they stand, Hide and Show, and the conversation over the box, all as wide as the box (compose.css) and centred on it.
+   The switch is the web UI's own segmented control (`.segmented`, as its Chat/Terminal switch), and the buttons its
+   `.btn` and `.icon-button`: their looks are the web UI's, sized here for a thumb. */
+.sw-chat { flex: none; display: flex; flex-direction: column; gap: var(--space-2, 8px); padding: var(--space-2, 8px) var(--space-4, 16px) max(var(--space-4, 16px), calc(env(safe-area-inset-bottom, 0px) - var(--space-4, 16px))); border-top: var(--hairline, 1px) solid var(--sw-line); background: var(--sw-bg); }
+@media (max-width: 480px) { .sw-chat { padding-inline: var(--space-3, 12px); } }
+.sw-chat > :not(.sw-composer) { width: min(100%, var(--chat-w, 820px)); margin-inline: auto; box-sizing: border-box; }
+.sw-chat-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1, 4px) var(--space-3, 12px); min-width: 0; }
+/* Who you talk to: two choices; the pressed one gets your words. */
+.sw-switch { flex: none; max-width: 100%; }
+.sw-switch > button { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sw-switch > button:disabled { cursor: default; opacity: 0.55; }
+.sw-switch > button:focus-visible, .sw-hide:focus-visible, .sw-said-nav .icon-button:focus-visible, .sw-said:focus-visible { outline: var(--ring, 2px solid var(--sw-yellow)); outline-offset: var(--ring-offset, 2px); }
+/* Where they stand: the mark, the task's name, what it does now, greyed; one line, cut with … */
+.sw-who { flex: 1 1 5em; display: flex; align-items: baseline; gap: var(--space-2, 8px); min-width: 0; white-space: nowrap; }
+.sw-who .sw-mark { width: auto; }
+.sw-who-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--fw-semibold, 600); color: var(--sw-strong); }
+.sw-who-status { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--sw-dim); font-size: var(--fs-sm, 13px); }
+.sw-hide { flex: none; margin-left: auto; color: var(--sw-dim); }
+.sw-hide[aria-pressed="true"] { color: var(--sw-text); }
+/* On a phone the switch and Hide share the first line, where they stand on the second, whole. */
+@media (max-width: 640px) { .sw-who { order: 3; flex-basis: 100%; } }
+.sw-chat-note { margin: 0; color: var(--sw-dim); font-size: var(--fs-xs, 12px); }
+/* The conversation: the newest thing said, the rest above it, and Earlier and Later in a gutter of their own. */
+.sw-said-box { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-1, 4px); padding: var(--space-2, 8px) var(--space-1, 4px) var(--space-2, 8px) var(--space-4, 16px); border: var(--hairline, 1px) solid var(--sw-line); border-radius: var(--radius-lg, 12px); background: var(--sw-panel); }
+.sw-said { max-height: calc(var(--app-height, 100vh) * 0.3); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--border-strong, #3e3830) transparent; color: var(--sw-dim); font-size: var(--fs-sm, 13px); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sw-said-box.is-open .sw-said { max-height: calc(var(--app-height, 100vh) * 0.4); }
+/* A phone's window is short: the list keeps the most of it. */
+@media (max-width: 640px) { .sw-said { max-height: calc(var(--app-height, 100vh) * 0.22); } .sw-said-box.is-open .sw-said { max-height: calc(var(--app-height, 100vh) * 0.3); } }
+.sw-said a { color: var(--accent, #f0a830); text-underline-offset: 0.2em; }
+.sw-said-nav { display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-1, 4px); }
+.sw-said-nav .sw-said-up[hidden] + .sw-said-down { margin-top: auto; }
+.sw-said-nav .icon-button { color: var(--sw-dim); }
+.sw-said-turn + .sw-said-turn { margin-top: var(--space-3, 12px); }
+.sw-by { color: var(--sw-text); font-weight: var(--fw-semibold, 600); }
+/* A machine's or a repo's coordinator: its name and who said what in its heading's colour (board.css: .sw-c-*). */
+.sw-chat[data-tint="accent"] :is(.sw-who-name, .sw-by) { color: var(--accent, #f0a830); }
+.sw-chat[data-tint="subtext0"] :is(.sw-who-name, .sw-by) { color: var(--sw-dim); }
+.sw-said-turn.is-mine { color: var(--sw-text); }
+.sw-said-turn.is-raw .sw-said-text { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-xs, 12px); white-space: pre; overflow-x: auto; }
+/* A thumb's size, as everything tapped on the board. */
+@media (pointer: coarse) {
+  .sw-switch > button { height: calc(var(--touch-target, 40px) - 6px); }
+  .sw-hide, .sw-said-nav .icon-button { min-height: var(--touch-target, 40px); min-width: var(--touch-target, 40px); }
+}

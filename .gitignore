@@ -28,3 +28,11 @@ Thumbs.db
 
 # Local reference plugin sources; see docs/reference-plugins.md
 /reference-plugins/
+
+/dist/
+__pycache__/
+*.pyc
+
+/bin/
+/workdesk-install.json
+/.workdesk-previous/

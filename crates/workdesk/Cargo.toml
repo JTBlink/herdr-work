@@ -1,0 +1,17 @@
+[package]
+name = "workdesk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+workdesk-core.workspace = true
+workdesk-engine.workspace = true
+workdesk-tui.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

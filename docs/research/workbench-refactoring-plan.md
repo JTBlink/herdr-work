@@ -10,6 +10,8 @@ tags:
 
 # Herdr Agent 工作台技术方案
 
+> 本篇保留前期候选架构与固定版本源码证据。用户随后明确要求复用业务源码逻辑、统一目录并拆分 GitHub 任务；当前具体提案见[复用优先架构](../architecture/workdesk-architecture.md)，规格与拆分见[任务计划](../plans/workdesk/README.md)。下文的 A/B 候选及四个平铺 crate 是早期提案，不作为最新实施目录；未表示已批准或实现。
+
 ## 方案定位与结论
 
 目标是以 **任务、Agent 执行、代码上下文、审查反馈** 为连续工作流的工作台。用户选中任务后，能定位其执行 Agent 和 worktree，查看文件与 Diff，把评论发回正确的执行者，再回到任务状态。
@@ -28,7 +30,7 @@ tags:
 | --- | --- | --- |
 | 任务看板 | Projects | 任务分派、执行状态与工作区关联 |
 | 文件与 Git | Sidebar | 文件浏览、改动查看和 Git 操作 |
-| 工作台框架 | Herdr Work | 统一上下文、布局、快捷键、模块联动和版本管理 |
+| 工作台框架 | Workdesk | 统一上下文、布局、快捷键、模块联动和版本管理 |
 
 首个验证路径为任务 → Agent 执行 → 指定 worktree 的改动 → 审查反馈 → 任务状态更新。
 这些是工作台的目标职责，具体源码复用范围与实现方式仍待评审。
@@ -58,7 +60,7 @@ tags:
 | Task / Execution | `TaskId`；每次执行为独立 `ExecutionId` | Task 可重试且有多次执行；绑定 execution、worktree 和 Agent，保留历史 |
 | Agent | session 内的 pane/terminal 与状态 | Agent 状态与 Task 阶段分开；不能把“Agent 空闲”等同“任务完成” |
 | Review | execution/worktree + 比较基线 + scope | 评论锚定文件、side、行范围和 revision；切换任务不更改已写评论的归属 |
-| Workbench context | 当前 Task、Execution、Worktree、Review、焦点及 `epoch` | 上下文切换一次提交；异步结果携带 epoch，过期结果不能覆盖新视图 |
+| Workdesk context | 当前 Task、Execution、Worktree、Review、焦点及 `epoch` | 上下文切换一次提交；异步结果携带 epoch，过期结果不能覆盖新视图 |
 
 
 选择任务可以更新建议的工作上下文；用户显式浏览其他仓库时，要明确显示“任务执行目录”和“当前浏览目录”的差异。审查发送目标来自 execution 的有效绑定，发送前再次校验。多个候选或失效绑定进入选择流程，禁止静默发送到最近获得焦点的 Agent。
@@ -81,15 +83,15 @@ tags:
 
 | 拟议 crate | 依赖方向 | 放入的职责 |
 | --- | --- | --- |
-| `workbench-core` | 不依赖终端和宿主接入 | typed IDs、上下文、任务/执行/审查模型、commands/results |
-| `workbench-engine` | → core | 提取业务流程、Git/Herdr/存储 adapters、后台 effects；先保持 adapters 为内部模块 |
-| `workbench-tui` | → core / engine | 布局、焦点、输入、视图 reducer/render；唯一终端所有者 |
+| `workdesk-core` | 不依赖终端和宿主接入 | typed IDs、上下文、任务/执行/审查模型、commands/results |
+| `workdesk-engine` | → core | 提取业务流程、Git/Herdr/存储 adapters、后台 effects；先保持 adapters 为内部模块 |
+| `workdesk-tui` | → core / engine | 布局、焦点、输入、视图 reducer/render；唯一终端所有者 |
 | `herdr-work` | → engine / tui | CLI、依赖注入与进程入口；选用 headless 模式时不初始化终端 |
 
 同一 executable 可用子命令启动 UI 和 headless 模式，但不要求它们处于同一进程。是否拆开 engine 内部 crate、采用哪份 input/wake implementation、统一 MSRV/Cargo.lock，均以原型结果决定。
 
 ```text
-Workbench TUI
+Workdesk TUI
   ├─ 工作上下文、统一焦点、快捷键、主题、弹层、布局
   ├─ Tasks / Files / SCM / Review 视图状态及纯状态转换
   └─ effects → 后台工作队列 → 带上下文版本的结果

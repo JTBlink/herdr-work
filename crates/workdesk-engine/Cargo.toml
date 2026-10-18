@@ -1,0 +1,18 @@
+[package]
+name = "workdesk-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+workdesk-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+fs2.workspace = true
+herdr-sidebar = { path = "../../upstream/herdr-sidebar/plugins/herdr-sidebar" }
+
+[dev-dependencies]
+tempfile.workspace = true

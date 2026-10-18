@@ -1,0 +1,87 @@
+name: Build platform archives
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        default: ''
+    outputs:
+      version:
+        value: ${{ jobs.metadata.outputs.version }}
+      sha:
+        value: ${{ jobs.metadata.outputs.sha }}
+permissions:
+  contents: read
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      sha: ${{ steps.plan.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Validate version and immutable source
+        id: plan
+        shell: python
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          import json, os, subprocess
+          command = ['python', 'scripts/build.py', '--target', 'x86_64-unknown-linux-gnu', '--metadata-only']
+          if os.environ['RELEASE_TAG']:
+              command += ['--tag', os.environ['RELEASE_TAG']]
+          plan = json.loads(subprocess.check_output(command, text=True))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('version=' + plan['version'] + '\nsha=' + plan['sha'] + '\n')
+  build:
+    needs: metadata
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-14, target: aarch64-apple-darwin }
+          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { runner: windows-2022, target: x86_64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable action, pinned Rust
+        with:
+          toolchain: 1.99.0
+          targets: ${{ matrix.target }}
+      - name: Build real release binaries
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        shell: python
+        run: |
+          import os, subprocess
+          subprocess.run(['python', 'scripts/build.py', '--target', os.environ['BUILD_TARGET']], check=True)
+      - name: Verify domain and Git/review workflows
+        run: cargo test --workspace --locked
+      - name: Package and verify archives
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        shell: python
+        run: |
+          import os, subprocess
+          subprocess.run(['python', 'scripts/package.py', 'create', '--target', os.environ['BUILD_TARGET']], check=True)
+      - name: Install candidate in an isolated prefix and exercise CLI
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: python scripts/smoke.py --archives dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: workdesk-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
