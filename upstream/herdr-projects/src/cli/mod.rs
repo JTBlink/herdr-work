@@ -55,7 +55,7 @@ pub fn main(argv: Vec<String>) -> i32 {
         return 0;
     }
     if argv.first().is_some_and(|s| s == "workdesk-environment") {
-        println!("{}", serde_json::json!({"home":crate::store::files::home_dir(),"data":crate::store::files::data_dir(),"config":crate::store::files::config_dir(),"reports":crate::store::files::reports_dir(),"managed":std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1"),"plugin":std::env::var("HERDR_PLUGIN_ID").unwrap_or_default()}));
+        println!("{}", serde_json::json!({"home":crate::store::files::home_dir(),"data":crate::store::files::data_dir(),"config":crate::store::files::config_dir(),"reports":crate::store::files::reports_dir(),"managed":std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1"),"plugin":std::env::var("HERDR_PLUGIN_ID").unwrap_or_default(),"context":context_folder(),"caller":caller().map(|(t, role)| serde_json::json!({"task":t.at("id"),"role":role}))}));
         return 0;
     }
     if argv.first().is_some_and(|s| s == "workdesk-launcher") && std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1") {
