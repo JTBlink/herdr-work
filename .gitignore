@@ -10,3 +10,6 @@
 # Local system files
 .DS_Store
 Thumbs.db
+
+# Local reference plugin sources; see docs/reference-plugins.md
+/reference-plugins/
