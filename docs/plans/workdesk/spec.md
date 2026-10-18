@@ -6,6 +6,8 @@ date: 2026-10-18
 
 # 复用优先工作台首版规格
 
+主二进制为 `herdr-work`（Windows 为 `herdr-work.exe`）；产品及 crate 名称保持 Workdesk/workdesk。
+
 本规格由当前讨论和固定版本源码整理，用户已确认按 13 项发布至 GitHub Issues；目录遵循四个自有 crate 与 upstream 原结构布局。父规格：[#1](https://github.com/JTBlink/herdr-work/issues/1)。技术设计见[复用优先架构](../../architecture/workdesk-architecture.md)，术语见[领域词汇](../../../GLOSSARY.md)，任务见[拆分草案](README.md)。
 
 ## Problem Statement

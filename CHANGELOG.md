@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.2 — 2026-10-19
+
+- 主二进制统一为 `herdr-work`（Windows 为 `herdr-work.exe`），同步 CLI、插件入口、打包与安装文档；产品与四个 crate 继续使用 Workdesk/workdesk。
+- 升级自动移除安装器管理的旧 `workdesk` 命令，回滚恢复旧名称并清理新名称；拒绝覆盖非本项目程序，安装中途失败恢复上一份安装。
+- 增加 macOS/Linux 与 Windows 文件名迁移、回滚、同名冲突和安装中断测试；原生安装 smoke 校验完整命令名与版本。
+
 ## 0.1.1 — 2026-10-19
 
 - 修复原 Projects Agent 回调脚本丢失 Workdesk 托管标记、home和报告目录的问题，防止回调回到旧插件默认目录或旧安装接管路径。

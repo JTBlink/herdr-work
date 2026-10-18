@@ -2,7 +2,7 @@
 
 父规格：[[Spec] Workdesk：复用优先工作台首版](https://github.com/JTBlink/herdr-work/issues/1)。保留 13 个实施子任务、默认标签与原生依赖。
 
-四个自有 crate 为 `workdesk-core`、`workdesk-engine`、`workdesk-tui`、`workdesk`，位于 `crates/`；固定版本的上游源码位于 `upstream/`，保留原目录和项目名。命令为 `workdesk`，仓库地址仍为 `JTBlink/herdr-work`。
+四个自有 crate 为 `workdesk-core`、`workdesk-engine`、`workdesk-tui`、`workdesk`，位于 `crates/`；固定版本的上游源码位于 `upstream/`，保留原目录和项目名。命令为 `herdr-work`，仓库地址仍为 `JTBlink/herdr-work`。
 
 [架构](../../architecture/workdesk-architecture.md) · [首版规格](spec.md) · [工程配置](engineering-setup.md)
 

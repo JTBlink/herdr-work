@@ -1,6 +1,6 @@
 id = "jtblink.workdesk"
 name = "Workdesk"
-version = "0.1.1"
+version = "0.1.2"
 min_herdr_version = "0.9.3"
 description = "Tasks, agents, files, Git and code review in one Workdesk terminal."
 platforms = ["macos", "linux"]
@@ -12,7 +12,7 @@ command = ["python3", "scripts/plugin.py"]
 id = "pane"
 title = "Workdesk"
 placement = "tab"
-command = ["bin/workdesk", "ui", "."]
+command = ["bin/herdr-work", "ui", "."]
 
 [[startup]]
 command = ["python3", "scripts/hook.py"]

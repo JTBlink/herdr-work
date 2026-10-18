@@ -9,7 +9,8 @@ import shutil
 import subprocess
 import tempfile
 
-ALLOWED = {'workdesk', 'workdesk.exe', 'workdesk-projects'}
+# Legacy names remain accepted for owned-installation migration and rollback.
+ALLOWED = {'herdr-work', 'herdr-work.exe', 'workdesk', 'workdesk.exe', 'workdesk-projects'}
 
 
 def digest(file):
@@ -39,6 +40,17 @@ def read_receipt(prefix):
         if path.parent != prefix / 'bin' or path.name not in ALLOWED:
             raise ValueError('Invalid install receipt')
     return data
+
+
+def write_receipt(prefix, data):
+    with tempfile.NamedTemporaryFile(mode='w', dir=prefix, delete=False) as stream:
+        temp = Path(stream.name)
+        try:
+            stream.write(json.dumps(data, indent=2) + '\n')
+            stream.close()
+            os.replace(temp, prefix / 'workdesk-install.json')
+        finally:
+            temp.unlink(missing_ok=True)
 
 
 def install(root, prefix):
@@ -85,10 +97,14 @@ def install(root, prefix):
             dest = bindir / source.name
             replace(source, dest)
             installed.append(str(dest))
-        receipt.write_text(json.dumps({'version': manifest['version'], 'sha': manifest['sha'], 'files': installed}, indent=2) + '\n')
+        for file in owned - set(installed):
+            Path(file).unlink(missing_ok=True)
+        write_receipt(prefix, {'version': manifest['version'], 'sha': manifest['sha'], 'files': installed})
     except Exception:
         if previous:
             rollback(prefix)
+            for file in set(installed) - owned:
+                Path(file).unlink(missing_ok=True)
         else:
             for file in installed:
                 Path(file).unlink(missing_ok=True)
@@ -100,12 +116,22 @@ def rollback(prefix):
     prefix = Path(prefix).expanduser().resolve()
     backup = prefix / '.workdesk-previous'
     old = json.loads((backup / 'workdesk-install.json').read_text())
+    current = read_receipt(prefix)
+    # Validate the entire restore before changing either set of executable names.
     for file in old['files']:
         dest = Path(file)
         if dest.parent != prefix / 'bin' or dest.name not in ALLOWED:
             raise ValueError('Invalid rollback receipt')
+        if not (backup / dest.name).is_file():
+            raise ValueError('Rollback executable missing')
+        if dest.exists() and file not in current['files']:
+            raise ValueError('Unowned executable exists; cannot roll back')
+    for file in old['files']:
+        dest = Path(file)
         replace(backup / dest.name, dest)
-    shutil.copy2(backup / 'workdesk-install.json', prefix / 'workdesk-install.json')
+    for file in set(current['files']) - set(old['files']):
+        Path(file).unlink(missing_ok=True)
+    write_receipt(prefix, old)
 
 
 def uninstall(prefix):

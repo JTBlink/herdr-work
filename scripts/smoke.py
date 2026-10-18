@@ -9,7 +9,7 @@ import tarfile
 import tempfile
 import zipfile
 from package import verify
-from install import install, rollback
+from install import install, rollback, read_receipt, write_receipt, uninstall
 
 
 def output(command, **kwargs):
@@ -66,6 +66,32 @@ def projects_smoke(binary, backend, profile, root):
             raise ValueError('Scheduler state did not persist')
 
 
+def rename_smoke(stage, prefix, manifest):
+    prefix = prefix.resolve()
+    # Exercise real executable replacement on each native runner. The legacy
+    # filename is seeded with this build; cross-version macOS is checked separately.
+    install(stage, prefix)
+    suffix = '.exe' if 'windows' in manifest['target'] else ''
+    binary, legacy = prefix / 'bin' / f'herdr-work{suffix}', prefix / 'bin' / f'workdesk{suffix}'
+    binary.rename(legacy)
+    previous = read_receipt(prefix)
+    previous['files'] = [str(legacy) if file == str(binary) else file for file in previous['files']]
+    write_receipt(prefix, previous)
+    install(stage, prefix)
+    if legacy.exists() or output([binary, '--version']).strip() != f"herdr-work {manifest['version']}":
+        raise ValueError('Legacy executable was not migrated')
+    rollback(prefix)
+    if binary.exists() or not legacy.is_file():
+        raise ValueError('Rollback did not restore legacy executable name')
+    output([legacy, '--version'])
+    install(stage, prefix)
+    if legacy.exists():
+        raise ValueError('Reinstallation left a stale legacy executable')
+    uninstall(prefix)
+    if binary.exists() or legacy.exists():
+        raise ValueError('Uninstall left an owned executable')
+
+
 def smoke(archive):
     manifest = verify(archive)
     with tempfile.TemporaryDirectory(prefix='workdesk-install-test-') as temp:
@@ -79,10 +105,11 @@ def smoke(archive):
             with tarfile.open(archive) as bundle:
                 bundle.extractall(extract, filter='data')
         stage = next(extract.iterdir())
+        rename_smoke(stage, root / 'upgrade', manifest)
         prefix = root / 'installed'
         install(stage, prefix)
-        binary = prefix / 'bin' / ('workdesk.exe' if 'windows' in manifest['target'] else 'workdesk')
-        if manifest['version'] not in output([binary, '--version']):
+        binary = prefix / 'bin' / ('herdr-work.exe' if 'windows' in manifest['target'] else 'herdr-work')
+        if output([binary, '--version']).strip() != f"herdr-work {manifest['version']}":
             raise ValueError('Installed binary version differs')
         profile = root / 'profile'
         result = json.loads(output([binary, '--home', profile, 'doctor']))

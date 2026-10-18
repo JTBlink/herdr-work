@@ -6,7 +6,7 @@ use workdesk_engine::Workdesk;
 
 #[derive(Parser)]
 #[command(
-    name = "workdesk",
+    name = "herdr-work",
     version,
     about = "Tasks, files, Git and review in one Herdr workdesk"
 )]
@@ -198,7 +198,7 @@ fn choose(desk: &Workdesk, args: ExecutionArgs) -> Result<Execution> {
 }
 fn main() {
     if let Err(error) = run() {
-        eprintln!("workdesk: {error:#}");
+        eprintln!("herdr-work: {error:#}");
         std::process::exit(1);
     }
 }

@@ -20,7 +20,7 @@ def package(target, output, tag=None):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     suffix = '.exe' if 'windows' in target else ''
-    binaries = {'workdesk': ROOT / f'target/{target}/release/workdesk{suffix}'}
+    binaries = {'herdr-work': ROOT / f'target/{target}/release/herdr-work{suffix}'}
     if info['projects_backend']:
         binaries['workdesk-projects'] = ROOT / f'upstream/herdr-projects/target/{target}/release/herdr-projects'
     for path in binaries.values():

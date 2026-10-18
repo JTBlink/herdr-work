@@ -1,8 +1,13 @@
 [package]
 name = "workdesk"
+autobins = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[[bin]]
+name = "herdr-work"
+path = "src/main.rs"
 
 [dependencies]
 workdesk-core.workspace = true

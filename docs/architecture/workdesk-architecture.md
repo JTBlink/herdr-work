@@ -56,7 +56,7 @@ flowchart TB
 
 ### 保留 Projects 后台体系
 
-工作台分发两个运行入口：`workdesk` 是新 TUI；另一个是固定版本适配后的 Projects 后端。后端保留原 CLI 的内部命令约定，包括 keeper、keeper-work、runner、Agent hook 和现有生成脚本所需入口。可执行文件最终名称在构建切片中验证，不先强制合为一个 executable。
+工作台分发两个运行入口：`herdr-work` 是主 CLI/TUI；另一个是固定版本适配后的 Projects 后端。后端保留原 CLI 的内部命令约定，包括 keeper、keeper-work、runner、Agent hook 和现有生成脚本所需入口。主二进制为 `herdr-work`（Windows 为 `herdr-work.exe`），后端为 `workdesk-projects`。
 
 这是为了保留源码中的真实约束：`bin()` 根据当前可执行文件定位自身，keeper 会再次启动自身的子命令，Agent 也会获得指向后端的启动路径。只把 flow 链进工作台后改掉程序入口，会破坏这组调用。[P3] [P7]
 
@@ -128,7 +128,7 @@ reference-plugins/                 完整参考副本，被 Git 忽略
 
 ```mermaid
 flowchart LR
-    CLI[workdesk] --> TUI[workdesk-tui]
+    CLI[herdr-work] --> TUI[workdesk-tui]
     CLI --> Engine[workdesk-engine]
     TUI --> Engine
     TUI --> Core[workdesk-core]
