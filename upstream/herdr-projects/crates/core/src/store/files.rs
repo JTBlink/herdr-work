@@ -37,9 +37,19 @@ pub fn reports_dir() -> PathBuf { env("HERDR_PROJECTS_REPORTS_DIR").map(PathBuf:
 /// The board's own folders as resolved here, for a process started somewhere that does not inherit this
 /// environment (an agent's herdr space).
 pub fn board_env() -> Vec<(String, String)> {
-    vec![("HERDR_PROJECTS_DATA_DIR".into(), absolute(&data_dir()).display().to_string()),
-         ("HERDR_PROJECTS_CONFIG_DIR".into(), absolute(&config_dir()).display().to_string())]
+    let mut pairs = vec![("HERDR_PROJECTS_DATA_DIR".into(), absolute(&data_dir()).display().to_string()),
+         ("HERDR_PROJECTS_CONFIG_DIR".into(), absolute(&config_dir()).display().to_string())];
+    if std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1") {
+        pairs.extend([
+            ("WORKDESK_MANAGED".into(), "1".into()),
+            ("HERDR_PLUGIN_ID".into(), "jtblink.workdesk".into()),
+            ("HERDR_PROJECTS_HOME".into(), absolute(&home_dir()).display().to_string()),
+            ("HERDR_PROJECTS_REPORTS_DIR".into(), absolute(&reports_dir()).display().to_string()),
+        ]);
+    }
+    pairs
 }
+
 pub fn tasks_dir() -> PathBuf { data_dir().join("tasks") }
 pub fn has_tasks() -> bool { tasks_dir().exists() }
 pub fn dir_of(id: &str) -> PathBuf { let mut p = tasks_dir(); for part in id.split('/') { p.push(part); } p }

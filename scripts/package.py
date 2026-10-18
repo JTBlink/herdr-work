@@ -39,6 +39,7 @@ def package(target, output, tag=None):
         (stage / 'scripts').mkdir()
         shutil.copy2(ROOT / 'scripts/hook.py', stage / 'scripts/hook.py')
         shutil.copy2(ROOT / 'LICENSE', stage / 'LICENSE')
+        shutil.copy2(ROOT / 'CHANGELOG.md', stage / 'CHANGELOG.md')
         (stage / 'licenses').mkdir()
             shutil.copy2(ROOT / f'upstream/{label}/LICENSE', stage / f'licenses/{label}.txt')
         info['files'] = {p.relative_to(stage).as_posix(): digest(p) for p in sorted(stage.rglob('*')) if p.is_file()}

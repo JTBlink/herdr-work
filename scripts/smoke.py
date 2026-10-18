@@ -30,6 +30,18 @@ def smoke(archive):
             if not result['projects_backend_installed']:raise ValueError('Installed backend missing')
             tasks=json.loads(subprocess.check_output([str(binary),'--home',str(root/'profile'),'tasks'],text=True))
             if tasks!=[]:raise ValueError('Fresh isolated profile is not empty')
+            # Herdr-created Agent spaces do not inherit the backend environment. Exercise
+            # the actual original launcher with a clean environment, not a mocked callback.
+            projects=(root/'profile'/'projects').resolve()
+            callback_env={k:v for k,v in os.environ.items() if not k.startswith(('HERDR_', 'WORKDESK_'))}
+            managed=dict(callback_env,WORKDESK_MANAGED='1',HERDR_PLUGIN_ID='jtblink.workdesk',
+                HERDR_PROJECTS_HOME=str(projects),HERDR_PROJECTS_DATA_DIR=str(projects/'data'),
+                HERDR_PROJECTS_CONFIG_DIR=str(projects/'settings'),HERDR_PROJECTS_REPORTS_DIR=str(projects/'reports'))
+            backend=prefix/'bin'/'workdesk-projects'
+            launcher=json.loads(subprocess.check_output([str(backend),'workdesk-launcher'],env=managed,text=True))['launcher']
+            observed=json.loads(subprocess.check_output([launcher,'workdesk-environment'],env=callback_env,text=True))
+            expected={'home':str(projects),'data':str(projects/'data'),'config':str(projects/'settings'),'reports':str(projects/'reports'),'managed':True,'plugin':'jtblink.workdesk'}
+            if observed!=expected:raise ValueError('Original Agent callback escaped Workdesk isolation')
             fixture=root/'repository';fixture.mkdir()
             subprocess.run(['git','init','-q',str(fixture)],check=True)
             env={k:v for k,v in os.environ.items() if not k.startswith('HERDR_')}

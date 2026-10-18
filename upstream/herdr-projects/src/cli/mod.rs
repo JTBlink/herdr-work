@@ -54,6 +54,14 @@ pub fn main(argv: Vec<String>) -> i32 {
         println!("{}", serde_json::json!({"paused": crate::keeper::workdesk_paused(), "keeper_alive": crate::keeper::keeper_alive()}));
         return 0;
     }
+    if argv.first().is_some_and(|s| s == "workdesk-environment") {
+        println!("{}", serde_json::json!({"home":crate::store::files::home_dir(),"data":crate::store::files::data_dir(),"config":crate::store::files::config_dir(),"reports":crate::store::files::reports_dir(),"managed":std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1"),"plugin":std::env::var("HERDR_PLUGIN_ID").unwrap_or_default()}));
+        return 0;
+    }
+    if argv.first().is_some_and(|s| s == "workdesk-launcher") && std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1") {
+        println!("{}", serde_json::json!({"launcher":crate::flow::send::shim()}));
+        return 0;
+    }
     let a = parse(&argv);
     let cmd = a.pos.first().cloned().unwrap_or_else(|| if a.flags.b("skill") { "--skill".into() } else if a.flags.b("help") { "help".into() } else { "board".into() });
     match run(&cmd, &a) {

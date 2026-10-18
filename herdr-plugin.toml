@@ -1,6 +1,6 @@
 id = "jtblink.workdesk"
 name = "Workdesk"
-version = "0.1.0"
+version = "0.1.1"
 min_herdr_version = "0.9.3"
 description = "Tasks, agents, files, Git and code review in one Workdesk terminal."
 platforms = ["macos", "linux"]
