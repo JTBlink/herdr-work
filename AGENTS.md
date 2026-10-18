@@ -1,40 +1,35 @@
 # 仓库协作指南
 
-## 项目结构与模块组织
+## 结构与边界
 
-Herdr Work 是面向 AI 编程的 Herdr Agent 工作台，当前处于技术方案与源码准备阶段。尚无工作台自身的应用源码、测试或插件清单；三个上游的本地参考源码已单独保存。
+Workdesk 是 Rust 终端工作台。自有 workspace 仅包含 `crates/workdesk-core`（契约）、`crates/workdesk-engine`（编排与持久化）、`crates/workdesk-tui`（唯一终端与输入）、`crates/workdesk`（CLI）。
 
-- `README.md`：项目目标、能力范围、平台范围与当前进度。
-- `docs/research/workbench-refactoring-plan.md`：待评审的工作台技术方案。
-- `docs/research/plugin-merge-feasibility.md`：固定版本源码证据与插件整合风险。
-- `docs/marketplace.md`：后续发布与收录条件。
-- `docs/reference-plugins.md`：三个插件的固定版本、目录与重新获取方式。
-- `reference-plugins/`：本地参考源码，不纳入 Git；长期保留的重构代码需放入正常跟踪的目录。
-- `.gitignore`：排除 Rust 构建产物、本地环境文件和系统元数据。
+上游原始布局、crate 名、锁文件和 LICENSE 保留在 `upstream/`。Projects 单独构建为后端，Sidebar 与 Reviewr 使用 path dependency。必须实际调用来源业务逻辑，不能用重写同名功能替代复用。必要补丁记录到 `docs/upstream/source-map.md`。参考下载副本 `reference-plugins/` 不纳入 Git。
 
-主语言确定为 Rust。先评审技术方案，再决定如何重构、复用和合并 Projects、Sidebar、Reviewr；界面、crate 划分与进程组织仍待确定。初期验证范围为 macOS 和 Linux。
+GitHub 仓库仍为 `JTBlink/herdr-work`，产品、命令、自有类型与 crate 统一为 Workdesk/workdesk；上游名称保持原样。
 
-## 构建、测试与开发命令
+## 构建与检查
 
-当前没有配置构建、运行、测试或静态检查命令，不要将上游项目的命令写成本仓库已支持的命令。
+工具链为 Rust 1.99.0，Python 3.12+。从仓库根执行：
 
-文档检查可使用：
+- `cargo fmt --all --check`
+- `cargo test --workspace --locked`
+- `python3 -m unittest discover -s scripts/tests -v`
+- `python3 scripts/build.py --target aarch64-apple-darwin`（在对应平台替换 target）
+- `python3 scripts/package.py create --target aarch64-apple-darwin`
+- `python3 scripts/smoke.py --archives dist`
 
-- `git status --short`：查看待提交改动。
-- `git diff --check`：检查已跟踪改动的空白错误；新文件暂存后使用 `git diff --cached --check`。
-- `git diff -- README.md docs/`：审阅项目说明与方案文档的修改。
-
-开始实现后，随工具配置一并补充经过验证的环境准备、构建、运行和测试命令。
+Linux/Windows 编译、归档和隔离安装测试走 GitHub Actions。Windows 不包含 Unix Projects 后端，文档及产物清单必须明确能力限制。原生 UI/Agent 手动场景为建议，不冒充已经验证。
 
 ## 编写风格与命名约定
 
 文档使用简洁中文，保持上下文风格一致。README 面向使用者，保留功能描述、项目声明与参考来源；技术方案、源码准备和重构细节写入独立文档，不在 README 展开。使用明确的 Markdown 标题、命令代码块和仓库内相对链接。文档文件名使用小写字母与连字符，例如 `plugin-merge-feasibility.md`。
 
-保留调研文档现有的元数据。引用上游源码时固定 commit 或 tag，明确区分已核实行为、技术提案与已批准决策。当前尚未配置代码格式化、静态检查工具或语言缩进规则。
+保留调研文档现有的元数据。引用上游源码时固定 commit 或 tag，明确区分已核实行为、技术提案与已批准决策。Rust 使用 rustfmt；按 core、engine、tui、CLI 边界放置逻辑。
 
 ## 验证要求
 
-工作台自身尚无测试框架或覆盖率门槛。参考源码保留上游测试及各自指南，不代表工作台已支持这些命令。文档修改需核对链接、路径、事实依据及其与 README 的一致性。
+工作台使用 Cargo 集成测试与 Python unittest 验证业务和归档边界。来源测试保留，不把未执行的测试记为通过。文档修改需核对链接、路径、事实依据及其与 README 的一致性。
 
 后续重构需提供可复现的检查，覆盖工作上下文、任务与 Agent 关联、异步结果失效、审查发送目标、状态隔离、生命周期、升级和并发事件。分别验证 macOS 与 Linux 后再声明支持。
 
@@ -47,3 +42,17 @@ Herdr Work 是面向 AI 编程的 Herdr Agent 工作台，当前处于技术方�
 ## 脱敏与配置管理
 
 对外分享的示例、日志、截图和 issue 描述必须脱敏。使用明确占位符替换凭据、个人信息、内网地址和本机专有路径。`.env.example` 不得包含真实密钥。引入上游代码时保留原版权和许可证声明。
+
+## Agent skills
+
+### Issue tracker
+
+规格和任务使用 GitHub Issues：JTBlink/herdr-work。详见 docs/agents/issue-tracker.md。
+
+### Triage labels
+
+保留默认五个 triage 标签。详见 docs/agents/triage-labels.md。
+
+### Domain docs
+
+采用单上下文：根 GLOSSARY.md 与按需创建的 docs/adr/。详见 docs/agents/domain.md。

@@ -3,6 +3,8 @@
 三个插件的完整源码保存在根目录 `reference-plugins/`，用于本地阅读、技术验证和重构时的行为对照。
 该目录已加入 `.gitignore`，完整副本不提交到本仓库；克隆本仓库不会自动获得它们。
 
+2026-10-18 已在当前工作目录重新下载下列固定 commit 的归档，核对归档根目录、package 版本及 LICENSE，并阅读关键实现；未构建或启动插件。后续实施路径见[源码映射](upstream/source-map.md)。
+
 ```text
 reference-plugins/
 ├── herdr-projects/
@@ -41,8 +43,8 @@ tar -xzf reference-plugins/reviewr.tar.gz --strip-components=1 -C reference-plug
 
 ## 后续重构约定
 
-- 工作台自身的 Rust 模块计划放在根目录 `crates/`；具体模块划分按[技术方案](research/workbench-refactoring-plan.md)评审结果推进。
+- 工作台根 workspace 的四个成员为 `crates/workdesk-core/`、`crates/workdesk-engine/`、`crates/workdesk-tui/`、`crates/workdesk/`；来源源码放入 `upstream/` 并保留原仓库结构、workspace 和锁文件，通过统一构建入口接入；详见[复用优先架构](architecture/workdesk-architecture.md)。这些源码目录尚未创建。
 - 参考副本保留原貌。需长期保留的提取、适配和重构代码进入本仓库正常跟踪的目录，不能只留在被忽略的副本中。
 - 提取代码时记录来源 commit，保留相关版权与 MIT 许可文本，并移植对应行为测试。
 - 参考源码中的插件清单与启动器用于分析；下载不会安装、注册或启用插件，也不代表工作台已完成合并。
-- 本次已核对归档与源码内容一致性，未运行三个上游的构建或测试。
+- 归档来自固定 commit 的 GitHub codeload 地址，下载时核对根目录与清单版本；没有嵌套 Git 历史，不把本地目录当作可独立证明 commit 的 checkout。未运行三个上游的构建或测试。

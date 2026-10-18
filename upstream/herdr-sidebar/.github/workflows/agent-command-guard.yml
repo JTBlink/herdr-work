@@ -1,0 +1,27 @@
+name: Reject agent commands
+
+on:
+  pull_request_target:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  reject:
+    name: maintainer-only command paths
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject contributed agent commands
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename')
+          blocked=$(printf '%s\n' "$files" |
+            grep -Ei '^\.claude/commands($|/)|^\.codex/prompts($|/)' || true)
+          if [ -n "$blocked" ]; then
+            echo "Maintainer-only agent commands cannot be contributed:" >&2
+            echo "$blocked" >&2
+            exit 1
+          fi

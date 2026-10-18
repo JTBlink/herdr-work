@@ -1,9 +1,34 @@
-# Discovery metadata for the Workdesk plugin under development.
-# Add build/runtime entries only when their commands are implemented and verified.
 id = "jtblink.workdesk"
 name = "Workdesk"
 version = "0.1.0"
 min_herdr_version = "0.9.3"
-description = "Workdesk (in development): an AI coding workbench for Herdr, connecting tasks, agents, files, Git and code review."
-# Initial implementation targets; runtime support still requires native validation.
+description = "Tasks, agents, files, Git and code review in one Workdesk terminal."
 platforms = ["macos", "linux"]
+
+[[build]]
+command = ["python3", "scripts/plugin.py"]
+
+[[panes]]
+id = "pane"
+title = "Workdesk"
+placement = "tab"
+command = ["bin/workdesk", "ui", "."]
+
+[[startup]]
+command = ["python3", "scripts/hook.py"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["python3", "scripts/hook.py"]
+
+[[events]]
+on = "pane.agent_detected"
+command = ["python3", "scripts/hook.py"]
+
+[[events]]
+on = "pane.closed"
+command = ["python3", "scripts/hook.py"]
+
+[[events]]
+on = "worktree.removed"
+command = ["python3", "scripts/hook.py"]
