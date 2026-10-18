@@ -16,7 +16,7 @@
 | #7 | engine/code.rs、tui/state.rs | 原 Sidebar Tree、Git::discover_all/status，显式 repository root；文件预览、SCM 与 Diff 联动 |
 | #8 | engine/code.rs | 原 Sidebar stage/unstage，写锁和工作区实例、index、文件内容预期校验；真实 Git 测试 |
 | #9 | engine/code.rs | 原 Sidebar commit，提交前 HEAD/index 再校验，持久化操作结果与显式核对 |
-| #10 | engine/tasks.rs、Projects CLI/keeper 补丁 | 原 add/delegate/stop/reopen；独立 keeper；UI 退出、暂停自动调度和停止 Agent 为不同操作 |
+| #10 | engine/tasks.rs、Projects CLI/keeper 补丁 | 原 add/delegate/stop/reopen；实际 launcher 在全新子进程中保持 managed/home/data/config/reports/plugin 隔离；独立 keeper；UI 退出、暂停自动调度和停止 Agent 为不同操作 |
 | #11 | engine/lib.rs、review.rs、tasks.rs | 恢复执行选择/草稿，Sending 转 Unknown，不自动重试；reconcile 保存显式核对证据 |
 | #12 | engine/migration.rs | 只读预览、源/复制 SHA、备份、持久化导入 intent、中断恢复及拒绝覆盖新数据的回滚测试 |
 | #13 | scripts/package.py、install.py、smoke.py | macOS 真实归档、许可、manifest、SHA、安装运行、升级回滚与卸载后保留数据 |
