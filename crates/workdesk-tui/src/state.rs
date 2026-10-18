@@ -108,6 +108,28 @@ impl App {
             }
             Ok(_) if epoch != self.context.epoch => {}
             Ok(Data::Code(code)) if code.generation == self.generation => {
+                let old = self.code.as_ref();
+                let position = match self.tab {
+                    Tab::Files => old
+                        .and_then(|c| c.files.get(self.selection))
+                        .and_then(|row| code.files.iter().position(|r| r.path == row.path)),
+                    Tab::Scm => old
+                        .and_then(|c| c.changes.get(self.selection))
+                        .and_then(|row| {
+                            code.changes.iter().position(|r| {
+                                r.root == row.root && r.path == row.path && r.staged == row.staged
+                            })
+                        }),
+                    _ => Some(self.selection),
+                };
+                let count = match self.tab {
+                    Tab::Files => code.files.len(),
+                    Tab::Scm => code.changes.len(),
+                    _ => usize::MAX,
+                };
+                self.selection = position
+                    .unwrap_or(self.selection)
+                    .min(count.saturating_sub(1));
                 self.code = Some(code);
             }
             Ok(Data::Code(_)) => {}
@@ -154,6 +176,9 @@ impl App {
         self.desk.save_context(&self.context)?;
         self.diff = None;
         self.review = None;
+        self.code = None;
+        self.text.clear();
+        self.expanded.clear();
         self.selection = 0;
         self.refresh()
     }
