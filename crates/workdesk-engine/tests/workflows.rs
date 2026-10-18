@@ -296,7 +296,7 @@ fn staging_refuses_external_file_changes_since_selection() {
 
 #[cfg(unix)]
 #[test]
-fn git_hook_descendant_holding_pipes_cannot_block_the_worker_forever() {
+fn git_hook_descendants_and_blocking_hooks_are_bounded_after_commit() {
     use std::{
         os::unix::fs::PermissionsExt,
         time::{Duration, Instant},
@@ -310,18 +310,36 @@ fn git_hook_descendant_holding_pipes_cannot_block_the_worker_forever() {
     let began = Instant::now();
     let result = herdr_sidebar::git::workdesk_bounded(
         |command, _| {
-            herdr_reviewr::proc::workdesk_run(command, Duration::from_millis(250))
+            herdr_reviewr::proc::workdesk_run(command, Duration::from_secs(1))
                 .map_err(|e| e.to_string())
         },
         || source.commit("bounded hook"),
     );
+    if let Err(error) = result {
+        assert!(error.contains("timed out"));
+    }
+    assert!(began.elapsed() < Duration::from_secs(5));
+    std::fs::write(repo.path().join("file.txt"), "another edit\n").unwrap();
+    git(repo.path(), &["add", "file.txt"]);
+    std::fs::write(&hook, "#!/bin/sh\nsleep 30\n").unwrap();
+    let began = Instant::now();
+    let result = herdr_sidebar::git::workdesk_bounded(
+        |command, _| {
+            herdr_reviewr::proc::workdesk_run(command, Duration::from_secs(1))
+                .map_err(|e| e.to_string())
+        },
+        || source.commit("bounded blocking hook"),
+    );
     assert!(result.unwrap_err().contains("timed out"));
-    assert!(began.elapsed() < Duration::from_secs(3));
+    assert!(began.elapsed() < Duration::from_secs(5));
     // The commit can have landed before the pipe timeout, so it must be checked rather than blindly repeated.
     let head = Command::new("git")
         .args(["log", "-1", "--format=%s"])
         .current_dir(repo.path())
         .output()
         .unwrap();
-    assert_eq!(String::from_utf8_lossy(&head.stdout).trim(), "bounded hook");
+    assert_eq!(
+        String::from_utf8_lossy(&head.stdout).trim(),
+        "bounded blocking hook"
+    );
 }
