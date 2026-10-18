@@ -1,6 +1,21 @@
-# Rust build output
-/target/
+# Rust / Cargo build output
 **/target/
+
+# rustfmt backup files
+*.rs.bk
+
+# Rust coverage and profiling output
+*.profraw
+*.profdata
+/coverage/
+/tarpaulin-report.html
+/cobertura.xml
+
+# Local Cargo credentials
+**/.cargo/credentials
+**/.cargo/credentials.toml
+
+# Keep Cargo.lock and shared Rust toolchain/lint configuration in Git.
 
 # Local environment and credentials
 .env
