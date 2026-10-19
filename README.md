@@ -27,10 +27,11 @@ Windows 使用 `python install.py --prefix "$env:LOCALAPPDATA/Workdesk"`，运�
 | Linux x86_64 | Workdesk 与固定 Projects 后端 |
 | Windows x86_64 | 原生文件、Git、Diff 与评论界面；Projects 后端仍依赖 Unix，不提供原生任务执行 |
 
-Agent 定位和发送需要 Herdr 0.9.3+ 提供的宿主连接。独立启动时仍可浏览 Git 和保存评论。按 `1`–`4` 切换任务、文件、SCM、审查，`j/k` 移动，`Enter` 打开，`r` 刷新，`q` 关闭界面；具体操作见视图标题。关闭界面不会停止已委派的 Agent。
+Agent 定位和发送需要 Herdr 0.9.3+ 提供的宿主连接。独立启动时仍可浏览 Git 和保存评论。按 `1`–`4` 切换任务、文件、SCM、审查，`j/k` 移动，`Enter` 打开，`r` 刷新，`q` 关闭界面；空任务页可按 `n` 创建任务，也可先按 `2` 浏览文件或按 `3` 查看 Git；旧 Projects 数据需显式导入。具体操作见视图标题。关闭界面不会停止已委派的 Agent。
 
 ```sh
-herdr-work --help
+herdr-work --help                 # 中文命令帮助
+herdr-work review open --help     # 子命令的详细参数
 herdr-work scheduler status
 herdr-work scheduler pause   # 暂停工作台后端自动调度，不停止 Agent
 herdr-work scheduler resume

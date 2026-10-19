@@ -41,3 +41,9 @@ python3 scripts/smoke.py --archives dist
 - 私有宿主 fixture 验证真实 CLI 与原 socket/readiness 链路，不等同于真人 Agent 已阅读或执行反馈。宿主缺少原子 send-if-ready，因此最终检查与宿主写入仍存在宿主侧竞态。
 - 本机无 Apple 公证凭据，安装时 ad hoc 签名。未声明 Developer ID 签名或 SmartScreen 信任。
 - 实际 Herdr 会话中的 pane 移动、Agents 长时间运行和性能演练仍作为建议验证场景。
+
+## UI 启动与中文帮助回归
+
+`cargo test --workspace --locked` 包含中文主帮助、嵌套帮助、help/-h 入口，以及真实异步代码加载后的界面渲染检查。空任务须有创建/导入引导，任务列表只能出现一次；任务后端失败须显示错误且文件可用；失败重试和过期错误不得覆盖新结果。
+
+macOS/Linux 的归档安装 smoke 调用 `scripts/ui_smoke.py`，在私有 PTY 与临时 Git 仓库中等待真实加载完成，检查文件预览和 Git 差异，通过键盘实际创建任务并确认列表更新，再缩窄至 80 列、退出并检查终端标志恢复。Windows 通过 Rust 状态/渲染测试；尚未声明 Windows 原生 PTY 交互验收。

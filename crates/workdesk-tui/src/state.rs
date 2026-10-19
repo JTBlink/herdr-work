@@ -1,4 +1,5 @@
 //! One terminal owner, with background jobs and upstream-backed views.
+use crate::loading::LoadState;
 use anyhow::{Context as _, Result};
 use crossterm::event::Event;
 use std::path::PathBuf;
@@ -6,8 +7,8 @@ use workdesk_core::{Context, Execution, ExecutionId, Review, Task, TaskId};
 use workdesk_engine::{CodeSnapshot, DiffView, JobQueue, Workdesk};
 
 pub(crate) enum Data {
-    Tasks(Vec<Task>),
-    Code(CodeSnapshot),
+    Tasks(Result<Vec<Task>>),
+    Code(u64, Result<CodeSnapshot>),
     Diff(DiffView, Review),
     CommitReady(workdesk_engine::CommitPlan),
     Delivery(Review, String),
@@ -49,6 +50,8 @@ pub(crate) struct App {
     pub(crate) review: Option<Review>,
     pub(crate) text: String,
     pub(crate) status: String,
+    pub(crate) tasks_state: LoadState,
+    pub(crate) code_state: LoadState,
     pub(crate) expanded: Vec<PathBuf>,
     pub(crate) generation: u64,
     pub(crate) prompt: Option<Prompt>,
@@ -64,15 +67,24 @@ impl App {
         let desk = self.desk.clone();
         self.jobs.submit(self.context.epoch, move || job(desk))
     }
-    pub(crate) fn load_tasks(&self) -> Result<()> {
-        self.job(|d| Ok(Data::Tasks(d.tasks()?)))
+    pub(crate) fn load_tasks(&mut self) -> Result<()> {
+        self.job(|d| Ok(Data::Tasks(d.tasks())))?;
+        self.tasks_state = LoadState::Loading;
+        Ok(())
     }
     pub(crate) fn refresh(&mut self) -> Result<()> {
         self.generation += 1;
         let generation = self.generation;
         let root = self.root.clone();
         let expanded = self.expanded.clone();
-        self.job(move |d| Ok(Data::Code(d.code_snapshot(&root, &expanded, generation)?)))
+        self.job(move |d| {
+            Ok(Data::Code(
+                generation,
+                d.code_snapshot(&root, &expanded, generation),
+            ))
+        })?;
+        self.code_state = LoadState::Loading;
+        Ok(())
     }
     pub(crate) fn execution(&self) -> Execution {
         let root = self.diff.as_ref().map(|d| &d.root).unwrap_or(&self.root);
@@ -99,7 +111,11 @@ impl App {
                 let _ = self.refresh();
                 let _ = self.load_tasks();
             }
-            Ok(Data::Tasks(tasks)) => {
+            Ok(Data::Tasks(Err(error))) => {
+                self.tasks_state = LoadState::Failed(format!("{error:#}"));
+            }
+            Ok(Data::Tasks(Ok(tasks))) => {
+                self.tasks_state = LoadState::Ready;
                 let selected = self.tasks.get(self.task).map(|t| t.id.clone());
                 self.task = selected
                     .and_then(|id| tasks.iter().position(|t| t.id == id))
@@ -107,7 +123,12 @@ impl App {
                 self.tasks = tasks;
             }
             Ok(_) if epoch != self.context.epoch => {}
-            Ok(Data::Code(code)) if code.generation == self.generation => {
+            Ok(Data::Code(generation, _)) if generation != self.generation => {}
+            Ok(Data::Code(_, Err(error))) => {
+                self.code_state = LoadState::Failed(format!("{error:#}"));
+            }
+            Ok(Data::Code(_, Ok(code))) => {
+                self.code_state = LoadState::Ready;
                 let old = self.code.as_ref();
                 let position = match self.tab {
                     Tab::Files => old
@@ -132,7 +153,6 @@ impl App {
                     .min(count.saturating_sub(1));
                 self.code = Some(code);
             }
-            Ok(Data::Code(_)) => {}
             Ok(Data::CommitReady(plan)) => {
                 self.prompt = Some(Prompt::Commit(plan));
                 self.input.clear();
@@ -204,3 +224,6 @@ impl App {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

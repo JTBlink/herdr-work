@@ -1,161 +1,10 @@
+mod cli;
+mod help;
 use anyhow::{Context, Result, ensure};
-use clap::{Args, Parser, Subcommand};
-use std::path::PathBuf;
+use cli::*;
 use workdesk_core::{BatchId, Execution, ExecutionId, ReviewId, Side, TaskId};
 use workdesk_engine::Workdesk;
 
-#[derive(Parser)]
-#[command(
-    name = "herdr-work",
-    version,
-    about = "Tasks, files, Git and review in one Herdr workdesk"
-)]
-struct Cli {
-    #[arg(long, global = true)]
-    home: Option<PathBuf>,
-    #[arg(long, global = true)]
-    projects_backend: Option<PathBuf>,
-    #[command(subcommand)]
-    command: Option<Command>,
-}
-#[derive(Subcommand)]
-enum Command {
-    Ui {
-        #[arg(default_value = ".")]
-        root: PathBuf,
-    },
-    Doctor,
-    Tasks,
-    Task {
-        #[command(subcommand)]
-        command: TaskCommand,
-    },
-    Files {
-        #[arg(default_value = ".")]
-        root: PathBuf,
-    },
-    Diff {
-        #[command(flatten)]
-        file: FileArgs,
-        #[arg(long, default_value = "working")]
-        scope: String,
-        #[arg(long)]
-        base: Option<String>,
-    },
-    Stage {
-        #[command(flatten)]
-        file: FileArgs,
-    },
-    Unstage {
-        #[command(flatten)]
-        file: FileArgs,
-    },
-    Commit {
-        #[arg(long, default_value = ".")]
-        worktree: PathBuf,
-        #[arg(short, long)]
-        message: String,
-    },
-    Review {
-        #[command(subcommand)]
-        command: ReviewCommand,
-    },
-    Focus {
-        #[command(flatten)]
-        execution: ExecutionArgs,
-    },
-    Reconcile {
-        #[arg(long, requires = "evidence")]
-        operation: Option<String>,
-        #[arg(long, requires = "operation")]
-        evidence: Option<String>,
-    },
-    Scheduler {
-        #[arg(value_parser = ["pause", "resume", "status"])]
-        action: String,
-    },
-    Import {
-        source: PathBuf,
-        #[arg(long)]
-        apply: bool,
-    },
-    RollbackImport,
-}
-#[derive(Args)]
-struct FileArgs {
-    #[arg(long, default_value = ".")]
-    worktree: PathBuf,
-    #[arg(long)]
-    file: String,
-}
-#[derive(Args)]
-struct ExecutionArgs {
-    #[arg(long)]
-    task: Option<String>,
-    #[arg(long)]
-    execution: Option<String>,
-    #[arg(long)]
-    worktree: Option<PathBuf>,
-    #[arg(long)]
-    pane: Option<String>,
-}
-#[derive(Subcommand)]
-enum TaskCommand {
-    Create {
-        #[arg(long, default_value = ".")]
-        root: PathBuf,
-        title: String,
-    },
-    Delegate {
-        id: String,
-    },
-    Stop {
-        id: String,
-    },
-    Reopen {
-        id: String,
-    },
-}
-#[derive(Subcommand)]
-enum ReviewCommand {
-    Open {
-        #[command(flatten)]
-        execution: ExecutionArgs,
-        #[arg(long, default_value = "working")]
-        scope: String,
-        #[arg(long)]
-        base: Option<String>,
-    },
-    Show {
-        id: String,
-    },
-    Add {
-        id: String,
-        #[arg(long)]
-        file: String,
-        #[arg(long)]
-        line: u32,
-        #[arg(long)]
-        end: Option<u32>,
-        #[arg(long)]
-        old: bool,
-        text: String,
-    },
-    Edit {
-        id: String,
-        comment: u64,
-        text: String,
-    },
-    Send {
-        id: String,
-    },
-    Resolve {
-        id: String,
-        batch: String,
-        #[arg(long)]
-        delivered: bool,
-    },
-}
 fn print(value: &impl serde::Serialize) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
@@ -203,7 +52,7 @@ fn main() {
     }
 }
 fn run() -> Result<()> {
-    let cli = Cli::parse();
+    let cli = Cli::parse_localized();
     let desk = Workdesk::open(
         &cli.home.unwrap_or_else(Workdesk::default_root),
         cli.projects_backend,
