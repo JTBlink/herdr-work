@@ -3,8 +3,10 @@ use crate::{loading::LoadState, state::*};
 use anyhow::{Context, Result};
 use ratatui::{
     Frame,
-    layout::Rect,
-    widgets::{List, ListItem, Paragraph},
+    layout::{Alignment, Position, Rect},
+    style::Style,
+    text::Span,
+    widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
 use std::time::{Duration, Instant};
@@ -146,18 +148,112 @@ impl App {
             .clone();
         self.open_preview(row.path, Some(row.line))
     }
-    pub(crate) fn search_regions(&self, area: Rect) -> (Rect, Rect) {
+    pub(crate) fn search_filters_visible(&self) -> bool {
+        self.search_details
+            || matches!(
+                self.prompt,
+                Some(Prompt::SearchInclude | Prompt::SearchExclude)
+            )
+    }
+    pub(crate) fn search_layout(&self, area: Rect) -> SearchLayout {
         let inner = self.sidebar_block(String::new()).inner(area);
-        let height = inner.height.min(if self.search_quick { 1 } else { 4 });
-        (
-            Rect::new(inner.x, inner.y, inner.width, height),
+        let height = if self.search_quick {
+            1
+        } else if self.search_filters_visible() {
+            8
+        } else {
+            4
+        };
+        let header = Rect::new(inner.x, inner.y, inner.width, inner.height.min(height));
+        let row = |y: u16, height: u16| {
             Rect::new(
+                inner.x + inner.width.min(1),
+                inner.y + y.min(inner.height),
+                inner.width.saturating_sub(2),
+                inner.height.saturating_sub(y).min(height),
+            )
+        };
+        let query_box = row(0, if self.search_quick { 1 } else { 3 });
+        let mut query = if self.search_quick {
+            query_box
+        } else {
+            Block::default().borders(Borders::ALL).inner(query_box)
+        };
+        let mut options = [Rect::default(); 3];
+        if !self.search_quick && query.width >= 16 {
+            let start = query.right() - 12;
+            for (i, rect) in options.iter_mut().enumerate() {
+                *rect = Rect::new(start + i as u16 * 4, query.y, 4, query.height);
+            }
+            query.width -= 12;
+        }
+        SearchLayout {
+            header,
+            query_box,
+            query,
+            options,
+            details: if self.search_quick {
+                Rect::default()
+            } else {
+                row(3, 1)
+            },
+            include_label: row(4, 1),
+            include: row(5, 1),
+            exclude_label: row(6, 1),
+            exclude: row(7, 1),
+            body: Rect::new(
                 inner.x,
-                inner.y + height,
+                inner.y + header.height,
                 inner.width,
-                inner.height.saturating_sub(height),
+                inner.height.saturating_sub(header.height),
             ),
-        )
+        }
+    }
+    pub(crate) fn search_regions(&self, area: Rect) -> (Rect, Rect) {
+        let layout = self.search_layout(area);
+        (layout.header, layout.body)
+    }
+    fn draw_search_field(
+        &self,
+        f: &mut Frame,
+        area: Rect,
+        value: &str,
+        placeholder: &str,
+        active: bool,
+    ) {
+        if area.is_empty() {
+            return;
+        }
+        let colors = herdr_work_code::ui::palette();
+        let style = Style::default()
+            .bg(colors.keycap_bg)
+            .fg(if value.is_empty() {
+                colors.ignored
+            } else {
+                colors.keycap_fg
+            });
+        // Scroll from the end using terminal column widths, including CJK input.
+        let mut visible = String::new();
+        for c in value.chars().rev() {
+            let candidate = format!("{c}{visible}");
+            if Span::raw(candidate.as_str()).width() >= usize::from(area.width) {
+                break;
+            }
+            visible = candidate;
+        }
+        let cursor = Span::raw(visible.as_str()).width() as u16;
+        f.render_widget(
+            Paragraph::new(if value.is_empty() {
+                placeholder.to_string()
+            } else {
+                visible
+            })
+            .style(style),
+            area,
+        );
+        if active && self.focus == Focus::Sidebar {
+            f.set_cursor_position(Position::new(area.x + cursor, area.y));
+        }
     }
     pub(crate) fn draw_search_sidebar(&self, f: &mut Frame, area: Rect) {
         let block = self.sidebar_block(
@@ -168,32 +264,92 @@ impl App {
             }
             .into(),
         );
-        let (header_area, body) = self.search_regions(area);
+        let layout = self.search_layout(area);
+        let body = layout.body;
         f.render_widget(block, area);
-        let options = self.search_options;
-        let header = format!(
-            "{}\n[Aa:{}] [W:{}] [.*:{}]\n包含: {}\n排除: {}",
-            format_args!(
-                "{}{}",
-                if matches!(self.prompt, Some(Prompt::Search(_))) {
-                    "› "
-                } else {
-                    ""
-                },
-                self.search_query
-            ),
-            if options.match_case { "●" } else { "○" },
-            if options.whole_word { "●" } else { "○" },
-            if options.regex { "●" } else { "○" },
-            self.search_include,
-            self.search_exclude
+        let colors = herdr_work_code::ui::palette();
+        let active = matches!(self.prompt, Some(Prompt::Search(_)));
+        if !self.search_quick {
+            f.render_widget(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(if active {
+                        colors.accent_focus
+                    } else {
+                        colors.ignored
+                    })),
+                layout.query_box,
+            );
+        }
+        self.draw_search_field(
+            f,
+            layout.query,
+            &self.search_query,
+            if self.search_quick {
+                "搜索文件"
+            } else {
+                "搜索"
+            },
+            active,
         );
-        let header = if self.search_quick {
-            header.lines().next().unwrap_or_default().to_string()
-        } else {
-            header
-        };
-        f.render_widget(Paragraph::new(header), header_area);
+        if !self.search_quick {
+            for ((rect, label), enabled) in layout
+                .options
+                .into_iter()
+                .zip([" Aa ", " ab ", " .* "])
+                .zip([
+                    self.search_options.match_case,
+                    self.search_options.whole_word,
+                    self.search_options.regex,
+                ])
+            {
+                f.render_widget(
+                    Paragraph::new(label).style(if enabled {
+                        herdr_work_code::ui::selection_style(true)
+                    } else {
+                        Style::default().fg(colors.keycap_fg).bg(colors.keycap_bg)
+                    }),
+                    rect,
+                );
+            }
+            let filtered = !self.search_include.is_empty() || !self.search_exclude.is_empty();
+            f.render_widget(
+                Paragraph::new(if self.search_filters_visible() {
+                    "▾ 搜索范围 ⋯"
+                } else if filtered {
+                    "▸ 搜索范围 ● ⋯"
+                } else {
+                    "⋯"
+                })
+                .alignment(Alignment::Right)
+                .style(Style::default().fg(colors.ignored)),
+                layout.details,
+            );
+            if self.search_filters_visible() {
+                for (label_area, field, label, value, active) in [
+                    (
+                        layout.include_label,
+                        layout.include,
+                        "包含文件",
+                        self.search_include.as_str(),
+                        matches!(self.prompt, Some(Prompt::SearchInclude)),
+                    ),
+                    (
+                        layout.exclude_label,
+                        layout.exclude,
+                        "排除文件",
+                        self.search_exclude.as_str(),
+                        matches!(self.prompt, Some(Prompt::SearchExclude)),
+                    ),
+                ] {
+                    f.render_widget(
+                        Paragraph::new(label).style(Style::default().fg(colors.ignored)),
+                        label_area,
+                    );
+                    self.draw_search_field(f, field, value, "例如 *.rs, src/**", active);
+                }
+            }
+        }
         let hint = match &self.search_state {
             LoadState::Loading => Some("正在搜索…".to_string()),
             LoadState::Failed(e) => Some(format!("搜索失败：{e}")),
@@ -222,4 +378,18 @@ impl App {
             .collect::<Vec<_>>();
         f.render_widget(List::new(rows), body);
     }
+}
+
+/// Drawing and pointer handling consume these same clipped rectangles.
+pub(crate) struct SearchLayout {
+    pub header: Rect,
+    pub query_box: Rect,
+    pub query: Rect,
+    pub options: [Rect; 3],
+    pub details: Rect,
+    pub include_label: Rect,
+    pub include: Rect,
+    pub exclude_label: Rect,
+    pub exclude: Rect,
+    pub body: Rect,
 }

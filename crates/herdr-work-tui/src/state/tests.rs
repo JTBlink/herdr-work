@@ -1149,27 +1149,26 @@ fn search_mouse_filter_and_include_field_remain_live() {
     app.apply(epoch, data);
     let area = ratatui::layout::Rect::new(0, 0, 160, 32);
     let sidebar = app.panes(area).sidebar;
-    app.mouse(
-        MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: sidebar.x + 2,
-            row: sidebar.y + 2,
-            modifiers: KeyModifiers::NONE,
-        },
-        area,
-    )
-    .unwrap();
+    let click = |app: &mut App, rect: ratatui::layout::Rect| {
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: rect.x,
+                row: rect.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+    };
+    let layout = app.search_layout(sidebar);
+    click(&mut app, layout.options[0]);
     assert!(app.search_options.match_case);
-    app.mouse(
-        MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: sidebar.x + 2,
-            row: sidebar.y + 3,
-            modifiers: KeyModifiers::NONE,
-        },
-        area,
-    )
-    .unwrap();
+    assert!(matches!(app.prompt, Some(Prompt::Search(false))));
+    click(&mut app, layout.details);
+    assert!(app.search_filters_visible());
+    let layout = app.search_layout(sidebar);
+    click(&mut app, layout.include);
     for c in "*.txt".chars() {
         app.key(KeyCode::Char(c)).unwrap();
     }
@@ -3135,4 +3134,49 @@ fn quick_open_typing_backspace_and_paste_survive_full_queue_and_retry_with_lates
         Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
         area
     ));
+}
+
+#[test]
+fn search_sidebar_keeps_inline_options_and_clipped_unicode_input() {
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = loaded_app();
+    app.query_prompt(false);
+    app.search_query = "很长的中文搜索路径/src/匹配内容".into();
+    app.input = app.search_query.clone();
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        for (width, height) in [(80, 24), (120, 32), (32, 12), (16, 6), (8, 3)] {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal.draw(|f| app.draw(f)).unwrap();
+            let sidebar = app
+                .panes(ratatui::layout::Rect::new(0, 0, width, height))
+                .sidebar;
+            let layout = app.search_layout(sidebar);
+            for rect in layout.options {
+                if !rect.is_empty() {
+                    assert_eq!(rect.y, layout.query.y);
+                    assert!(rect.x >= layout.query.right());
+                    assert!(sidebar.contains(rect.as_position()));
+                }
+            }
+            if width >= 80 {
+                let row = (layout.query.x..layout.query_box.right())
+                    .map(|x| terminal.backend().buffer()[(x, layout.query.y)].symbol())
+                    .collect::<String>();
+                assert!(
+                    row.contains("Aa") && row.contains("ab") && row.contains(".*"),
+                    "{row}"
+                );
+                assert!(row.replace(' ', "").contains("匹配内容"), "{row}");
+            }
+        }
+    }
+    app.preferences.dock_right = false;
+    capture_fixture(&mut app, "search-inline-options");
+    app.key(KeyCode::Tab).unwrap();
+    assert!(app.search_filters_visible());
+    assert!(matches!(app.prompt, Some(Prompt::SearchInclude)));
+    app.key(KeyCode::Esc).unwrap();
+    assert!(app.search_filters_visible());
+    capture_fixture(&mut app, "search-expanded-filters");
 }
