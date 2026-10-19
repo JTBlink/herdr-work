@@ -112,6 +112,7 @@ fn opened_pane(value: &Value) -> Option<&str> {
         .as_str()
         .or_else(|| value["pane"]["pane_id"].as_str())
         .or_else(|| value["pane_id"].as_str())
+        .filter(|id| !id.is_empty())
 }
 fn context_value() -> Option<Value> {
     let text = std::env::var("HERDR_PLUGIN_CONTEXT_JSON").ok()?;
@@ -162,7 +163,7 @@ impl HerdrWork {
             .collect();
         let mut verified = vec![];
         for pane in &own {
-            let Some(id) = pane["pane_id"].as_str() else {
+            let Some(id) = pane["pane_id"].as_str().filter(|id| !id.is_empty()) else {
                 continue;
             };
             if pane["tokens"]["herdr-work-ready"].as_bool() != Some(true) {
