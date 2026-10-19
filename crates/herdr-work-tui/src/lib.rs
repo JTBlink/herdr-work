@@ -92,13 +92,19 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
         app.load_tasks()?;
         let mut last_tick = Instant::now();
         let mut last_editor_poll = Instant::now();
+        let mut redraw = true;
         loop {
-            terminal.draw(|frame| app.draw(frame))?;
+            if redraw {
+                terminal.draw(|frame| app.draw(frame))?;
+            }
             let message = match rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(message) => Some(message),
                 Err(mpsc::RecvTimeoutError::Timeout) => None,
                 Err(error) => return Err(error.into()),
             };
+            // Timers enqueue background reads; their results wake the loop and
+            // redraw. Idle debounce ticks must not repaint a large document.
+            redraw = message.is_some();
             match message {
                 Some(Message::Input(Event::Key(key))) if key.kind == KeyEventKind::Press => {
                     let size = terminal.size()?;
