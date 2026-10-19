@@ -19,6 +19,7 @@ pub(crate) enum Data {
     Editor(PathBuf, Result<herdr_work_engine::EditorSession>),
     Drawer(u64, Result<herdr_work_engine::DrawerView>),
     Show(u64, Result<String>),
+    QuickIndex(u64, Result<herdr_work_engine::QuickIndex>),
     Search(u64, Result<herdr_work_engine::SearchView>),
     FileReady(herdr_work_engine::FilePlan),
     Folder(Option<PathBuf>),
@@ -93,6 +94,9 @@ pub(crate) struct App {
     pub(crate) drawer_state: LoadState,
     pub(crate) drawer_scroll: u16,
     pub(crate) drawer_show: Option<String>,
+    pub(crate) search_runtime: crate::search::SearchRuntime,
+    pub(crate) preview_target: Option<(PathBuf, usize)>,
+    pub(crate) edit_line: Option<usize>,
     pub(crate) search_query: String,
     pub(crate) search_quick: bool,
     pub(crate) search_options: herdr_work_code::search::SearchOptions,
@@ -145,6 +149,9 @@ impl App {
             drawer_state: LoadState::Ready,
             drawer_scroll: 0,
             drawer_show: None,
+            search_runtime: Default::default(),
+            preview_target: None,
+            edit_line: None,
             search_query: String::new(),
             search_quick: false,
             search_options: Default::default(),
@@ -296,14 +303,12 @@ impl App {
                     Ok(text) => text,
                     Err(error) => format!("无法预览文件：{error:#}"),
                 };
-                self.preview_scroll = if self.tab == Tab::Search {
-                    self.search_rows
-                        .get(self.selection)
-                        .map(|r| r.line.saturating_sub(1).min(u16::MAX as usize) as u16)
-                        .unwrap_or(0)
-                } else {
-                    0
-                };
+                self.preview_scroll = self
+                    .preview_target
+                    .as_ref()
+                    .filter(|(p, _)| p == &path)
+                    .map(|(_, line)| line.saturating_sub(1).min(u16::MAX as usize) as u16)
+                    .unwrap_or(0);
             }
             Ok(Data::Preview(_, _)) => {}
             Ok(Data::GitReady(plan)) => {
@@ -330,21 +335,30 @@ impl App {
             Ok(Data::Folder(None)) => {
                 self.status = "已取消打开文件夹".into();
             }
-            Ok(Data::Search(request, result)) if request == self.search_request => match result {
-                Ok(view) => {
-                    self.search_rows = view.rows;
-                    self.search_state = LoadState::Ready;
-                    self.selection = 0;
-                    if view.truncated {
-                        self.status = "结果已截断，请缩小搜索范围".into();
+            Ok(Data::QuickIndex(request, result)) => {
+                self.search_finished(request);
+                self.receive_quick_index(result);
+            }
+            Ok(Data::Search(request, result)) => {
+                self.search_finished(request);
+                if request != self.search_request {
+                    return;
+                }
+                match result {
+                    Ok(view) => {
+                        self.search_rows = view.rows;
+                        self.search_state = LoadState::Ready;
+                        self.selection = 0;
+                        if view.truncated {
+                            self.status = "结果已截断，请缩小搜索范围".into();
+                        }
+                    }
+                    Err(error) => {
+                        self.search_state = LoadState::Failed(error.to_string());
+                        self.search_rows.clear();
                     }
                 }
-                Err(error) => {
-                    self.search_state = LoadState::Failed(error.to_string());
-                    self.search_rows.clear();
-                }
-            },
-            Ok(Data::Search(..)) => {}
+            }
             Ok(Data::Drawer(request, result)) if request == self.drawer_request => match result {
                 Ok(view) => {
                     self.drawer_state = LoadState::Ready;
@@ -360,7 +374,10 @@ impl App {
             Ok(Data::Editor(path, result)) if self.edit_request.as_ref() == Some(&path) => {
                 self.edit_request = None;
                 match result {
-                    Ok(editor) if self.overlay.is_none() && self.prompt.is_none() => {
+                    Ok(mut editor) if self.overlay.is_none() && self.prompt.is_none() => {
+                        if let Some(line) = self.edit_line.take() {
+                            editor.editor.goto_line(line);
+                        }
                         self.preview_path = Some(editor.editor.path().into());
                         self.editor = Some(editor);
                         self.focus = Focus::Content;
@@ -397,6 +414,8 @@ impl App {
         self.context.select(e);
         self.desk.save_context(&self.context)?;
         self.diff = None;
+        self.search_runtime = Default::default();
+        self.preview_target = None;
         self.search_request += 1;
         self.search_rows.clear();
         self.active_drawer = None;
@@ -432,6 +451,8 @@ impl App {
         self.edit_request = None;
         self.text.clear();
         self.expanded.clear();
+        self.search_runtime = Default::default();
+        self.preview_target = None;
         self.search_request += 1;
         self.search_rows.clear();
         self.drawer_request += 1;

@@ -32,6 +32,7 @@ fn working_stamp(git: &Git) -> Result<String> {
 pub struct DrawerView {
     pub root: PathBuf,
     pub kind: Drawer,
+    pub file: Option<String>,
     pub lines: Vec<String>,
 }
 impl HerdrWork {
@@ -149,6 +150,7 @@ impl HerdrWork {
             Ok(DrawerView {
                 root: git.root().into(),
                 kind,
+                file: file.map(str::to_string),
                 lines,
             })
         })
@@ -162,16 +164,16 @@ impl HerdrWork {
             if matches!(reference, DrawerRef::Remote { .. } | DrawerRef::Worktree(_)) {
                 return Ok(line.clone());
             }
-            git.raw(&[
-                "show",
-                "--stat",
-                "--format=fuller",
-                "--no-color",
-                "--end-of-options",
+            let args = herdr_work_code::scm::show_args(
                 &spec,
-                "--",
-            ])
-            .map_err(anyhow::Error::msg)
+                if view.kind == Drawer::FileHistory {
+                    view.file.as_deref()
+                } else {
+                    None
+                },
+            );
+            git.raw(&args.iter().map(String::as_str).collect::<Vec<_>>())
+                .map_err(anyhow::Error::msg)
         })
     }
 }

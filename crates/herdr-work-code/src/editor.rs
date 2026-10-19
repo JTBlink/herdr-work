@@ -198,6 +198,17 @@ impl Editor {
             .max(1)
     }
 
+    /// Position a search hit using its one-based source line.
+    pub fn goto_line(&mut self, line: usize) {
+        self.cursor = TextPos {
+            line: line
+                .saturating_sub(1)
+                .min(self.lines.len().saturating_sub(1)),
+            col: 0,
+        };
+        self.scroll = self.cursor.line;
+    }
+
     pub fn cursor(&self) -> TextPos {
         self.cursor
     }

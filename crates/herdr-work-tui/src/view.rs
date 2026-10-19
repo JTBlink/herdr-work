@@ -135,7 +135,9 @@ impl App {
             layout.footer,
         );
         self.draw_editor(f, &layout);
-        if let Some(prompt) = &self.prompt {
+        if let Some(prompt) = &self.prompt
+            && !self.search_prompt()
+        {
             let label = match prompt {
                 Prompt::Comment { .. } => "Comment",
                 Prompt::Commit(_) => "Commit staged changes",

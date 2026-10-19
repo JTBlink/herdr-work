@@ -36,6 +36,49 @@ impl App {
             }
             return Ok(false);
         }
+        if self.search_prompt() {
+            match key {
+                KeyCode::Esc | KeyCode::Down => {
+                    self.prompt = None;
+                    self.input.clear();
+                }
+                KeyCode::Enter => {
+                    self.prompt = None;
+                    self.input.clear();
+                    if matches!(self.search_state, crate::loading::LoadState::Ready)
+                        && !self.search_rows.is_empty()
+                    {
+                        self.open_search_result()?;
+                    } else {
+                        self.search()?;
+                    }
+                }
+                KeyCode::Tab | KeyCode::BackTab => {
+                    self.prompt = match self.prompt {
+                        Some(Prompt::Search(_)) if !self.search_quick => {
+                            Some(Prompt::SearchInclude)
+                        }
+                        Some(Prompt::SearchInclude) => Some(Prompt::SearchExclude),
+                        _ => None,
+                    };
+                    self.input = match self.prompt {
+                        Some(Prompt::SearchInclude) => self.search_include.clone(),
+                        Some(Prompt::SearchExclude) => self.search_exclude.clone(),
+                        _ => String::new(),
+                    };
+                }
+                KeyCode::Backspace => {
+                    self.input.pop();
+                    self.search_input_changed()?;
+                }
+                KeyCode::Char(c) => {
+                    self.input.push(c);
+                    self.search_input_changed()?;
+                }
+                _ => {}
+            }
+            return Ok(false);
+        }
         if self.prompt.is_some() {
             match key {
                 KeyCode::Esc => {
@@ -122,6 +165,11 @@ impl App {
                     }
                 }
             }
+            KeyCode::Tab | KeyCode::BackTab
+                if self.tab == Tab::Search && self.focus == Focus::Sidebar =>
+            {
+                self.query_prompt(self.search_quick);
+            }
             KeyCode::Tab | KeyCode::BackTab => {
                 self.focus = if self.focus == Focus::Sidebar {
                     Focus::Content
@@ -179,6 +227,7 @@ impl App {
                 }
             }
             KeyCode::Char('r') => {
+                self.invalidate_quick_index();
                 self.refresh()?;
                 self.load_tasks()?;
                 if let Some(kind) = self.active_drawer {
@@ -210,6 +259,7 @@ impl App {
                             .unwrap_or_else(|| self.root.clone());
                         let file = row.path.strip_prefix(&root)?.to_string_lossy().into_owned();
                         let path = row.path;
+                        self.preview_target = None;
                         self.preview_path = Some(path.clone());
                         self.text = "正在读取文件…".into();
                         self.job(move |d| Ok(Data::Preview(path, d.file(&root, &file))))?;

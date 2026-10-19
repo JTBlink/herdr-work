@@ -382,3 +382,33 @@ fn git_hook_descendants_and_blocking_hooks_are_bounded_after_commit() {
         "bounded blocking hook"
     );
 }
+
+#[test]
+fn file_history_show_contains_colored_patch_only_for_selected_file() {
+    use herdr_work_code::scm::Drawer;
+    let (repo, _home, desk) = fixture();
+    std::fs::write(repo.path().join("other.txt"), "unrelated-patch\n").unwrap();
+    git(repo.path(), &["add", "."]);
+    git(repo.path(), &["commit", "-qm", "change both"]);
+    let history = desk
+        .scm_drawer(repo.path(), Drawer::FileHistory, Some("file.txt"))
+        .unwrap();
+    let patch = desk.scm_show(&history, 0).unwrap();
+    let plain = herdr_work_code::ansi::to_lines(&patch)
+        .into_iter()
+        .map(|l| {
+            l.spans
+                .into_iter()
+                .map(|s| s.content.into_owned())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(plain.contains("+after"), "missing actual patch: {patch}");
+    assert!(
+        patch.contains("\u{1b}["),
+        "patch should retain source colors"
+    );
+    assert!(!patch.contains("unrelated-patch"));
+    assert!(!patch.contains("other.txt"));
+}

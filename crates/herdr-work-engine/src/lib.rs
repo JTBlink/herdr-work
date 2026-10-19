@@ -18,7 +18,7 @@ pub use herdr_work_core as model;
 pub use preferences::UiPreferences;
 pub use review::SendOutcome;
 pub use scm::{DrawerView, GitPlan};
-pub use search::{SearchRow, SearchView};
+pub use search::{QuickIndex, SearchRow, SearchView};
 pub use storage::fingerprint;
 
 use anyhow::Result;

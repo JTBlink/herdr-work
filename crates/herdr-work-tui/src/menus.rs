@@ -374,6 +374,7 @@ impl App {
                 let reference = parse_drawer_ref(view.kind, line);
                 match action {
                     MenuAction::ShowRef => {
+                        self.drawer_request += 1;
                         let request = self.drawer_request;
                         self.job(move |d| Ok(Data::Show(request, d.scm_show(&view, index))))?;
                     }
