@@ -11,6 +11,9 @@ use ratatui::{Frame, layout::Rect};
 
 impl App {
     pub(crate) fn start_editor(&mut self) -> Result<()> {
+        if let Some(copier) = &self.preview_copier {
+            copier.cancel_automatic();
+        }
         let root = self
             .code
             .as_ref()
@@ -204,13 +207,8 @@ impl App {
         self.editor_poll = None;
         if let Some(session) = self.editor.take() {
             let path = session.editor.path().to_path_buf();
-            let file = path
-                .strip_prefix(&session.root)?
-                .to_string_lossy()
-                .into_owned();
-            self.preview_path = Some(path.clone());
-            self.text = "正在读取文件…".into();
-            self.job(move |d| Ok(Data::Preview(path, d.file(&session.root, &file))))?;
+            let line = session.editor.cursor().line + 1;
+            self.open_preview(path, Some(line))?;
             self.focus = Focus::Content;
         }
         Ok(())
@@ -262,6 +260,9 @@ impl App {
             if let Err(error) = result {
                 self.status = error.to_string();
             }
+            return Ok(false);
+        }
+        if self.preview_key(key, area) {
             return Ok(false);
         }
         if self.edit_request.is_some() {

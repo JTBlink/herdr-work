@@ -13,7 +13,7 @@ pub(crate) enum Data {
     Diff(DiffView, Review),
     CommitReady(u64, Result<herdr_work_engine::CommitPlan>),
     Delivery(Review, String),
-    Preview(PathBuf, Result<String>),
+    Preview(u64, PathBuf, Result<herdr_work_code::preview::Doc>),
     Review(Review),
     Bound(Execution),
     Business(String),
@@ -91,6 +91,15 @@ pub(crate) struct App {
     pub(crate) selection: usize,
     pub(crate) scm_selection: usize,
     pub(crate) focus: Focus,
+    pub(crate) preview_doc: Option<herdr_work_code::preview::Doc>,
+    pub(crate) preview_request: u64,
+    pub(crate) preview_loading: Option<(u64, u64)>,
+    pub(crate) preview_pending: Option<(u64, PathBuf, Option<usize>)>,
+    pub(crate) preview_width: u16,
+    pub(crate) preview_pinned: bool,
+    pub(crate) preview_documents: Vec<crate::preview::PreviewDocument>,
+    pub(crate) preview_last_click: Option<(PathBuf, std::time::Instant)>,
+    pub(crate) preview_copier: Option<herdr_work_code::preview::ReleaseCopier>,
     pub(crate) preview_scroll: u16,
     pub(crate) preview_path: Option<PathBuf>,
     pub(crate) root: PathBuf,
@@ -124,6 +133,7 @@ pub(crate) struct App {
     pub(crate) drawer_state: LoadState,
     pub(crate) drawer_scroll: u16,
     pub(crate) drawer_show: Option<String>,
+    pub(crate) drawer_doc: Option<herdr_work_code::preview::Doc>,
     pub(crate) search_runtime: crate::search::SearchRuntime,
     pub(crate) preview_target: Option<(PathBuf, usize)>,
     pub(crate) edit_line: Option<usize>,
@@ -154,6 +164,15 @@ impl App {
             selection: 0,
             scm_selection: 0,
             focus: Focus::Sidebar,
+            preview_doc: None,
+            preview_request: 0,
+            preview_loading: None,
+            preview_pending: None,
+            preview_width: 80,
+            preview_pinned: false,
+            preview_documents: vec![],
+            preview_last_click: None,
+            preview_copier: None,
             preview_scroll: 0,
             preview_path: None,
             root,
@@ -186,6 +205,7 @@ impl App {
             drawer_state: LoadState::Ready,
             drawer_scroll: 0,
             drawer_show: None,
+            drawer_doc: None,
             search_runtime: Default::default(),
             preview_target: None,
             edit_line: None,
@@ -406,19 +426,24 @@ impl App {
                     self.selection = 0;
                 }
             }
-            Ok(Data::Preview(path, text)) if self.preview_path.as_ref() == Some(&path) => {
-                self.text = match text {
-                    Ok(text) => text,
-                    Err(error) => format!("无法预览文件：{error:#}"),
-                };
-                self.preview_scroll = self
-                    .preview_target
-                    .as_ref()
-                    .filter(|(p, _)| p == &path)
-                    .map(|(_, line)| line.saturating_sub(1).min(u16::MAX as usize) as u16)
-                    .unwrap_or(0);
+            Ok(Data::Preview(request, path, result)) => {
+                if self.preview_loading == Some((epoch, request)) {
+                    self.preview_loading = None;
+                }
+                if request == self.preview_request && self.preview_path.as_ref() == Some(&path) {
+                    match result {
+                        Ok(doc) => self.apply_preview(path, doc, false),
+                        Err(error) => {
+                            self.preview_doc = None;
+                            self.text = format!("无法预览文件：{error:#}");
+                        }
+                    }
+                }
+                if let Err(error) = self.dispatch_preview() {
+                    self.status = error.to_string();
+                }
             }
-            Ok(Data::Preview(_, _)) => {}
+
             Ok(Data::WorkGitReady(request, result))
                 if request == self.git.request
                     && self.prompt.is_none()
@@ -582,8 +607,13 @@ impl App {
                 Err(error) => self.drawer_state = LoadState::Failed(error.to_string()),
             },
             Ok(Data::Show(request, result)) if request == self.drawer_request => {
-                self.drawer_show =
-                    Some(result.unwrap_or_else(|e| format!("无法显示 Git 对象：{e}")));
+                let text = result.unwrap_or_else(|e| format!("无法显示 Git 对象：{e}"));
+                self.drawer_doc = Some(herdr_work_code::preview::git_show(
+                    "Git Changes".into(),
+                    String::new(),
+                    &text,
+                ));
+                self.drawer_show = Some(text);
             }
             Ok(Data::Drawer(..) | Data::Show(..)) => {}
             Ok(Data::Editor(path, result)) if self.edit_request.as_ref() == Some(&path) => {
@@ -629,6 +659,7 @@ impl App {
         self.context.select(e);
         self.desk.save_context(&self.context)?;
         self.diff = None;
+        self.clear_previews();
         self.search_runtime = Default::default();
         self.preview_target = None;
         self.search_request += 1;
@@ -666,6 +697,7 @@ impl App {
         self.edit_request = None;
         self.text.clear();
         self.expanded.clear();
+        self.clear_previews();
         self.search_runtime = Default::default();
         self.preview_target = None;
         self.search_request += 1;

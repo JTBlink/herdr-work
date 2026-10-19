@@ -230,7 +230,7 @@ fn explorer_click_opens_file_and_content_scroll_keeps_tree_selection() {
         .iter()
         .map(|c| c.symbol())
         .collect::<String>();
-    assert!(text.contains("EXPLORER") && text.contains("Preview"));
+    assert!(text.contains("EXPLORER") && text.contains("visible.txt"));
     assert!(text.contains("second line"));
 }
 #[test]
@@ -297,21 +297,44 @@ fn late_preview_for_another_file_cannot_replace_the_current_file() {
     let current = app.root.join("current.txt");
     app.preview_path = Some(current.clone());
     app.text = "current content".into();
-    app.apply(0, Ok(Data::Preview(old.clone(), Ok("old content".into()))));
-    assert_eq!(app.text, "current content");
     app.apply(
         0,
-        Ok(Data::Preview(old, Err(anyhow::anyhow!("old failure")))),
+        Ok(Data::Preview(
+            0,
+            old.clone(),
+            Ok(herdr_work_code::preview::git_show(
+                "old".into(),
+                String::new(),
+                "old content",
+            )),
+        )),
     );
     assert_eq!(app.text, "current content");
     app.apply(
         0,
-        Ok(Data::Preview(current.clone(), Ok("fresh content".into()))),
+        Ok(Data::Preview(0, old, Err(anyhow::anyhow!("old failure")))),
+    );
+    assert_eq!(app.text, "current content");
+    app.apply(
+        0,
+        Ok(Data::Preview(
+            0,
+            current.clone(),
+            Ok(herdr_work_code::preview::git_show(
+                "current".into(),
+                String::new(),
+                "fresh content",
+            )),
+        )),
     );
     assert_eq!(app.text, "fresh content");
     app.apply(
         0,
-        Ok(Data::Preview(current, Err(anyhow::anyhow!("unreadable")))),
+        Ok(Data::Preview(
+            0,
+            current,
+            Err(anyhow::anyhow!("unreadable")),
+        )),
     );
     assert!(app.text.contains("无法预览文件"));
     app.context.epoch = 2;
@@ -1201,13 +1224,27 @@ fn compact_task_rows_keep_two_line_items_and_ignore_unused_last_row() {
 #[test]
 fn passive_refresh_updates_external_changes_without_resetting_reader() {
     let (_temp, mut app) = loaded_app();
-    let original = (0..30).map(|n| format!("old {n}\n")).collect::<String>();
+    let original = (0..100).map(|n| format!("old {n}\n")).collect::<String>();
     std::fs::write(app.root.join("visible.txt"), original).unwrap();
     app.key(crossterm::event::KeyCode::Enter).unwrap();
     receive(&mut app);
     app.focus = Focus::Content;
-    app.preview_scroll = 8;
-    std::fs::write(app.root.join("visible.txt"), "external change\n".repeat(30)).unwrap();
+    screen(&mut app);
+    for _ in 0..8 {
+        app.input_key(
+            crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Down,
+                crossterm::event::KeyModifiers::NONE,
+            ),
+            ratatui::layout::Rect::new(0, 0, 160, 32),
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        app.root.join("visible.txt"),
+        "external change\n".repeat(100),
+    )
+    .unwrap();
     std::fs::write(app.root.join("new-agent-file.txt"), "new file\n").unwrap();
     app.tick_refresh(std::time::Instant::now() + Duration::from_secs(3))
         .unwrap();
@@ -1523,6 +1560,73 @@ fn staged_section_cannot_stage_unselected_changes_from_the_other_group() {
         .unwrap();
     assert!(app.action(KeyCode::Char('s')).is_err());
     assert!(app.prompt.is_none());
+}
+
+#[test]
+fn readonly_preview_wrap_selection_and_pinned_documents_share_source_model() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = loaded_app();
+    let source = format!("{}\nsecond line", "alpha界".repeat(30));
+    std::fs::write(app.root.join("visible.txt"), &source).unwrap();
+    app.open_preview(app.root.join("visible.txt"), None)
+        .unwrap();
+    receive(&mut app);
+    app.focus = Focus::Content;
+    let area = ratatui::layout::Rect::new(0, 0, 90, 32);
+    let mut terminal = Terminal::new(TestBackend::new(90, 32)).unwrap();
+    terminal.draw(|f| app.draw(f)).unwrap();
+    let wrapped = app.preview_doc.as_ref().unwrap().row_count();
+    app.input_key(
+        KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL),
+        area,
+    )
+    .unwrap();
+    assert_eq!(
+        app.preview_doc
+            .as_ref()
+            .unwrap()
+            .selection_text()
+            .as_deref(),
+        Some(source.as_str())
+    );
+    app.input_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE), area)
+        .unwrap();
+    terminal.draw(|f| app.draw(f)).unwrap();
+    assert!(app.preview_doc.as_ref().unwrap().row_count() < wrapped);
+    app.input_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE), area)
+        .unwrap();
+    std::fs::write(app.root.join("second.txt"), "another document").unwrap();
+    app.open_preview(app.root.join("second.txt"), None).unwrap();
+    receive(&mut app);
+    app.input_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE), area)
+        .unwrap();
+    assert!(app.preview_path.as_ref().unwrap().ends_with("visible.txt"));
+    assert!(!app.preview_doc.as_ref().unwrap().wrap());
+    assert!(screen(&mut app).contains("visible.txt"));
+}
+
+#[test]
+fn repeated_preview_requests_coalesce_and_same_path_old_load_cannot_win() {
+    let (_temp, mut app) = loaded_app();
+    let path = app.root.join("visible.txt");
+    app.open_preview(path.clone(), None).unwrap();
+    for _ in 0..20 {
+        app.open_preview(path.clone(), Some(1)).unwrap();
+    }
+    let (epoch, old) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    assert!(
+        app.jobs.results.try_recv().is_err(),
+        "obsolete preview requests filled the worker queue"
+    );
+    std::fs::write(&path, "latest content").unwrap();
+    app.apply(epoch, old);
+    receive(&mut app);
+    assert_eq!(app.text, "latest content");
+    assert!(app.jobs.results.try_recv().is_err());
 }
 
 #[test]
