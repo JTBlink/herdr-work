@@ -15,6 +15,7 @@ pub(crate) enum ScmTarget {
 pub(crate) type ScmRow = (Option<usize>, String, char, ScmTarget);
 impl App {
     pub(crate) fn load_drawer(&mut self, kind: Drawer) -> Result<()> {
+        let preserve_context = self.active_drawer == Some(kind) && self.focus == Focus::Content;
         self.drawer_request += 1;
         let request = self.drawer_request;
         self.active_drawer = Some(kind);
@@ -38,7 +39,7 @@ impl App {
         let (root, file) = self
             .drawers
             .get(&kind)
-            .filter(|_| self.active_drawer == Some(kind) && self.focus == Focus::Content)
+            .filter(|_| preserve_context)
             .map(|v| (v.root.clone(), v.file.clone()))
             .unwrap_or((root, file));
         self.job(move |d| {
