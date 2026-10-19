@@ -61,6 +61,191 @@ fn capture_fixture(app: &mut App, name: &str) {
 }
 
 #[test]
+fn polished_rail_keeps_icons_badges_hover_and_clicks_in_their_visible_slots() {
+    use crate::layout::{ACTIVITIES, activity_button};
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use herdr_work_code::ui::{ActivityIcon, activity_icon};
+    let (_temp, mut app) = loaded_app();
+    let change = app.code.as_ref().unwrap().changes[0].clone();
+    app.code.as_mut().unwrap().changes = vec![change; 120];
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for theme in ["material", "emoji"] {
+        app.preferences.icon_theme = theme.into();
+        for dock_right in [false, true] {
+            app.tab = Tab::Files;
+            app.prompt = None;
+            app.interaction.pointer = None;
+            app.preferences.dock_right = dock_right;
+            let rail = app.panes(area).activity;
+            let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+            terminal.draw(|f| app.draw(f)).unwrap();
+            let buffer = terminal.backend().buffer();
+            let rail_row = |y| {
+                (rail.x..rail.right())
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            };
+            assert!(rail_row(1).contains(activity_icon(app.icon_theme(), ActivityIcon::Files)));
+            assert!(rail_row(6).contains("99+"));
+            assert!(
+                rail_row(7).contains(activity_icon(app.icon_theme(), ActivityIcon::SourceControl))
+            );
+            assert!(!rail_row(7).contains("99+"));
+            let marker = if dock_right { rail.right() - 1 } else { rail.x };
+            assert_eq!(buffer[(marker, 1)].symbol(), "▎");
+            let search = activity_button(rail, 1);
+            let event = |kind| MouseEvent {
+                kind,
+                column: search.x + 2,
+                row: search.y + 1,
+                modifiers: KeyModifiers::NONE,
+            };
+            app.mouse(event(MouseEventKind::Moved), area).unwrap();
+            terminal.draw(|f| app.draw(f)).unwrap();
+            let text = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .replace(' ', "");
+            assert!(text.contains("搜索·5"));
+            app.mouse(event(MouseEventKind::Down(MouseButton::Left)), area)
+                .unwrap();
+            assert!(app.tab == Tab::Search);
+        }
+    }
+    app.interaction.pointer = None;
+    let short = app.panes(ratatui::layout::Rect::new(0, 0, 80, 8)).activity;
+    assert_eq!(activity_button(short, ACTIVITIES.len() - 1).height, 0);
+    capture_fixture(&mut app, "polished-rail");
+}
+
+#[test]
+fn preview_header_close_handles_long_titles_loading_and_pinned_documents() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    app.preferences.icon_theme = "material".into();
+    app.apply(app.context.epoch, Ok(Data::Tasks(Ok(vec![]))));
+    let selected = app.selection;
+    let file = app.root.join(format!("{}.txt", "长文件名".repeat(15)));
+    std::fs::write(&file, "preview body\n").unwrap();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        app.open_preview(file.clone(), None).unwrap();
+        let close = app.preview_close_button(app.panes(area).content).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        assert_eq!(
+            terminal.backend().buffer()[(close.x + 1, close.y)].symbol(),
+            "×"
+        );
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: close.x + 1,
+                row: close.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        receive(&mut app); // A late load must not reopen the closed document.
+        assert!(app.preview_path.is_none() && app.preview_doc.is_none());
+        assert_eq!(app.selection, selected);
+        assert!(app.focus == Focus::Sidebar);
+    }
+    app.preferences.dock_right = false;
+    app.open_preview(file.clone(), None).unwrap();
+    receive(&mut app);
+    app.preview_pinned = true;
+    app.open_preview(app.root.join("visible.txt"), None)
+        .unwrap();
+    receive(&mut app);
+    capture_fixture(&mut app, "polished-preview-pinned");
+    app.close_document().unwrap();
+    assert_eq!(app.preview_path, Some(file));
+    assert!(app.preview_pinned);
+    app.close_document().unwrap();
+    assert!(app.preview_close_button(app.panes(area).content).is_none());
+    app.open_preview(app.root.join("visible.txt"), None)
+        .unwrap();
+    receive(&mut app);
+    capture_fixture(&mut app, "polished-preview");
+}
+
+#[test]
+fn editor_header_close_reuses_unsaved_guards_and_preserves_input_during_save() {
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    let (_temp, mut app) = editing_app();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    let close = app.preview_close_button(app.panes(area).content).unwrap();
+    let click = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: close.x + 1,
+        row: close.y,
+        modifiers: KeyModifiers::NONE,
+    };
+    app.input_key(key(KeyCode::Char('x')), area).unwrap();
+    app.mouse(click, area).unwrap();
+    assert!(screen(&mut app).contains("保存并关闭"));
+    app.input_key(key(KeyCode::Esc), area).unwrap();
+    assert_eq!(app.editor.as_ref().unwrap().editor.text(), "xfixture\n");
+    assert!(!app.editor_close_after_leave);
+    app.mouse(click, area).unwrap();
+    app.input_key(key(KeyCode::Enter), area).unwrap(); // Save and close.
+    let (epoch, result) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
+    app.input_key(key(KeyCode::Char('y')), area).unwrap();
+    app.apply(epoch, result);
+    assert_eq!(app.editor.as_ref().unwrap().editor.text(), "xyfixture\n");
+    assert!(app.editor.as_ref().unwrap().editor.dirty);
+    assert!(!app.editor_close_after_leave);
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("visible.txt")).unwrap(),
+        "xfixture\n"
+    );
+    app.mouse(click, area).unwrap();
+    app.input_key(key(KeyCode::Down), area).unwrap();
+    app.input_key(key(KeyCode::Enter), area).unwrap(); // Explicit discard and close.
+    assert!(app.editor.is_none() && app.preview_path.is_none());
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("visible.txt")).unwrap(),
+        "xfixture\n"
+    );
+}
+
+#[test]
+fn editor_header_save_and_close_waits_for_success_and_keeps_conflict_recoverable() {
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = editing_app();
+    app.editor.as_mut().unwrap().editor.insert_text("x");
+    std::fs::write(app.root.join("visible.txt"), "external\n").unwrap();
+    app.close_document().unwrap();
+    app.overlay_key(KeyCode::Enter).unwrap();
+    receive(&mut app);
+    assert!(screen(&mut app).contains("保存冲突"));
+    assert!(app.editor.is_some());
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("visible.txt")).unwrap(),
+        "external\n"
+    );
+    app.overlay_key(KeyCode::Down).unwrap();
+    app.overlay_key(KeyCode::Down).unwrap();
+    app.overlay_key(KeyCode::Enter).unwrap(); // Explicit overwrite, retaining close intent.
+    receive(&mut app);
+    assert!(app.editor.is_none() && app.preview_path.is_none());
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("visible.txt")).unwrap(),
+        "xfixture\n"
+    );
+}
+
+#[test]
 fn completed_empty_startup_has_guidance_and_one_task_list() {
     let (_temp, mut app) = app();
     app.switch_tab(Tab::Tasks);

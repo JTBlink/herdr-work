@@ -1,12 +1,9 @@
 //! A VS Code-style activity rail, Explorer/SCM sidebar and independent content pane.
-use crate::{
-    layout::{ACTIVITIES, settings_button},
-    state::*,
-};
-use herdr_work_code::ui::{activity_button_style, palette};
+use crate::state::*;
+use herdr_work_code::ui::palette;
 use ratatui::{
     Frame,
-    layout::{Alignment, Rect},
+    layout::Rect,
     style::{Color, Style},
     text::Line,
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
@@ -17,59 +14,7 @@ impl App {
         let area = f.area();
         self.interaction.area = area;
         let layout = self.panes(area);
-        for (index, (tab, label, key)) in ACTIVITIES.iter().enumerate() {
-            let y = layout.activity.y + index as u16 * 3;
-            let height = settings_button(layout.activity).y.saturating_sub(y).min(3);
-            if height == 0 {
-                break;
-            }
-            let (files, search, git) = herdr_work_code::ui::activity_icons(self.icon_theme());
-            let icon = match tab {
-                Tab::Files => files,
-                Tab::Search => search,
-                Tab::Scm => git,
-                Tab::Tasks => {
-                    if self.icon_theme() == herdr_work_code::icons::IconTheme::Material {
-                        "\u{f0ae}"
-                    } else {
-                        "☷"
-                    }
-                }
-                Tab::Review => {
-                    if self.icon_theme() == herdr_work_code::icons::IconTheme::Material {
-                        "\u{f06e}"
-                    } else {
-                        "◉"
-                    }
-                }
-            };
-            let badge = if *tab == Tab::Scm {
-                self.code
-                    .as_ref()
-                    .map(|c| c.changes.len())
-                    .filter(|n| *n > 0)
-                    .map(|n| format!(" {n}"))
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-            let _ = label;
-            f.render_widget(
-                Paragraph::new(format!("{icon}{badge}\n{key}"))
-                    .alignment(Alignment::Center)
-                    .style(activity_button_style(self.tab == *tab, false)),
-                Rect::new(layout.activity.x, y, layout.activity.width, height),
-            );
-        }
-        f.render_widget(
-            Paragraph::new(format!(
-                "{}\n设置",
-                herdr_work_code::ui::gear_icon(self.icon_theme())
-            ))
-            .alignment(Alignment::Center)
-            .style(activity_button_style(self.overlay.is_some(), false)),
-            settings_button(layout.activity),
-        );
+        self.draw_activity_rail(f, layout.activity);
         self.draw_sidebar(f, layout.sidebar);
         if layout.content.width > 0 {
             match self.tab {
@@ -186,6 +131,7 @@ impl App {
             }
         }
 
+        self.draw_activity_tooltip(f, layout.activity);
         self.draw_overlay(f, area);
         if let Some(picker) = self.git.picker.as_mut() {
             picker.draw(f);

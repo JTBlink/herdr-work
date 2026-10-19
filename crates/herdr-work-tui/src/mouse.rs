@@ -1,6 +1,6 @@
 //! Activity and sidebar pointer actions share the geometry used by the renderer.
 use crate::{
-    layout::{ACTIVITIES, offset, settings_button, task_offset},
+    layout::{ACTIVITIES, activity_button, offset, settings_button, task_offset},
     state::*,
 };
 use anyhow::Result;
@@ -27,6 +27,14 @@ impl App {
             return self.overlay_mouse(event, area);
         }
         if self.prompt.is_some() && !self.search_prompt() {
+            return Ok(());
+        }
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && self
+                .preview_close_button(self.panes(area).content)
+                .is_some_and(|rect| rect.contains((event.column, event.row).into()))
+        {
+            self.close_document()?;
             return Ok(());
         }
         if self.footer_mouse(&event)? {
@@ -81,9 +89,10 @@ impl App {
                 return Ok(());
             }
             if layout.activity.contains(point) {
-                let row = event.row.saturating_sub(layout.activity.y) as usize;
-                if row % 3 < 3
-                    && let Some((tab, _, _)) = ACTIVITIES.get(row / 3)
+                if let Some((_, (tab, _, _))) = ACTIVITIES
+                    .iter()
+                    .enumerate()
+                    .find(|(index, _)| activity_button(layout.activity, *index).contains(point))
                 {
                     self.switch_tab(*tab);
                 }

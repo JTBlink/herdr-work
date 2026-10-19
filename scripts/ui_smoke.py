@@ -86,6 +86,12 @@ def ui_smoke(binary):
             assert 'EXPLORER' in text and 'visible.txt' in text and 'Preview' in text, 'Default Explorer is missing'
             assert '暂无任务' not in text and text.count('Tasks') == 0, 'Tasks displaced the default sidebar'
             wait_for('changedpreviewfixture', b'\r')
+            # Close at the rendered header's right edge, then reopen the same
+            # tree selection. The fixture alternates 120/121-column frames.
+            def close_document():
+                return f'\x1b[<0;{120 + redraws % 2 - 1};1M'.encode()
+            wait_for('选择文件', close_document())
+            wait_for('changedpreviewfixture', b'\r')
             # A worker must refresh the current document without a refresh key.
             file.write_text(file.read_text().replace('changed preview fixture', 'externally refreshed preview'))
             wait_for('externallyrefreshedpreview')
@@ -99,6 +105,8 @@ def ui_smoke(binary):
             wait_for('line-060', b'\x1b[<65;90;15M' * 12)
             screen(b'\x01')  # Original editor: select all.
             screen(b'\x1b[200~changed preview fixture\neditor saved UTF-8\n\x1b[201~')
+            wait_for('未保存的文本', close_document())
+            wait_for('编辑·visible.txt', b'\x1b')
             wait_for('文件已保存', b'\x13')
             assert file.read_text() == 'changed preview fixture\neditor saved UTF-8\n', 'Built-in editor did not save the actual UTF-8 file'
             # A clean buffer reloads, but a dirty buffer requires an explicit
@@ -157,7 +165,7 @@ def ui_smoke(binary):
                 process.wait(timeout=5)
             os.close(master)
             os.close(slave)
-    print('UI loaded: compact Explorer, passive preview refresh, settings/menu, editor wheel/save/reload/conflict, mouse navigation, stage/unstage, real Diff, tasks, live search at line 80, live Quick Open, 80-column split and clean exit')
+    print('UI loaded: compact Explorer, header close and unsaved guard, passive preview refresh, settings/menu, editor wheel/save/reload/conflict, mouse navigation, stage/unstage, real Diff, tasks, live search at line 80, live Quick Open, 80-column split and clean exit')
 
 
 if __name__ == '__main__':

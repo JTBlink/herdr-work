@@ -446,22 +446,49 @@ pub fn hits_collapse_button(column: u16, row: u16, pane_width: u16, pane_height:
     row == pane_height.saturating_sub(1) && column >= pane_width.saturating_sub(4)
 }
 
-/// Theme-matched activity-bar icons: (explorer, search, source control). FA
-/// glyphs render two cells wide in the non-Mono Nerd Font — chips reserve
-/// the second cell (see the activity-bar renderer).
-pub fn activity_icons(theme: IconTheme) -> (&'static str, &'static str, &'static str) {
-    match theme {
-        IconTheme::Material => ("\u{f07b}", "\u{f002}", "\u{f126}"),
-        IconTheme::Emoji => ("📁", "🔍", "🔀"),
+/// A consistent outline family for navigation, shared with the product rail.
+#[derive(Clone, Copy)]
+pub enum ActivityIcon {
+    Files,
+    Search,
+    SourceControl,
+    Tasks,
+    Review,
+    Settings,
+}
+
+pub fn activity_icon(theme: IconTheme, icon: ActivityIcon) -> &'static str {
+    // Nerd Fonts' Codicons are the same outline vocabulary used by VS Code.
+    // The fallback uses text symbols, keeping navigation monochrome even when
+    // file-type icons use Emoji. Neither path changes the terminal's font.
+    match (theme, icon) {
+        (IconTheme::Material, ActivityIcon::Files) => "\u{eaf0}",
+        (IconTheme::Material, ActivityIcon::Search) => "\u{ea6d}",
+        (IconTheme::Material, ActivityIcon::SourceControl) => "\u{ea68}",
+        (IconTheme::Material, ActivityIcon::Tasks) => "\u{eab3}",
+        (IconTheme::Material, ActivityIcon::Review) => "\u{eac7}",
+        (IconTheme::Material, ActivityIcon::Settings) => "\u{eb51}",
+        (IconTheme::Emoji, ActivityIcon::Files) => "▤",
+        (IconTheme::Emoji, ActivityIcon::Search) => "⌕",
+        (IconTheme::Emoji, ActivityIcon::SourceControl) => "⎇",
+        (IconTheme::Emoji, ActivityIcon::Tasks) => "☷",
+        (IconTheme::Emoji, ActivityIcon::Review) => "◎",
+        (IconTheme::Emoji, ActivityIcon::Settings) => "⚙",
     }
+}
+
+/// Theme-matched activity-bar icons: (explorer, search, source control).
+pub fn activity_icons(theme: IconTheme) -> (&'static str, &'static str, &'static str) {
+    (
+        activity_icon(theme, ActivityIcon::Files),
+        activity_icon(theme, ActivityIcon::Search),
+        activity_icon(theme, ActivityIcon::SourceControl),
+    )
 }
 
 /// Theme-matched ⚙ settings glyph.
 pub fn gear_icon(theme: IconTheme) -> &'static str {
-    match theme {
-        IconTheme::Material => "\u{f013}",
-        IconTheme::Emoji => "⚙",
-    }
+    activity_icon(theme, ActivityIcon::Settings)
 }
 
 /// Monochrome outline sparkles for the suggest button: MDI "creation"

@@ -3,11 +3,11 @@ use crate::state::{Focus, Tab};
 use ratatui::layout::{Constraint, Layout, Rect};
 
 pub(crate) const ACTIVITIES: [(Tab, &str, char); 5] = [
-    (Tab::Files, "Files", '2'),
-    (Tab::Search, "Search", '5'),
+    (Tab::Files, "文件", '2'),
+    (Tab::Search, "搜索", '5'),
     (Tab::Scm, "Git", '3'),
-    (Tab::Tasks, "Tasks", '1'),
-    (Tab::Review, "Review", '4'),
+    (Tab::Tasks, "任务", '1'),
+    (Tab::Review, "审查", '4'),
 ];
 pub(crate) struct Panes {
     pub activity: Rect,
@@ -73,6 +73,15 @@ pub(crate) fn settings_button(activity: Rect) -> Rect {
         activity.bottom().saturating_sub(3).max(activity.y),
         activity.width,
         activity.height.min(3),
+    )
+}
+pub(crate) fn activity_button(activity: Rect, index: usize) -> Rect {
+    let y = activity.y.saturating_add(index as u16 * 3);
+    Rect::new(
+        activity.x,
+        y,
+        activity.width,
+        settings_button(activity).y.saturating_sub(y).min(3),
     )
 }
 impl crate::state::App {

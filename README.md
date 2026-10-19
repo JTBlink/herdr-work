@@ -33,7 +33,7 @@ Windows 使用 `python install.py --prefix "$env:LOCALAPPDATA/HerdrWork"`，运�
 
 文件页按 `e` 使用内置编辑器，`Ctrl+S` 保存，`Ctrl+Z/Y` 撤销/重做，`Esc` 返回并处理未保存内容；`Ctrl+P` 快速打开文件，`/` 搜索文本。SCM 按 `s/u` 暂存/取消暂存，`C` 提交，并可展开 Graph、Commits、File History、Branches、Worktrees、Remotes、Stashes、Tags；任务页按 `n` 创建任务。
 
-只读预览支持代码高亮、行号、Markdown 和常见图片；可选 `glow` 提供 Markdown 排版，可选 `ffmpeg` 提供视频封面。长文本有界截断。内容区按 `w` 切换换行，首尾键和翻页键导航，拖选或 `Ctrl/Cmd+A` 全选后按 `Ctrl/Cmd+C` 复制；设置中可关闭选区自动复制。按 `p` 或双击文件固定文档，`[` / `]` 切换固定文档，`Esc` 关闭当前预览。
+只读预览支持代码高亮、行号、Markdown 和常见图片；可选 `glow` 提供 Markdown 排版，可选 `ffmpeg` 提供视频封面。长文本有界截断。内容区按 `w` 切换换行，首尾键和翻页键导航，拖选或 `Ctrl/Cmd+A` 全选后按 `Ctrl/Cmd+C` 复制；设置中可关闭选区自动复制。按 `p` 或双击文件固定文档，`[` / `]` 切换固定文档，`Esc` 或右上角 `×` 关闭当前预览；编辑时关闭会保留未保存确认与冲突保护。
 
 Agent 定位和发送需要 Herdr 0.9.3+ 提供的宿主连接。独立启动时仍可浏览 Git 和保存评论。关闭界面不会停止已委派的 Agent。
 
