@@ -12,7 +12,7 @@ command = ["python3", "scripts/plugin.py"]
 id = "pane"
 title = "HerdrWork"
 placement = "tab"
-command = ["bin/herdr-work", "ui", "."]
+command = ["bin/herdr-work", "ui"]
 
 [[startup]]
 command = ["python3", "scripts/hook.py"]
@@ -32,3 +32,25 @@ command = ["python3", "scripts/hook.py"]
 [[events]]
 on = "worktree.removed"
 command = ["python3", "scripts/hook.py"]
+
+# Background actions ask the host to allocate or focus this product's terminal.
+
+[[actions]]
+id = "show-explorer"
+title = "Show HerdrWork Explorer"
+command = ["bin/herdr-work", "activate", "show-explorer"]
+
+[[actions]]
+id = "show-search"
+title = "Show HerdrWork Search"
+command = ["bin/herdr-work", "activate", "show-search"]
+
+[[actions]]
+id = "show-git"
+title = "Show HerdrWork Source Control"
+command = ["bin/herdr-work", "activate", "show-git"]
+
+[[actions]]
+id = "quick-open"
+title = "HerdrWork Quick Open"
+command = ["bin/herdr-work", "activate", "quick-open"]

@@ -1,4 +1,5 @@
 //! HerdrWork orchestration. All terminal-free business commands enter here.
+mod activation;
 mod code;
 mod editing;
 mod files;
@@ -13,6 +14,7 @@ mod tasks;
 mod ui_state;
 mod work_git;
 
+pub use activation::{ActivationRequest, InitialView, WorkbenchRegistration};
 pub use code::{CodeSnapshot, CommitPlan, DiffView, FileRow, GitChange, RepositoryStatus};
 pub use editing::{EditorExternalObservation, EditorExternalRequest, EditorSession};
 pub use files::FilePlan;
