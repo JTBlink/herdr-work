@@ -1173,7 +1173,7 @@ dependencies = [
 
 [[package]]
 name = "herdr-work"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -1187,14 +1187,14 @@ dependencies = [
 
 [[package]]
 name = "herdr-work-core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "herdr-work-engine"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "fs2",
@@ -1209,7 +1209,7 @@ dependencies = [
 
 [[package]]
 name = "herdr-work-tui"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "crossterm",
