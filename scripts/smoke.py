@@ -10,6 +10,7 @@ import tempfile
 import zipfile
 from package import verify
 from install import install, rollback, read_receipt, write_receipt, uninstall
+from ui_smoke import ui_smoke
 
 
 def output(command, **kwargs):
@@ -119,6 +120,7 @@ def smoke(archive):
             if not result['projects_backend_installed']:
                 raise ValueError('Installed backend missing')
             projects_smoke(binary, prefix / 'bin' / 'workdesk-projects', profile, root)
+        ui_smoke(binary)
         install(stage, prefix)
         rollback(prefix)
         output([binary, '--version'])

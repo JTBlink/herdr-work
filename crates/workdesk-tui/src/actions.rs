@@ -189,7 +189,10 @@ impl App {
                     .context("No task selected")?
                     .id
                     .clone();
-                self.job(move |d| Ok(Data::Business(d.task_action(&id, "delegate")?.to_string())))?;
+                self.job(move |d| {
+                    d.task_action(&id, "delegate")?;
+                    Ok(Data::Business("任务已委派".into()))
+                })?;
             }
             KeyCode::Char('x') => {
                 self.prompt = Some(Prompt::Stop(
@@ -225,14 +228,20 @@ impl App {
         match prompt {
             Prompt::NewTask => {
                 let root = self.root.clone();
-                self.job(move |d| Ok(Data::Business(d.create_task(&root, &input)?.to_string())))?;
+                self.job(move |d| {
+                    d.create_task(&root, &input)?;
+                    Ok(Data::Business("任务已创建".into()))
+                })?;
             }
             Prompt::Stop(id) => {
                 anyhow::ensure!(
                     input == "STOP",
                     "Type STOP to confirm stopping the selected execution"
                 );
-                self.job(move |d| Ok(Data::Business(d.task_action(&id, "stop")?.to_string())))?;
+                self.job(move |d| {
+                    d.task_action(&id, "stop")?;
+                    Ok(Data::Business("任务已停止".into()))
+                })?;
             }
             Prompt::Commit(plan) => {
                 self.job(move |d| Ok(Data::Business(d.commit(&plan, &input)?)))?;

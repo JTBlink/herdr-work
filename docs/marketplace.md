@@ -6,7 +6,7 @@
 
 ## 当前配置
 
-- 工作台清单位于根目录 [`herdr-plugin.toml`](../herdr-plugin.toml)，插件 ID 为 `jtblink.workdesk`，展示名为 `Workdesk`，版本为 `0.1.2`。
+- 工作台清单位于根目录 [`herdr-plugin.toml`](../herdr-plugin.toml)，插件 ID 为 `jtblink.workdesk`，展示名为 `Workdesk`，版本为 `0.1.3`。
 - `min_herdr_version = "0.9.3"` 是当前声明的宿主基线；接入运行入口后需按所用 API 重新核对最低版本。
 - `platforms` 声明首批目标 `macos`、`linux`；当前尚未完成两平台运行验收。
 - 清单声明真实构建、窗格、启动和事件入口；构建按固定版本下载并校验归档，运行 `bin/herdr-work`，原 Projects hooks 使用隔离目录。

@@ -25,7 +25,8 @@ impl App {
             .style(Style::default().fg(Color::Cyan)),
             parts[0],
         );
-        let body = if area.width >= 100 {
+        let wide = area.width >= 100;
+        let body = if wide {
             let columns = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Length(30), Constraint::Min(1)])
@@ -36,7 +37,14 @@ impl App {
             parts[1]
         };
         match self.tab {
-            Tab::Tasks => self.draw_tasks(f, body),
+            Tab::Tasks if wide => self.draw_task_detail(f, body),
+            Tab::Tasks => {
+                let rows =
+                    Layout::vertical([Constraint::Percentage(45), Constraint::Percentage(55)])
+                        .split(body);
+                self.draw_tasks(f, rows[0]);
+                self.draw_task_detail(f, rows[1]);
+            }
             Tab::Files => {
                 let files = self
                     .code
@@ -159,7 +167,8 @@ impl App {
         }
         f.render_widget(
             Paragraph::new(format!(
-                "{}\nr refresh · q close UI (Agents and enabled keeper continue)",
+                "{}\n{}\nr refresh · q close UI (Agents and enabled keeper continue)",
+                self.load_summary(),
                 self.status
             ))
             .wrap(Wrap { trim: false }),
@@ -188,33 +197,5 @@ impl App {
                 popup,
             );
         }
-    }
-    pub(crate) fn draw_tasks(&self, f: &mut Frame, area: Rect) {
-        let rows = self
-            .tasks
-            .iter()
-            .enumerate()
-            .skip(
-                self.task
-                    .saturating_sub(area.height.saturating_sub(4) as usize / 2),
-            )
-            .map(|(i, t)| {
-                ListItem::new(format!(
-                    "{}{} [{}]\n  {}",
-                    if i == self.task { "> " } else { "  " },
-                    t.title,
-                    t.stage,
-                    t.id
-                ))
-            })
-            .collect::<Vec<_>>();
-        f.render_widget(
-            List::new(rows).block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Tasks · Enter select · n new · d delegate · x stop"),
-            ),
-            area,
-        );
     }
 }

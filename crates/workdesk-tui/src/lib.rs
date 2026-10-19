@@ -13,7 +13,9 @@ use std::{
 use workdesk_engine::{JobQueue, Workdesk};
 
 mod actions;
+mod loading;
 mod state;
+mod task_view;
 mod view;
 use state::*;
 
@@ -44,7 +46,9 @@ pub fn run(desk: Workdesk, root: PathBuf) -> Result<()> {
         diff: None,
         review: None,
         text: String::new(),
-        status: "Loading…".into(),
+        status: String::new(),
+        tasks_state: loading::LoadState::Loading,
+        code_state: loading::LoadState::Loading,
         expanded: vec![],
         generation: 0,
         prompt: None,
