@@ -37,6 +37,7 @@ pub(crate) struct GitUi {
 pub(crate) type ScmRow = (Option<usize>, String, char, ScmTarget);
 impl App {
     pub(crate) fn load_drawer(&mut self, kind: Drawer) -> Result<()> {
+        let preserve_context = self.active_drawer == Some(kind) && self.focus == Focus::Content;
         self.drawer_request += 1;
         let request = self.drawer_request;
         self.active_drawer = Some(kind);
@@ -46,16 +47,18 @@ impl App {
         self.drawer_show = None;
         let root = self.selected_repository();
         let file = self
-            .preview_path
+            .code
             .as_ref()
-            .and_then(|p| p.strip_prefix(&root).ok())
-            .map(|p| p.to_string_lossy().into_owned())
-            .or_else(|| {
-                self.code
-                    .as_ref()
-                    .and_then(|c| c.changes.get(self.selection))
-                    .map(|c| c.path.clone())
-            });
+            .and_then(|c| c.changes.get(self.selection))
+            .filter(|c| c.root == root)
+            .map(|c| c.path.clone());
+        // Reopening an already browsed drawer retains its immutable query context.
+        let (root, file) = self
+            .drawers
+            .get(&kind)
+            .filter(|_| preserve_context)
+            .map(|v| (v.root.clone(), v.file.clone()))
+            .unwrap_or((root, file));
         self.job(move |d| {
             Ok(Data::Drawer(
                 request,
@@ -117,6 +120,7 @@ impl App {
             }
             ScmTarget::History(kind, index) => {
                 let view = self.drawers.get(&kind).context("Git 列表尚未加载")?.clone();
+                self.drawer_request += 1;
                 let request = self.drawer_request;
                 self.job(move |d| Ok(Data::Show(request, d.scm_show(&view, index))))?;
             }
@@ -341,9 +345,11 @@ impl App {
             }
         };
         f.render_widget(
-            Paragraph::new(text)
-                .scroll((self.drawer_scroll, 0))
-                .block(self.content_block(title)),
+            Paragraph::new(ratatui::text::Text::from(herdr_work_code::ansi::to_lines(
+                &text,
+            )))
+            .scroll((self.drawer_scroll, 0))
+            .block(self.content_block(title)),
             area,
         );
     }

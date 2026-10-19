@@ -70,6 +70,7 @@ pub struct CommitPlan {
     pub root: PathBuf,
     pub instance: String,
     pub repository: String,
+    pub branch: String,
     pub head: Option<String>,
     pub staged: u64,
 }
@@ -424,6 +425,7 @@ impl HerdrWork {
                 root: repo.root().canonicalize()?,
                 instance: Self::worktree_identity(repo.root())?,
                 repository: crate::work_git::repository_identity(&repo)?,
+                branch: repo.status().map_err(anyhow::Error::msg)?.branch,
                 head: herdr_reviewr::git::head_oid(repo.root()),
                 staged: herdr_reviewr::git::staged_fingerprint(repo.root())?,
             })
@@ -444,8 +446,9 @@ impl HerdrWork {
             );
             ensure!(
                 herdr_reviewr::git::head_oid(repo.root()) == plan.head
+                    && repo.status().map_err(anyhow::Error::msg)?.branch == plan.branch
                     && herdr_reviewr::git::staged_fingerprint(repo.root())? == plan.staged,
-                "HEAD or staged content changed; review again"
+                "Branch, HEAD or staged content changed; review again"
             );
             let operation = self.root().join("operations").join(format!(
                 "commit-{}.json",

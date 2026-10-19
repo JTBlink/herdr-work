@@ -13,13 +13,13 @@ mod tasks;
 mod work_git;
 
 pub use code::{CodeSnapshot, CommitPlan, DiffView, FileRow, GitChange, RepositoryStatus};
-pub use editing::EditorSession;
+pub use editing::{EditorExternalObservation, EditorExternalRequest, EditorSession};
 pub use files::FilePlan;
 pub use herdr_work_core as model;
 pub use preferences::UiPreferences;
 pub use review::SendOutcome;
 pub use scm::{DrawerView, GitPlan};
-pub use search::{SearchRow, SearchView};
+pub use search::{QuickIndex, SearchRow, SearchView};
 pub use storage::fingerprint;
 pub use work_git::{CommitDraft, WorkGitAction, WorkGitOutcome, WorkGitPlan};
 

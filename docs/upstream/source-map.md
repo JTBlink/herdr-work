@@ -45,6 +45,7 @@ Code 已作为产品内部 crate 命名和维护，原说明、清单及版权�
 | Projects `crates/flow/src/flow/sidebar.rs` | managed 模式关闭旧 Sidebar 元数据同步，避免驱动另一插件界面。 |
 | Reviewr `src/herdr.rs` | 导出显式 endpoint 的有界 socket 请求，保留原 transport；发送直接复用原 send_text、就绪检查和错误分类。宿主 API 不支持原子 send-if-ready，最终检查与写入之间仍有宿主侧竞态。 |
 | Reviewr `src/proc.rs` | 导出原 process-tree/JobObject 有界进程执行入口，供工作台运行来源后端。 |
+| Code `crates/herdr-work-code/src/editor.rs` | 原 `poll_external` 抽为后台观察与纯状态应用，原入口也调用共享实现；保留原 reload/save、UTF-8/BOM/CRLF、选择及缓冲算法。工作台每次最多排队一个观察，按编辑会话/路径/工作目录和基线拒绝旧结果；保存确认只合并已落盘字节，保留等待期间的新输入。滚轮视口不再在绘制时被光标位置重置。 |
 | Code `crates/herdr-work-code/src/git.rs` | 导出线程范围的 HerdrWork 进程执行回调，让原 Git::discover_all/status/stage/unstage/commit 使用 Reviewr 原 process-tree/JobObject 有界执行器（同时限制子进程和管道排空）；原调用方默认行为不变。Tree 直接复用。 |
 
 HerdrWork 自身补充执行身份、epoch/generation、草稿、固定发送批次、导入日志及操作核对，不新增第二套任务阶段状态机。Reviewr 原评论仍为内存状态，持久化仅属于 HerdrWork。上游测试与 fixtures 完整保留。
@@ -54,3 +55,11 @@ HerdrWork 自身补充执行身份、epoch/generation、草稿、固定发送批
 当前根 workspace 已增加 `herdr-work-code` 与 `herdr-work-projects`。适配接口使用 `herdr_work_*`，托管环境只读取 `HERDR_WORK_MANAGED`。旧命令别名、旧托管变量、旧暂停标记均已移除；profile、Git 写锁、收据和归档只使用 HerdrWork 当前名称，不再支持旧目录或旧插件数据导入。来源 Git 哈希是导入基线，实际改动由本项目提交追踪。
 
 默认 TUI 已改为 Explorer。文件树/SCM 继续执行原 Tree/Git；活动栏选中样式、Git 状态颜色直接复用 Sidebar 的 `ui` 模块。主程序自行维护一个终端和 scoped 布局，不运行原插件 App 或 pane 自动补建。视口几何与鼠标命中使用同一个 layout 模块，预览有独立焦点与滚动，过期文件预览不覆盖当前选择。
+
+## 搜索与历史接入补丁（#30）
+
+Sidebar 固定基线不变。`search::collect_quick_files/quick_matches` 经 Engine 的 `QuickIndex` 缓存供实时输入使用；内容搜索延续原 `explorer_app` 的 300 ms 防抖和单个在途请求策略，产品 epoch/请求号拒绝失效结果。输入、筛选和结果在同一侧栏内操作；命中行号作为加载目标保存，并交给原 `Editor` 定位。
+
+原 `viewer::load_show` 的 Git 参数构造抽至共享 `scm::show_args`，来源 viewer 和产品 Engine 均调用同一实现，保留 stat、patch、路径过滤、禁用外部 Diff 及颜色；产品绘制调用来源 `ansi::to_lines`。File History 从当前 SCM 文件及其仓库创建快照，详情继续使用该快照的文件目标。没有新增另一套搜索或 patch 算法。
+
+本地 macOS 验证覆盖真实临时 Git 仓库的按文件彩色 patch，以及 App 输入/渲染的实时筛选、防抖、过期查询合并、命中行预览/编辑、鼠标筛选和历史目标。完整 workspace 通过；终端 PTY、跨平台和发布验收由本轮集成任务继续执行。
