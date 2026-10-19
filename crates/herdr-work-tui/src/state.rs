@@ -9,6 +9,8 @@ use std::path::PathBuf;
 pub(crate) enum Data {
     Background(crate::refresh::BackgroundRefresh),
     Tasks(Result<Vec<Task>>),
+    ActivationReported(Result<()>),
+    ActivationRead(u64, Result<Option<herdr_work_engine::ActivationRequest>>),
     Code(u64, Result<CodeSnapshot>),
     Diff(DiffView, Review),
     CommitReady(u64, Result<herdr_work_engine::CommitPlan>),
@@ -83,6 +85,7 @@ pub(crate) enum Prompt {
 pub(crate) struct App {
     pub(crate) background_pending: Option<(u64, u64)>,
     pub(crate) last_background: std::time::Instant,
+    pub(crate) activation: Option<crate::activation::ActivationRuntime>,
     pub(crate) desk: HerdrWork,
     pub(crate) context: Context,
     pub(crate) tasks: Vec<Task>,
@@ -157,6 +160,7 @@ impl App {
             background_pending: None,
             last_background: std::time::Instant::now(),
             desk,
+            activation: None,
             context,
             tasks: vec![],
             task: 0,
@@ -272,6 +276,7 @@ impl App {
             && !matches!(
                 &data,
                 Ok(Data::Tasks(_)
+                    | Data::ActivationRead(..)
                     | Data::CommitDone(..)
                     | Data::EditorObserved(..)
                     | Data::EditorSaved(..)
@@ -283,6 +288,11 @@ impl App {
         match data {
             Ok(Data::Background(update)) => self.apply_background(update),
             Err(e) => self.status = format!("{e:#}"),
+            Ok(Data::ActivationReported(Err(error))) => {
+                self.status = format!("自有宿主入口注册失败：{error:#}")
+            }
+            Ok(Data::ActivationReported(Ok(()))) => {}
+            Ok(Data::ActivationRead(request, result)) => self.activation_read(request, result),
             Ok(Data::Business(text)) => {
                 self.status = text;
                 let _ = self.refresh();

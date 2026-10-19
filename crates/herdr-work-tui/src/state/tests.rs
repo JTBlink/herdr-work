@@ -1716,3 +1716,33 @@ fn clicking_readonly_content_exits_search_input_and_uses_preview_keys() {
     assert!(!app.preview_doc.as_ref().unwrap().wrap());
     assert!(screen(&mut app).contains("fixture"));
 }
+
+#[test]
+fn own_host_activity_requests_preserve_editor_and_modal_input() {
+    use herdr_work_engine::{ActivationRequest, InitialView};
+    let (_temp, mut app) = editing_app();
+    app.editor.as_mut().unwrap().editor.insert_text("unsaved ");
+    let original = app.editor.as_ref().unwrap().editor.text();
+    let request = |root| ActivationRequest {
+        nonce: "fixture".into(),
+        pane: "own".into(),
+        profile: "fixture".into(),
+        instance: "fixture".into(),
+        root,
+        view: InitialView::Search,
+    };
+    app.apply_activation(request(app.root.clone()));
+    assert_eq!(app.editor.as_ref().unwrap().editor.text(), original);
+    assert!(app.prompt.is_none());
+    assert!(screen(&mut app).contains("unsaved"));
+    app.editor = None;
+    app.prompt = Some(Prompt::NewTask);
+    app.input = "保留草稿".into();
+    app.apply_activation(request(app.root.clone()));
+    assert!(matches!(app.prompt, Some(Prompt::NewTask)));
+    assert_eq!(app.input, "保留草稿");
+    app.prompt = None;
+    app.apply_activation(request(app.root.clone()));
+    assert!(app.tab == Tab::Search);
+    assert!(app.search_prompt());
+}
