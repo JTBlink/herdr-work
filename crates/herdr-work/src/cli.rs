@@ -23,9 +23,20 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// 启动终端界面，默认浏览当前目录
     Ui {
-        #[arg(default_value = ".")]
         /// 仓库或浏览目录，默认当前目录
-        root: PathBuf,
+        root: Option<PathBuf>,
+        #[arg(long, value_parser = ["explorer", "search", "source-control", "quick-open"])]
+        /// 初始活动；显式目录优先于保存的执行绑定
+        initial_view: Option<String>,
+    },
+    /// 通过 Herdr 宿主打开或聚焦自有工作台活动
+    Activate {
+        #[arg(value_parser = ["show-explorer", "show-search", "show-git", "quick-open"])]
+        /// 自有活动入口
+        action: String,
+        #[arg(long)]
+        /// 显式工作目录，默认宿主当前目录
+        root: Option<PathBuf>,
     },
     /// 查看版本、数据目录、后端和源码来源
     Doctor,

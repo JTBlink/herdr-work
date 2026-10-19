@@ -11,6 +11,8 @@ pub(crate) enum Data {
     Persistence(Box<crate::persistence::Update>),
     Background(Box<crate::refresh::BackgroundRefresh>),
     Tasks(Result<Vec<Task>>),
+    ActivationReported(Result<()>),
+    ActivationRead(u64, Result<Option<herdr_work_engine::ActivationRequest>>),
     Code(u64, Result<CodeSnapshot>),
     Diff(DiffView, Review),
     CommitReady(u64, Result<herdr_work_engine::CommitPlan>),
@@ -87,6 +89,7 @@ pub(crate) enum Prompt {
 pub(crate) struct App {
     pub(crate) background_pending: Option<(u64, u64)>,
     pub(crate) last_background: std::time::Instant,
+    pub(crate) activation: Option<crate::activation::ActivationRuntime>,
     pub(crate) desk: HerdrWork,
     pub(crate) interaction: crate::interaction::Interaction,
     pub(crate) context: Context,
@@ -185,6 +188,8 @@ impl App {
                 workspace,
                 ..Default::default()
             },
+            activation: None,
+
             context,
             tasks: vec![],
             task: 0,
@@ -304,6 +309,7 @@ impl App {
                 Ok(Data::Tasks(_)
                     | Data::Preferences(..)
                     | Data::Persistence(..)
+                    | Data::ActivationRead(..)
                     | Data::CommitDone(..)
                     | Data::GitDraftSaved(..)
                     | Data::GitDraftFlush
@@ -319,6 +325,11 @@ impl App {
             Ok(Data::Persistence(update)) => self.apply_persistence(*update),
             Ok(Data::Background(update)) => self.apply_background(*update),
             Err(e) => self.status = format!("{e:#}"),
+            Ok(Data::ActivationReported(Err(error))) => {
+                self.status = format!("自有宿主入口注册失败：{error:#}")
+            }
+            Ok(Data::ActivationReported(Ok(()))) => {}
+            Ok(Data::ActivationRead(request, result)) => self.activation_read(request, result),
             Ok(Data::Business(text)) => {
                 self.status = text;
                 let _ = self.refresh();

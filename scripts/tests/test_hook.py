@@ -3,10 +3,21 @@ import json
 import os
 from pathlib import Path
 import runpy
+import tomllib
 import unittest
 from unittest.mock import patch
 
 class HookProfile(unittest.TestCase):
+    def test_manifest_activities_allocate_the_products_own_tty_entrypoint(self):
+        root = Path(__file__).resolve().parents[2]
+        manifest = tomllib.loads((root / 'herdr-plugin.toml').read_text())
+        self.assertEqual(manifest['id'], 'jtblink.herdr-work')
+        self.assertEqual(manifest['panes'][0]['command'], ['bin/herdr-work', 'ui'])
+        actions = {action['id']: action['command'] for action in manifest['actions']}
+        self.assertEqual(set(actions), {'show-explorer', 'show-search', 'show-git', 'quick-open'})
+        for name, command in actions.items():
+            self.assertEqual(command, ['bin/herdr-work', 'activate', name])
+
     def test_hook_uses_canonical_cli_profile_and_backend_without_taking_ui_lock(self):
         profile=Path('/tmp/herdr-work-hook-fixture').resolve()
         with patch.dict(os.environ,{},clear=True), patch('subprocess.check_output',return_value=json.dumps({'profile':str(profile)})) as resolve, patch('subprocess.run') as backend:
