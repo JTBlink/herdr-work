@@ -188,3 +188,14 @@ fn flatten_scm_tree(
         }
     }
 }
+
+/// Source SCM Left navigation: the nearest preceding directory above this depth.
+pub fn parent_directory(rows: &[(usize, bool)], selected: usize) -> Option<usize> {
+    let depth = rows.get(selected)?.0;
+    if depth == usize::MAX {
+        return None;
+    }
+    (0..selected)
+        .rev()
+        .find(|&index| rows[index].1 && rows[index].0 < depth)
+}
