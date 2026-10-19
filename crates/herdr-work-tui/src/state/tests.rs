@@ -2726,3 +2726,48 @@ fn history_from_a_working_subdirectory_restores_the_discovered_enclosing_reposit
             .any(|line| line.contains("subdir history"))
     );
 }
+
+#[test]
+fn modal_submission_backpressure_keeps_text_and_never_marks_an_unqueued_commit_pending() {
+    for commit in [false, true] {
+        let (_temp, mut app) = loaded_app();
+        app.prompt = Some(if commit {
+            assert!(
+                Command::new("git")
+                    .args(["add", "visible.txt"])
+                    .current_dir(&app.root)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            Prompt::Commit(app.desk.prepare_commit(&app.root).unwrap())
+        } else {
+            Prompt::NewTask
+        });
+        app.input = "unsent 工作内容".into();
+        let (started, ready) = std::sync::mpsc::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        app.job(move |_| {
+            started.send(()).unwrap();
+            let _ = wait.recv();
+            Ok(Data::GitDraftFlush)
+        })
+        .unwrap();
+        ready.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
+        for _ in 0..32 {
+            app.job(|_| Ok(Data::GitDraftFlush)).unwrap();
+        }
+        assert!(app.submit_prompt().is_err());
+        assert_eq!(app.input, "unsent 工作内容");
+        assert!(if commit {
+            matches!(app.prompt, Some(Prompt::Commit(_)))
+        } else {
+            matches!(app.prompt, Some(Prompt::NewTask))
+        });
+        assert!(app.git.committing.is_empty());
+        release.send(()).unwrap();
+        for _ in 0..33 {
+            let _ = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
+        }
+    }
+}

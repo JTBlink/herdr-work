@@ -8,7 +8,7 @@ use herdr_work_code::{
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct GitPlan {
     pub root: PathBuf,
     args: Vec<String>,

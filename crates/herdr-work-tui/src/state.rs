@@ -69,6 +69,7 @@ pub(crate) enum Focus {
     Sidebar,
     Content,
 }
+#[derive(Clone)]
 pub(crate) enum Prompt {
     Comment {
         review: herdr_work_core::ReviewId,
