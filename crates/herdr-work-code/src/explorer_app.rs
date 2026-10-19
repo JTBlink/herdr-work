@@ -2,7 +2,10 @@
 //! nested indentation, per-file-type icons, and a VS Code-like hide/show command
 //! (`b`) when the user wants the columns back.
 
+#[cfg(test)]
+use herdr_work_code::ui::status_color;
 use std::collections::HashMap;
+
 use std::path::{Path, PathBuf};
 
 use crossterm::event::{
@@ -10,7 +13,9 @@ use crossterm::event::{
 };
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
+#[cfg(test)]
+use ratatui::style::Modifier;
+use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, List, ListItem, Paragraph};
 use unicode_width::UnicodeWidthChar;
@@ -28,7 +33,7 @@ use herdr_work_code::tree::{Row, Tree};
 use herdr_work_code::ui::{
     TitleAction, activity_button_style, activity_icons, chrome_button_style, draw_activity_caps,
     draw_scrollbar, gear_icon, hits, hits_activity_button, hits_collapse_button, input_tail,
-    keep_visible_scroll, palette, selection_style, set_color_theme, sibling_panes_of, status_color,
+    keep_visible_scroll, palette, selection_style, set_color_theme, sibling_panes_of,
     title_action_icon, title_action_spans, title_actions_visible, title_actions_width, truncate_to,
     wrap_footer_message, wrap_hints,
 };

@@ -125,6 +125,8 @@ def ui_smoke(binary):
             wait_for('visible.txt', b'\x1b')
             # Click the Git activity using the terminal's SGR mouse protocol.
             text = wait_for('SOURCECONTROL', b'\x1b[<0;4;9M\x1b[<0;4;9m')
+            assert all(symbol in text for symbol in ['┌', '└', '▄', '▀']), 'Original Sidebar commit widgets are missing'
+            assert 'Message' in text and '提交暂存更改' in text, 'Sidebar input/button are not wired into the real workdesk'
             assert 'Changes(1)' in text, 'Git changes were not shown in the sidebar'
             wait_for('Staged(1)', b's')
             assert git('diff', '--cached', '--name-only').strip() == 'visible.txt', 'UI stage did not update the actual index'
@@ -165,7 +167,7 @@ def ui_smoke(binary):
                 process.wait(timeout=5)
             os.close(master)
             os.close(slave)
-    print('UI loaded: compact Explorer, header close and unsaved guard, passive preview refresh, settings/menu, editor wheel/save/reload/conflict, mouse navigation, stage/unstage, real Diff, tasks, live search at line 80, live Quick Open, 80-column split and clean exit')
+    print('UI loaded: compact Explorer, original Sidebar commit widgets, header close and unsaved guard, passive preview refresh, settings/menu, editor wheel/save/reload/conflict, mouse navigation, stage/unstage, real Diff, tasks, live search at line 80, live Quick Open, 80-column split and clean exit')
 
 
 if __name__ == '__main__':

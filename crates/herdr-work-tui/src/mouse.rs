@@ -156,10 +156,9 @@ impl App {
                     row = event.row.saturating_sub(body.y) as usize;
                 }
                 if self.tab == Tab::Scm {
-                    let rows = self.scm_rows();
-                    let index = row + offset(self.scm_cursor, body.height);
-                    if row < body.height as usize
-                        && let Some(entry) = rows.get(index)
+                    let layout = self.scm_layout(body);
+                    if let Some((index, line)) = layout.hit(body, point)
+                        && let Some(entry) = layout.rows.get(index)
                     {
                         self.git.editing = None;
                         self.scm_cursor = index;
@@ -168,9 +167,21 @@ impl App {
                             self.selection = selected;
                             self.scm_selection = selected;
                         }
+                        if !right
+                            && line == 1
+                            && matches!(entry.3, crate::scm::ScmTarget::Message(_))
+                            && event.column >= body.right().saturating_sub(4)
+                            && event.column < body.right().saturating_sub(1)
+                        {
+                            let root = self.selected_repository();
+                            self.ensure_draft(&root)?;
+                            self.suggest_commit()?;
+                            return Ok(());
+                        }
                         if right {
                             self.open_menu(true);
-                        } else if !(old_hover.is_some_and(|p| body.contains(p) && p.y == point.y)
+                        } else if !((old_hover.is_some_and(|p| body.contains(p) && p.y == point.y)
+                            || matches!(entry.3, crate::scm::ScmTarget::Repository(_)))
                             && self.scm_hover_action(index, event.column - body.x, body.width)?)
                         {
                             self.activate_scm_row()?;

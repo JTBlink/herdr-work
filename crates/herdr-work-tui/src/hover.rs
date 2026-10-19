@@ -255,23 +255,71 @@ impl App {
                     );
                 }
             }
-            ScmTarget::Repository(_) if hovered => {
-                let (sync, commit) = source::repo_header_action_zones(width);
-                if commit.0 != commit.1 {
-                    let text = ui::truncate_to(row.1.clone(), sync.0 as usize);
-                    let used = ratatui::text::Span::raw(&text).width();
-                    return ListItem::new(Line::from(vec![
-                        ratatui::text::Span::raw(format!(
-                            "{text}{}",
-                            " ".repeat((sync.0 as usize).saturating_sub(used))
-                        )),
-                        ratatui::text::Span::styled(
-                            source::REPO_HEADER_ACTIONS,
-                            ui::chrome_button_style(
-                                x.is_some_and(|x| ui::within(x, sync) || ui::within(x, commit)),
-                            ),
-                        ),
-                    ]));
+            ScmTarget::Message(index) => {
+                if let Some(repo) = self
+                    .code
+                    .as_ref()
+                    .and_then(|code| code.repositories.get(*index))
+                {
+                    let draft = self.git.drafts.get(&repo.root);
+                    return herdr_work_code::scm_widgets::message_box_item(
+                        draft.map_or(&[], |draft| draft.message.as_slice()),
+                        draft.map_or(0, |draft| draft.cursor),
+                        &repo.branch,
+                        self.git.editing.as_ref() == Some(&repo.root),
+                        self.icon_theme(),
+                        width as usize,
+                    );
+                }
+            }
+            ScmTarget::Commit(index) => {
+                let root = self.repository_root(*index).ok();
+                let active = root
+                    .as_ref()
+                    .is_some_and(|root| self.selected_repository() == *root);
+                return herdr_work_code::scm_widgets::commit_button_item(
+                    &row.1,
+                    active,
+                    self.scm_cursor
+                        == self
+                            .scm_rows()
+                            .iter()
+                            .position(|r| r.3 == row.3)
+                            .unwrap_or(usize::MAX)
+                        && self.focus == Focus::Sidebar,
+                    width as usize,
+                );
+            }
+            ScmTarget::Repository(index) => {
+                if let Some(repo) = self
+                    .code
+                    .as_ref()
+                    .and_then(|code| code.repositories.get(*index))
+                {
+                    let status = self.sidebar_repo_status(*index);
+                    let name = repo.root.file_name().unwrap_or_default().to_string_lossy();
+                    let name = if repo.write_error.is_some() {
+                        format!("⚠只读 {name}")
+                    } else {
+                        name.into_owned()
+                    };
+                    let header = herdr_work_code::scm_widgets::RepositoryHeader {
+                        name: &name,
+                        status: &status,
+                        collapsed: self.git.repository_collapsed.contains(&repo.root),
+                    };
+                    let zone = herdr_work_code::scm_widgets::repo_header_branch_zone(
+                        header,
+                        self.icon_theme(),
+                        width,
+                    );
+                    return herdr_work_code::scm_widgets::repo_header_item(
+                        header,
+                        self.selected_repository() == repo.root,
+                        self.icon_theme(),
+                        width as usize,
+                        hovered && x.is_some_and(|x| ui::within(x, zone)),
+                    );
                 }
             }
             ScmTarget::Section(repo, true) if hovered => {
@@ -348,6 +396,23 @@ impl App {
                     self.prepare_commit()?;
                 } else if ui::within(x, sync) {
                     self.work_git(herdr_work_engine::WorkGitAction::Sync)?;
+                } else if let ScmTarget::Repository(index) = row.3 {
+                    let status = self.sidebar_repo_status(index);
+                    let header = herdr_work_code::scm_widgets::RepositoryHeader {
+                        name: "",
+                        status: &status,
+                        collapsed: false,
+                    };
+                    let zone = herdr_work_code::scm_widgets::repo_header_branch_zone(
+                        header,
+                        self.icon_theme(),
+                        width,
+                    );
+                    if ui::within(x, zone) {
+                        self.open_branches()?;
+                    } else {
+                        return Ok(false);
+                    }
                 } else {
                     return Ok(false);
                 }

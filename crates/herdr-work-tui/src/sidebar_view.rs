@@ -67,23 +67,23 @@ impl App {
             }
         };
         if scm {
-            let rows = self.scm_rows();
-
+            let layout = self.scm_layout(body);
             let models = self.scm_hover_models();
-            let row = self.scm_cursor.min(rows.len().saturating_sub(1));
-            let items = rows
-                .into_iter()
-                .skip(offset(row, body.height))
-                .enumerate()
-                .map(|(position, entry)| {
-                    let (_index, _text, status, target) = &entry;
-                    let index = position + offset(row, body.height);
-                    let hovered = self.sidebar_hovered(body, index, row);
+            let selected = self.scm_cursor.min(layout.rows.len().saturating_sub(1));
+            let hovered = self
+                .hover
+                .point
+                .and_then(|point| layout.hit(body, point))
+                .map(|hit| hit.0);
+            let items = layout
+                .visible
+                .clone()
+                .map(|index| {
+                    let entry = &layout.rows[index];
+                    let target = &entry.3;
                     let style = if matches!(target, ScmTarget::Commit(_)) {
-                        Style::default()
-                            .bg(palette().button_bg)
-                            .fg(palette().button_fg)
-                    } else if position + offset(row, body.height) == row {
+                        Style::default() // Sidebar's widget owns its caps and button fill.
+                    } else if index == selected {
                         selection_style(self.focus == Focus::Sidebar)
                     } else if matches!(
                         target,
@@ -93,27 +93,50 @@ impl App {
                             .fg(palette().header_accent)
                             .add_modifier(Modifier::BOLD)
                     } else {
-                        let style = Style::default().fg(status_color(*status));
-                        if hovered {
+                        let style = Style::default().fg(status_color(entry.2));
+                        if hovered == Some(index) {
                             style.patch(herdr_work_code::ui::hover_style())
                         } else {
                             style
                         }
                     };
                     self.scm_hover_item(
-                        &entry,
+                        entry,
                         body.width,
-                        hovered,
+                        hovered == Some(index),
                         self.hover
                             .point
-                            .filter(|p| body.contains(*p))
-                            .map(|p| p.x - body.x),
+                            .filter(|point| body.contains(*point))
+                            .map(|point| point.x - body.x),
                         &models,
                     )
                     .style(style)
                 })
                 .collect::<Vec<_>>();
             f.render_widget(List::new(items).block(block), area);
+            if let Some(root) = &self.git.editing
+                && let Some(index) = layout.rows.iter().position(|row| {
+                    matches!(row.3,ScmTarget::Message(i)
+                    if code.repositories.get(i).is_some_and(|repo|&repo.root==root))
+                })
+                && let Some(rect) = layout.rect(body, index)
+                && let Some(draft) = self.git.drafts.get(root)
+            {
+                let source = herdr_work_code::scm_widgets::wrap_message(
+                    &draft.message,
+                    draft.cursor,
+                    usize::from(herdr_work_code::scm_widgets::inline_field_width(body.width)),
+                );
+                let (top, _) =
+                    herdr_work_code::scm_widgets::message_window(source.0.len(), source.1, true);
+                let cursor = ratatui::layout::Position::new(
+                    rect.x + 1 + source.2 as u16,
+                    rect.y + 1 + (source.1 - top) as u16,
+                );
+                if rect.contains(cursor) && cursor.y < rect.bottom().saturating_sub(1) {
+                    f.set_cursor_position(cursor);
+                }
+            }
         } else {
             let items = code
                 .files

@@ -22,7 +22,7 @@ impl Default for UiPreferences {
             sidebar_width: herdr_work_code::appearance::DEFAULT_SIDEBAR_WIDTH,
             dock_right: false,
             color_theme: "vscode".into(),
-            icon_theme: "emoji".into(),
+            icon_theme: "auto".into(),
             show_hidden: true,
             git_decorations: true,
             show_git_footer: true,

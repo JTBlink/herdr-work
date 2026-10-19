@@ -34,6 +34,7 @@ mod preferences;
 mod preview;
 mod refresh;
 mod scm;
+mod scm_layout;
 mod search;
 mod sidebar_view;
 mod state;

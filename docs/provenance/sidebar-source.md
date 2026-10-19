@@ -20,7 +20,7 @@
 | 八类 Git 面板 | 从原 scm_app 原位抽出 scm 模型及查询分派；原 Git graph/commits/history/branches/worktrees/remotes/stashes/tags | 可展开列表与独立内容区，真实对象详情 |
 | 对象菜单 | 原菜单、引用解析及 Git 参数构造迁入同一 scm 模块，来源界面也调用该模块 | 查看/复制/显示及 checkout、merge、cherry-pick、revert、reset、stash、fetch、删除等；确认后重新检查身份/HEAD/index/内容/引用，记录未知结果 |
 | 暂存、取消暂存和提交 | 原 Git::stage_under/unstage/unstage_under/unstage_all/commit | Explorer 文件/目录、SCM 文件/目录/整仓入口；整仓暂存使用原 stage_under 的嵌套仓库边界；保留目录与仓库实例、HEAD、index、完整相关内容、锁与确认快照检查 |
-| SCM 目录树与提交输入 | 原 scm_app 的树构建与字符/光标编辑原位移至 scm_tree/scm_input，来源界面调用共享实现 | SCM t 切换树/列表、分仓库分组、常驻提交输入；各仓库草稿与字符光标只保存于 HerdrWork git-drafts；后台快照加载、带修订号的合并式保存、退出 FIFO 确认，失败保留输入 |
+| SCM 目录树与提交输入 | 原 scm_app 的树构建、字符/光标编辑、仓库标题/提交框/三行按钮及视口原位移至 scm_tree/scm_input/scm_widgets，来源界面调用共享实现 | SCM t 切换树/列表、分仓库分组、带边框常驻提交框及按钮；绘制与命中共享变高行视口；各仓库草稿与字符光标只保存于 HerdrWork git-drafts；后台快照加载、带修订号的合并式保存、退出 FIFO 确认，失败保留输入 |
 | 分支、同步、丢弃与 Stash | 原 BranchPicker、Git 分支方法、sync、discard 与 stash push --include-untracked | 活动仓库明确显示 branch/ahead/behind/upstream；未合并删除生成独立第二次 FORCE DELETE 确认；Unknown 通过与 CLI 共用的 reconcile/resolve 接口显式记录证据，不自动重试 |
 | 悬浮与快捷动作 | 原 scm_app 的动作枚举、命中区域和文件/目录/分组行绘制原位移至 scm_view；Explorer 直接调用原 file_view 与标题按钮 helper | 标题新建/刷新/折叠、树/列表；文件/目录/分组与仓库快捷动作使用相同可见几何，隐藏按钮不可命中；Git 修改继续走确认快照 |
 | 提交消息建议 | 原 suggest::generate 与 diff_for_message | 后台生成；缺少 claude 或失败沿用来源文件名回退；用户已修改的草稿不被异步建议覆盖 |

@@ -61,6 +61,124 @@ fn capture_fixture(app: &mut App, name: &str) {
 }
 
 #[test]
+fn sidebar_source_commit_box_and_button_are_visible_in_the_workdesk() {
+    let (_temp, mut app) = loaded_app();
+    app.tab = Tab::Scm;
+    app.apply_preferences(crate::preferences::Update::Icons(
+        herdr_work_code::icons::IconTheme::Material,
+    ));
+    let mut terminal = Terminal::new(TestBackend::new(160, 32)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let sidebar = app.panes(terminal.get_frame().area()).sidebar;
+    let body = app.sidebar_block(String::new()).inner(sidebar);
+    let row = |y| {
+        (body.x..body.right())
+            .map(|x| terminal.backend().buffer()[(x, y)].symbol())
+            .collect::<String>()
+    };
+    assert!(
+        row(body.y + 1).contains('┌'),
+        "Sidebar message input border is missing: {}",
+        row(body.y + 1)
+    );
+    assert!(row(body.y + 3).contains('└'));
+    assert!(
+        row(body.y + 4).contains("▄▄▄▄"),
+        "Sidebar commit button cap is missing"
+    );
+    assert!(row(body.y + 6).contains("▀▀▀▀"));
+    assert_eq!(
+        app.icon_theme(),
+        herdr_work_code::icons::IconTheme::Material,
+        "Default preferences must allow the original Sidebar font probe to take effect"
+    );
+    app.apply(app.context.epoch, Ok(Data::Tasks(Ok(vec![]))));
+    capture_fixture(&mut app, "sidebar-shared-components");
+    app.preferences.icon_theme = "emoji".into();
+    assert_eq!(
+        app.icon_theme(),
+        herdr_work_code::icons::IconTheme::Emoji,
+        "An explicit user font choice must remain authoritative"
+    );
+}
+
+#[test]
+fn sidebar_boxed_multi_repo_inputs_and_commit_caps_use_their_rendered_targets() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    let nested = app.root.join("inner");
+    std::fs::create_dir(&nested).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .arg(&nested)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(nested.join("visible.txt"), "nested").unwrap();
+    for root in [&app.root, &nested] {
+        assert!(
+            Command::new("git")
+                .args(["add", "visible.txt"])
+                .current_dir(root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 1).unwrap());
+    app.tab = Tab::Scm;
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for right in [false, true] {
+        app.preferences.dock_right = right;
+        for repo in 0..2 {
+            let root = app.repository_root(repo).unwrap();
+            app.scm_cursor = app
+                .scm_rows()
+                .iter()
+                .position(|row| row.3 == crate::scm::ScmTarget::Message(repo))
+                .unwrap();
+            let body = app
+                .sidebar_block(String::new())
+                .inner(app.panes(area).sidebar);
+            let message = app.scm_layout(body).rect(body, app.scm_cursor).unwrap();
+            let click = |x, y| MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: x,
+                row: y,
+                modifiers: KeyModifiers::NONE,
+            };
+            app.mouse(click(message.x + 2, message.y + 1), area)
+                .unwrap();
+            assert_eq!(app.git.editing.as_ref(), Some(&root));
+            app.paste_commit("修复布局与提交输入\n保留草稿".repeat(5).as_str())
+                .unwrap();
+            let tall = app.scm_layout(body).rect(body, app.scm_cursor).unwrap();
+            assert!(tall.height > 3);
+            let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+            terminal.draw(|f| app.draw(f)).unwrap();
+            assert_eq!(
+                terminal.backend().buffer()[(tall.right() - 1, tall.y)].symbol(),
+                "┐"
+            );
+            app.git.editing = None;
+            app.scm_cursor = app
+                .scm_rows()
+                .iter()
+                .position(|row| row.3 == crate::scm::ScmTarget::Commit(repo))
+                .unwrap();
+            let button = app.scm_layout(body).rect(body, app.scm_cursor).unwrap();
+            app.mouse(click(button.x + 6, button.y), area).unwrap();
+            receive(&mut app);
+            assert!(matches!(&app.prompt,Some(Prompt::Commit(plan)) if plan.root==root));
+            app.prompt = None;
+            app.input.clear();
+        }
+    }
+}
+
+#[test]
 fn polished_rail_keeps_icons_badges_hover_and_clicks_in_their_visible_slots() {
     use crate::layout::{ACTIVITIES, activity_button};
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -436,11 +554,12 @@ fn source_control_activity_and_pointer_show_real_diff() {
     let rendered = screen(&mut app);
     assert!(rendered.contains("SOURCECONTROL") && rendered.contains("Changes(1)"));
     let row = app.scm_rows().iter().position(|r| r.0 == Some(0)).unwrap();
+    let body = app.sidebar_block(String::new()).inner(panes.sidebar);
     app.mouse(
         MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: panes.sidebar.x + 3,
-            row: panes.sidebar.y + 1 + row as u16,
+            row: app.scm_layout(body).rect(body, row).unwrap().y,
             modifiers: KeyModifiers::NONE,
         },
         area,
@@ -1835,7 +1954,7 @@ fn scm_hover_button_uses_the_visible_file_and_is_disabled_when_too_narrow() {
     let index = app.scm_rows().iter().position(|r| r.0 == Some(0)).unwrap();
     app.scm_cursor = index;
     let x = body.right() - 4;
-    let y = body.y + index as u16;
+    let y = app.scm_layout(body).rect(body, index).unwrap().y;
     let mouse = |kind, column, row| MouseEvent {
         kind,
         column,
@@ -2515,7 +2634,7 @@ fn hover_stage_targets_the_nested_repository_with_the_same_filename() {
     let body = app
         .sidebar_block(String::new())
         .inner(app.panes(area).sidebar);
-    let row = body.y + (app.scm_cursor - crate::layout::offset(app.scm_cursor, body.height)) as u16;
+    let row = app.scm_layout(body).rect(body, app.scm_cursor).unwrap().y;
     let event = |kind| MouseEvent {
         kind,
         column: body.right() - 4,
