@@ -10,7 +10,6 @@ pub(crate) const ACTIVITIES: [(Tab, &str, char); 5] = [
     (Tab::Review, "Review", '4'),
 ];
 pub(crate) struct Panes {
-    pub header: Rect,
     pub activity: Rect,
     pub sidebar: Rect,
     pub content: Rect,
@@ -25,10 +24,9 @@ pub(crate) fn configured_panes(
     focus: Focus,
     preferences: &herdr_work_engine::UiPreferences,
 ) -> Panes {
-    let [header, body, footer] = Layout::vertical([
-        Constraint::Length(1),
+    let [body, footer] = Layout::vertical([
         Constraint::Min(1),
-        Constraint::Length(if preferences.show_hotkeys { 3 } else { 2 }),
+        Constraint::Length(if preferences.show_hotkeys { 2 } else { 1 }),
     ])
     .areas(area);
     let [first, second] = Layout::horizontal(if preferences.dock_right {
@@ -63,7 +61,6 @@ pub(crate) fn configured_panes(
         (Rect::default(), workspace)
     };
     Panes {
-        header,
         activity,
         sidebar,
         content,
@@ -83,6 +80,10 @@ impl crate::state::App {
         configured_panes(area, self.focus, &self.preferences)
     }
 }
+/// First visible item, given the actual number of body rows (no panel chrome).
 pub(crate) fn offset(selected: usize, height: u16) -> usize {
-    selected.saturating_sub(height.saturating_sub(3) as usize)
+    selected.saturating_sub(height.saturating_sub(1) as usize)
+}
+pub(crate) fn task_offset(selected: usize, height: u16) -> usize {
+    offset(selected, height / 2)
 }
