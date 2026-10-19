@@ -105,7 +105,7 @@ pub fn file_hover_action_start(width: u16, staged: bool) -> Option<u16> {
     const ACTION_WIDTH: u16 = 3;
     const MIN_FILE_CONTENT: u16 = 8;
     let actions_width = file_hover_actions(staged).len() as u16 * ACTION_WIDTH;
-    (width >= MIN_FILE_CONTENT + actions_width + 2).then_some(width - actions_width - 2)
+    (width >= MIN_FILE_CONTENT + actions_width + 2).then(|| width - actions_width - 2)
 }
 
 pub fn file_hover_action_at(x: u16, width: u16, staged: bool) -> Option<FileHoverAction> {
