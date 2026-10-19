@@ -151,6 +151,22 @@ fn migrate_legacy(home: &Path) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn final_profile_owner_releases_locks_with_inherited_descriptors() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("workdesk.lock"), "").unwrap();
+        let desk = crate::HerdrWork::open(root.path(), None).unwrap();
+        // A dup shares the open file description, as a concurrent fork does
+        // before exec. Closing only the parent's fd leaves its flock alive.
+        let _inherited_current = desk.0._lock.try_clone().unwrap();
+        let _inherited_legacy = desk.0._legacy_lock.as_ref().unwrap().try_clone().unwrap();
+        let last_owner = desk.clone();
+        drop(desk);
+        assert!(crate::HerdrWork::open(root.path(), None).is_err());
+        drop(last_owner);
+        assert!(crate::HerdrWork::open(root.path(), None).is_ok());
+    }
     #[test]
     fn copies_idle_profile_once_and_preserves_original_and_newer_data() {
         let home = tempfile::tempdir().unwrap();
