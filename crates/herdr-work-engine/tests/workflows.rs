@@ -495,3 +495,27 @@ fn file_history_show_contains_colored_patch_only_for_selected_file() {
     assert!(!patch.contains("unrelated-patch"));
     assert!(!patch.contains("other.txt"));
 }
+
+#[test]
+fn readonly_preview_uses_source_highlight_and_bounds_large_text() {
+    let (repo, _home, desk) = fixture();
+    std::fs::write(
+        repo.path().join("code.rs"),
+        "fn main() { println!(\"界\"); }\n",
+    )
+    .unwrap();
+    let doc = desk.preview_file(repo.path(), "code.rs", None, 60).unwrap();
+    assert!(doc.numbered());
+    assert!(
+        doc.lines()
+            .iter()
+            .flat_map(|l| &l.spans)
+            .any(|s| s.style.fg.is_some())
+    );
+    std::fs::write(repo.path().join("large.txt"), "line\n".repeat(6000)).unwrap();
+    let doc = desk
+        .preview_file(repo.path(), "large.txt", Some(80), 60)
+        .unwrap();
+    assert!(doc.plain_text().ends_with("… (truncated)"));
+    assert_eq!(doc.lines().len(), 5001);
+}

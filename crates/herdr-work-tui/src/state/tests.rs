@@ -297,21 +297,44 @@ fn late_preview_for_another_file_cannot_replace_the_current_file() {
     let current = app.root.join("current.txt");
     app.preview_path = Some(current.clone());
     app.text = "current content".into();
-    app.apply(0, Ok(Data::Preview(old.clone(), Ok("old content".into()))));
-    assert_eq!(app.text, "current content");
     app.apply(
         0,
-        Ok(Data::Preview(old, Err(anyhow::anyhow!("old failure")))),
+        Ok(Data::Preview(
+            0,
+            old.clone(),
+            Ok(herdr_work_code::preview::git_show(
+                "old".into(),
+                String::new(),
+                "old content",
+            )),
+        )),
     );
     assert_eq!(app.text, "current content");
     app.apply(
         0,
-        Ok(Data::Preview(current.clone(), Ok("fresh content".into()))),
+        Ok(Data::Preview(0, old, Err(anyhow::anyhow!("old failure")))),
+    );
+    assert_eq!(app.text, "current content");
+    app.apply(
+        0,
+        Ok(Data::Preview(
+            0,
+            current.clone(),
+            Ok(herdr_work_code::preview::git_show(
+                "current".into(),
+                String::new(),
+                "fresh content",
+            )),
+        )),
     );
     assert_eq!(app.text, "fresh content");
     app.apply(
         0,
-        Ok(Data::Preview(current, Err(anyhow::anyhow!("unreadable")))),
+        Ok(Data::Preview(
+            0,
+            current,
+            Err(anyhow::anyhow!("unreadable")),
+        )),
     );
     assert!(app.text.contains("无法预览文件"));
     app.context.epoch = 2;
@@ -765,7 +788,7 @@ fn quick_open_filters_while_typing_and_keeps_results_navigable() {
         .recv_timeout(Duration::from_secs(3))
         .unwrap();
     app.apply(epoch, data);
-    assert_eq!(app.text, "fixture\n");
+    assert_eq!(app.text, "fixture");
 }
 
 #[test]
@@ -967,4 +990,30 @@ fn fast_content_query_changes_coalesce_and_old_query_never_renders() {
     app.apply(epoch, data);
     assert_eq!(app.search_rows.len(), 1);
     assert_eq!(app.search_rows[0].context, "fixture");
+}
+
+#[test]
+fn readonly_preview_wrap_selection_and_pinned_documents_share_source_model() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = loaded_app();
+    let source = format!("{}\nsecond line", "alpha界".repeat(30));
+    std::fs::write(app.root.join("visible.txt"), &source).unwrap();
+    app.open_preview(app.root.join("visible.txt"), None).unwrap(); receive(&mut app);
+    app.focus = Focus::Content;
+    let area = ratatui::layout::Rect::new(0,0,90,32);
+    let mut terminal = Terminal::new(TestBackend::new(90,32)).unwrap();
+    terminal.draw(|f| app.draw(f)).unwrap();
+    let wrapped = app.preview_doc.as_ref().unwrap().row_count();
+    app.input_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL), area).unwrap();
+    assert_eq!(app.preview_doc.as_ref().unwrap().selection_text().as_deref(), Some(source.as_str()));
+    app.input_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE), area).unwrap();
+    terminal.draw(|f| app.draw(f)).unwrap();
+    assert!(app.preview_doc.as_ref().unwrap().row_count() < wrapped);
+    app.input_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE), area).unwrap();
+    std::fs::write(app.root.join("second.txt"), "another document").unwrap();
+    app.open_preview(app.root.join("second.txt"), None).unwrap(); receive(&mut app);
+    app.input_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE), area).unwrap();
+    assert!(app.preview_path.as_ref().unwrap().ends_with("visible.txt"));
+    assert!(!app.preview_doc.as_ref().unwrap().wrap());
+    assert!(screen(&mut app).contains("visible.txt"));
 }
