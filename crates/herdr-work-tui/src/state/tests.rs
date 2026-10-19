@@ -383,6 +383,7 @@ fn original_editor_saves_text_undoes_and_protects_unsaved_and_external_changes()
         .unwrap();
     app.input_key(key(KeyCode::Char('s'), KeyModifiers::CONTROL), area)
         .unwrap();
+    receive(&mut app);
     assert_eq!(
         std::fs::read_to_string(app.root.join("visible.txt")).unwrap(),
         "qfixture\n"
@@ -399,6 +400,7 @@ fn original_editor_saves_text_undoes_and_protects_unsaved_and_external_changes()
     std::fs::write(app.root.join("visible.txt"), "external writer\n").unwrap();
     app.input_key(key(KeyCode::Char('s'), KeyModifiers::CONTROL), area)
         .unwrap();
+    receive(&mut app);
     assert!(app.status.contains("外部修改"));
     assert_eq!(
         std::fs::read_to_string(app.root.join("visible.txt")).unwrap(),
@@ -501,6 +503,233 @@ fn search_and_eight_git_drawers_use_original_queries() {
     receive(&mut app);
     app.drawers.get_mut(&Drawer::Graph).unwrap().root = "/example/herdr-work".into();
     capture_fixture(&mut app, "source-control");
+}
+
+#[test]
+fn editor_wheel_scrolls_without_moving_cursor_or_selection() {
+    use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    std::fs::write(
+        app.root.join("visible.txt"),
+        (0..120).map(|n| format!("line {n}\n")).collect::<String>(),
+    )
+    .unwrap();
+    app.selection = app
+        .code
+        .as_ref()
+        .unwrap()
+        .files
+        .iter()
+        .position(|f| f.name == "visible.txt")
+        .unwrap();
+    app.start_editor().unwrap();
+    receive(&mut app);
+    let area = ratatui::layout::Rect::new(0, 0, 120, 32);
+    let content = app.panes(area).content;
+    let cursor = app.editor.as_ref().unwrap().editor.cursor();
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: content.x + 5,
+            row: content.y + 4,
+            modifiers: KeyModifiers::NONE,
+        },
+        area,
+    )
+    .unwrap();
+    assert!(screen(&mut app).contains("line3"));
+    assert_eq!(app.editor.as_ref().unwrap().editor.scroll, 3);
+    assert_eq!(app.editor.as_ref().unwrap().editor.cursor(), cursor);
+}
+
+#[test]
+fn clean_editor_reloads_external_changes_but_pending_check_preserves_new_input() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = loaded_app();
+    app.selection = app
+        .code
+        .as_ref()
+        .unwrap()
+        .files
+        .iter()
+        .position(|f| f.name == "visible.txt")
+        .unwrap();
+    app.start_editor().unwrap();
+    receive(&mut app);
+    std::fs::write(app.root.join("visible.txt"), "from disk\n").unwrap();
+    app.poll_editor().unwrap();
+    receive(&mut app);
+    assert_eq!(app.editor.as_ref().unwrap().editor.text(), "from disk\n");
+    std::fs::write(app.root.join("visible.txt"), "new external\n").unwrap();
+    app.poll_editor().unwrap();
+    // Wait until observation is complete, then type before its result is applied.
+    let (epoch, result) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.input_key(
+        KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+        ratatui::layout::Rect::new(0, 0, 120, 32),
+    )
+    .unwrap();
+    let cursor = app.editor.as_ref().unwrap().editor.cursor();
+    app.apply(epoch, result);
+    assert_eq!(app.editor.as_ref().unwrap().editor.text(), "xfrom disk\n");
+    assert_eq!(app.editor.as_ref().unwrap().editor.cursor(), cursor);
+    assert!(screen(&mut app).contains("磁盘已改变"));
+}
+
+fn editing_app() -> (tempfile::TempDir, App) {
+    let (temp, mut app) = loaded_app();
+    app.selection = app
+        .code
+        .as_ref()
+        .unwrap()
+        .files
+        .iter()
+        .position(|f| f.name == "visible.txt")
+        .unwrap();
+    app.start_editor().unwrap();
+    receive(&mut app);
+    (temp, app)
+}
+
+#[test]
+fn save_conflict_menu_can_cancel_reload_or_explicitly_overwrite() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = editing_app();
+    let area = ratatui::layout::Rect::new(0, 0, 120, 32);
+    let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    app.input_key(key(KeyCode::Char('x')), area).unwrap();
+    std::fs::write(app.root.join("visible.txt"), "external writer\n").unwrap();
+    app.save_editor().unwrap();
+    receive(&mut app);
+    let rendered = screen(&mut app);
+    assert!(rendered.contains("保存冲突") && rendered.contains("明确覆盖"));
+    app.input_key(key(KeyCode::Enter), area).unwrap(); // Default continues editing.
+    assert!(app.overlay.is_none());
+    assert_eq!(app.editor.as_ref().unwrap().editor.text(), "xfixture\n");
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("visible.txt")).unwrap(),
+        "external writer\n"
+    );
+    app.save_editor().unwrap();
+    receive(&mut app);
+    app.input_key(key(KeyCode::Down), area).unwrap();
+    app.input_key(key(KeyCode::Enter), area).unwrap(); // Reload explicitly discards buffer.
+    receive(&mut app);
+    assert_eq!(
+        app.editor.as_ref().unwrap().editor.text(),
+        "external writer\n"
+    );
+    app.input_key(key(KeyCode::Char('z')), area).unwrap();
+    let wanted = app.editor.as_ref().unwrap().editor.text();
+    std::fs::write(app.root.join("visible.txt"), "another writer\n").unwrap();
+    app.save_editor().unwrap();
+    receive(&mut app);
+    app.input_key(key(KeyCode::Down), area).unwrap();
+    app.input_key(key(KeyCode::Down), area).unwrap();
+    app.input_key(key(KeyCode::Enter), area).unwrap();
+    receive(&mut app);
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("visible.txt")).unwrap(),
+        wanted
+    );
+    assert!(!app.editor.as_ref().unwrap().editor.dirty);
+}
+
+#[test]
+fn input_arriving_while_save_or_reload_is_pending_is_never_lost() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = editing_app();
+    let area = ratatui::layout::Rect::new(0, 0, 120, 32);
+    let key = |ch| KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE);
+    app.input_key(key('x'), area).unwrap();
+    app.save_editor().unwrap();
+    let (epoch, result) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.input_key(key('y'), area).unwrap();
+    app.apply(epoch, result);
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("visible.txt")).unwrap(),
+        "xfixture\n"
+    );
+    assert_eq!(app.editor.as_ref().unwrap().editor.text(), "xyfixture\n");
+    assert!(app.editor.as_ref().unwrap().editor.dirty);
+    receive(&mut app); // Snapshot refresh after save.
+    app.reload_editor().unwrap();
+    let (epoch, result) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.input_key(key('z'), area).unwrap();
+    app.apply(epoch, result);
+    assert_eq!(app.editor.as_ref().unwrap().editor.text(), "xyzfixture\n");
+    assert!(app.editor.as_ref().unwrap().editor.dirty);
+}
+
+#[test]
+fn clean_reload_preserves_cursor_and_selection_for_the_next_edit() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = editing_app();
+    let area = ratatui::layout::Rect::new(0, 0, 120, 32);
+    app.input_key(KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT), area)
+        .unwrap();
+    let cursor = app.editor.as_ref().unwrap().editor.cursor();
+    std::fs::write(app.root.join("visible.txt"), "fixture\nnew line\n").unwrap();
+    app.poll_editor().unwrap();
+    receive(&mut app);
+    assert_eq!(app.editor.as_ref().unwrap().editor.cursor(), cursor);
+    app.input_key(KeyEvent::new(KeyCode::Char('界'), KeyModifiers::NONE), area)
+        .unwrap();
+    assert_eq!(
+        app.editor.as_ref().unwrap().editor.text(),
+        "界ixture\nnew line\n"
+    );
+}
+
+#[test]
+fn old_observation_cannot_replace_a_reopened_editor_at_the_same_path() {
+    let (_temp, mut app) = editing_app();
+    std::fs::write(app.root.join("visible.txt"), "observed old file\n").unwrap();
+    app.poll_editor().unwrap();
+    let (epoch, old) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.finish_editor().unwrap();
+    receive(&mut app);
+    std::fs::write(app.root.join("visible.txt"), "reopened file\n").unwrap();
+    app.start_editor().unwrap();
+    receive(&mut app);
+    app.apply(epoch, old);
+    assert_eq!(
+        app.editor.as_ref().unwrap().editor.text(),
+        "reopened file\n"
+    );
+}
+
+#[test]
+fn binding_context_change_during_save_does_not_strand_the_same_editor() {
+    let (_temp, mut app) = editing_app();
+    app.editor.as_mut().unwrap().editor.insert_text("local ");
+    app.save_editor().unwrap();
+    let (epoch, result) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    // A previously queued Agent binding may complete while this editor remains open.
+    app.context.epoch += 1;
+    app.apply(epoch, result);
+    assert!(!app.editor.as_ref().unwrap().editor.dirty);
+    assert!(app.editor_write.is_none());
 }
 
 #[test]

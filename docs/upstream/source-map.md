@@ -40,6 +40,7 @@
 | Projects `crates/flow/src/flow/send.rs` | managed 模式的原 launcher 清除插件 UI 身份及其上下文，保留原 Agent caller / 无 ID report 语义。 |
 | Projects `crates/flow/src/keeper.rs` | managed 模式识别独立暂停标记，keeper 和 ticker 自行退出；保留原后台锁、heartbeat、runner 与更新交接逻辑。 |
 | Projects `crates/flow/src/flow/sidebar.rs` | managed 模式关闭旧 Sidebar 元数据同步，避免驱动另一插件界面。 |
+| Code `crates/herdr-work-code/src/editor.rs` | 原 `poll_external` 抽为后台观察与纯状态应用，原入口也调用共享实现；保留原 reload/save、UTF-8/BOM/CRLF、选择及缓冲算法。工作台每次最多排队一个观察，按编辑会话/路径/工作目录和基线拒绝旧结果；保存确认只合并已落盘字节，保留等待期间的新输入。滚轮视口不再在绘制时被光标位置重置。 |
 
 
 ## 当前名称与兼容清理

@@ -17,12 +17,23 @@ impl App {
         }
         let layout = self.panes(area);
         let point = Position::new(event.column, event.row);
+        let editor_body = self.content_block(String::new()).inner(layout.content);
         if let Some(session) = &mut self.editor {
             if layout.content.contains(point) {
-                let body = ratatui::widgets::Block::default()
-                    .borders(ratatui::widgets::Borders::ALL)
-                    .inner(layout.content);
-                session.editor.on_mouse(&event, body);
+                let delta = match event.kind {
+                    MouseEventKind::ScrollDown => 3,
+                    MouseEventKind::ScrollUp => -3,
+                    _ => 0,
+                };
+                if delta != 0 {
+                    session.editor.scroll_by(
+                        delta,
+                        session.editor.wrap_width(editor_body.width),
+                        editor_body.height as usize,
+                    );
+                } else {
+                    session.editor.on_mouse(&event, editor_body);
+                }
             }
             return Ok(());
         }

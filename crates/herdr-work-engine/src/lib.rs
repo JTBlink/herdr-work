@@ -12,7 +12,7 @@ mod storage;
 mod tasks;
 
 pub use code::{CodeSnapshot, CommitPlan, DiffView, FileRow, GitChange};
-pub use editing::EditorSession;
+pub use editing::{EditorExternalObservation, EditorExternalRequest, EditorSession};
 pub use files::FilePlan;
 pub use herdr_work_core as model;
 pub use preferences::UiPreferences;
