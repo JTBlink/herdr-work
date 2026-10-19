@@ -5,14 +5,15 @@ use herdr_work_code::{
     git::Git,
     scm::{Drawer, DrawerRef, drawer_git_spec, parse_drawer_ref},
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 pub struct GitPlan {
     pub root: PathBuf,
-    pub args: Vec<String>,
+    args: Vec<String>,
     instance: String,
+    repository: String,
     head: Option<String>,
     index: u64,
     content: String,
@@ -20,13 +21,7 @@ pub struct GitPlan {
     reference: String,
     target: Option<(PathBuf, String)>,
 }
-fn working_stamp(git: &Git) -> Result<String> {
-    Ok(crate::fingerprint(
-        git.raw(&["diff", "--binary"])
-            .map_err(anyhow::Error::msg)?
-            .as_bytes(),
-    ))
-}
+use crate::work_git::working_stamp;
 
 #[derive(Clone)]
 pub struct DrawerView {
@@ -34,6 +29,11 @@ pub struct DrawerView {
     pub kind: Drawer,
     pub file: Option<String>,
     pub lines: Vec<String>,
+}
+impl GitPlan {
+    pub fn arguments(&self) -> &[String] {
+        &self.args
+    }
 }
 impl HerdrWork {
     pub fn prepare_scm_action(
@@ -89,9 +89,10 @@ impl HerdrWork {
                 root: git.root().into(),
                 args: operation.args,
                 instance: Self::worktree_identity(git.root())?,
+                repository: crate::work_git::repository_identity(&git)?,
                 content: working_stamp(&git)?,
                 check,
-                reference: current,
+                reference: crate::fingerprint(current.as_bytes()),
                 target,
             })
         })
@@ -105,13 +106,19 @@ impl HerdrWork {
             let git = Git::discover(&plan.root).map_err(anyhow::Error::msg)?;
             let _lock = crate::code::write_lock(&git)?;
             anyhow::ensure!(
+                crate::work_git::repository_identity(&git)? == plan.repository,
+                "仓库实例已改变"
+            );
+            anyhow::ensure!(
                     && working_stamp(&git)? == plan.content,
                 "Git 状态已改变，请重新确认操作"
             );
             anyhow::ensure!(
-                git.raw(&plan.check.iter().map(String::as_str).collect::<Vec<_>>())
-                    .map_err(anyhow::Error::msg)?
-                    == plan.reference,
+                crate::fingerprint(
+                    git.raw(&plan.check.iter().map(String::as_str).collect::<Vec<_>>())
+                        .map_err(anyhow::Error::msg)?
+                        .as_bytes()
+                ) == plan.reference,
                 "Git 引用已改变，请重新选择"
             );
             if let Some((path, identity)) = &plan.target {

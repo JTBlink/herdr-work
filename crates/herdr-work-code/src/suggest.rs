@@ -30,7 +30,7 @@ pub fn spawn(diff: String, files: Vec<String>) -> Receiver<String> {
     rx
 }
 
-fn generate(diff: &str, files: &[String]) -> String {
+pub fn generate(diff: &str, files: &[String]) -> String {
     match ask_claude(diff) {
         Some(message) => message,
         None => fallback(files),

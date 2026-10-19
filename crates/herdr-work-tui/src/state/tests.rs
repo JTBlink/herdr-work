@@ -993,46 +993,232 @@ fn fast_content_query_changes_coalesce_and_old_query_never_renders() {
 }
 
 #[test]
-fn readonly_preview_wrap_selection_and_pinned_documents_share_source_model() {
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+fn compact_top_aligns_titles_and_uses_one_row_of_footer_without_hotkeys() {
     let (_temp, mut app) = loaded_app();
-    let source = format!("{}\nsecond line", "alpha界".repeat(30));
-    std::fs::write(app.root.join("visible.txt"), &source).unwrap();
-    app.open_preview(app.root.join("visible.txt"), None)
-        .unwrap();
+    app.preferences.show_hotkeys = false;
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        let panes = app.panes(area);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let row = |y| {
+            (0..80)
+                .map(|x| terminal.backend().buffer()[(x, y)].symbol())
+                .collect::<String>()
+        };
+        assert!(row(0).contains("EXPLORER") && row(0).contains("Preview"));
+        assert!(
+            !row(0).contains("HerdrWork")
+                && !row(0).contains(&app.root.to_string_lossy().to_string())
+        );
+        assert_eq!(panes.content.y, 0);
+        assert_eq!(panes.footer.height, 1);
+        assert!(row(1).contains("visible.txt"));
+        assert!(row(23).contains("repo"));
+    }
+}
+
+#[test]
+fn compact_scrolled_file_rows_use_the_rendered_body_on_both_dock_sides() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    for n in 0..34 {
+        std::fs::write(app.root.join(format!("f{n:02}.txt")), "selected file\n").unwrap();
+    }
+    app.refresh().unwrap();
     receive(&mut app);
-    app.focus = Focus::Content;
-    let area = ratatui::layout::Rect::new(0, 0, 90, 32);
-    let mut terminal = Terminal::new(TestBackend::new(90, 32)).unwrap();
-    terminal.draw(|f| app.draw(f)).unwrap();
-    let wrapped = app.preview_doc.as_ref().unwrap().row_count();
-    app.input_key(
-        KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL),
-        area,
-    )
-    .unwrap();
-    assert_eq!(
-        app.preview_doc
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        app.selection = app
+            .code
             .as_ref()
             .unwrap()
-            .selection_text()
-            .as_deref(),
-        Some(source.as_str())
-    );
-    app.input_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE), area)
+            .files
+            .iter()
+            .position(|f| f.name == "f33.txt")
+            .unwrap();
+        let panes = app.panes(area);
+        let body = app.sidebar_block(String::new()).inner(panes.sidebar);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let first = (body.x..body.right())
+            .map(|x| terminal.backend().buffer()[(x, body.y)].symbol())
+            .collect::<String>();
+        assert!(first.contains("f13.txt"), "First displayed row was {first}");
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: body.x + 4,
+                row: body.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
         .unwrap();
+        receive(&mut app);
+        assert_eq!(
+            app.code.as_ref().unwrap().files[app.selection].name,
+            "f13.txt"
+        );
+        // With f13 selected the list starts at f00, making f20 the final visible row.
+        terminal.draw(|f| app.draw(f)).unwrap();
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: body.x + 4,
+                row: body.bottom() - 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        receive(&mut app);
+        assert_eq!(
+            app.code.as_ref().unwrap().files[app.selection].name,
+            "f20.txt"
+        );
+    }
+}
+
+#[test]
+fn compact_long_unicode_document_keeps_one_divider_and_status_when_editing() {
+    let (_temp, mut app) = loaded_app();
+    let file = format!("{}.txt", "很长的中文文件名".repeat(8));
+    std::fs::write(app.root.join(&file), "文档正文\n第二行\n").unwrap();
+    app.preview_path = Some(app.root.join(&file));
+    app.text = "文档正文\n第二行\n".into();
+    app.code.as_mut().unwrap().branch = "feature/layout".into();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        let panes = app.panes(area);
+        let divider = if dock_right {
+            panes.sidebar.x
+        } else {
+            panes.sidebar.right() - 1
+        };
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        for y in 0..panes.footer.y {
+            assert_eq!(terminal.backend().buffer()[(divider, y)].symbol(), "│");
+        }
+        let body = app.content_block(String::new()).inner(panes.content);
+        assert_eq!(body.y, 1);
+        assert_eq!(terminal.backend().buffer()[(body.x, body.y)].symbol(), "文");
+        assert_eq!(body.bottom(), panes.footer.y);
+    }
+    app.editor = Some(app.desk.edit_file(&app.root, &file).unwrap());
+    app.status = "编辑中".into();
+    app.preferences.show_hotkeys = false;
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     terminal.draw(|f| app.draw(f)).unwrap();
-    assert!(app.preview_doc.as_ref().unwrap().row_count() < wrapped);
-    app.input_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE), area)
+    let status = (0..80)
+        .map(|x| terminal.backend().buffer()[(x, 23)].symbol())
+        .collect::<String>();
+    assert!(
+        status.contains("repo")
+            && status.contains("feature/layout")
+            && status.replace(' ', "").contains("编辑中"),
+        "Actual status: {status}"
+    );
+    assert!(!status.contains("Ctrl+S"));
+    capture_fixture(&mut app, "compact-editor");
+}
+
+#[test]
+fn compact_quick_open_uses_only_its_query_row_and_clicks_the_first_result() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    app.switch_tab(Tab::Search);
+    app.search_quick = true;
+    app.search_state = LoadState::Ready;
+    app.search_rows = vec![herdr_work_engine::SearchRow {
+        path: app.root.join("visible.txt"),
+        label: "visible.txt".into(),
+        line: 1,
+        context: "fixture".into(),
+    }];
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        let (header, body) = app.search_regions(app.panes(area).sidebar);
+        assert_eq!(header.height, 1);
+        assert_eq!(body.y, 2);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let first = (body.x..body.right())
+            .map(|x| terminal.backend().buffer()[(x, body.y)].symbol())
+            .collect::<String>();
+        assert!(first.contains("visible.txt"));
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: body.x + 2,
+                row: body.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
         .unwrap();
-    std::fs::write(app.root.join("second.txt"), "another document").unwrap();
-    app.open_preview(app.root.join("second.txt"), None).unwrap();
-    receive(&mut app);
-    app.input_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE), area)
+        receive(&mut app);
+        assert_eq!(app.text, "fixture\n");
+    }
+}
+
+#[test]
+fn compact_task_rows_keep_two_line_items_and_ignore_unused_last_row() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    app.tasks = (0..20)
+        .map(|n| Task {
+            id: TaskId(format!("task-{n}")),
+            title: format!("Task {n}"),
+            stage: "planned".into(),
+            executions: vec![],
+        })
+        .collect();
+    app.tasks_state = LoadState::Ready;
+    app.switch_tab(Tab::Tasks);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        app.task = 19;
+        let body = app
+            .sidebar_block(String::new())
+            .inner(app.panes(area).sidebar);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let row = (body.x..body.right())
+            .map(|x| terminal.backend().buffer()[(x, body.y)].symbol())
+            .collect::<String>();
+        assert!(row.contains("Task 10"));
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: body.x + 2,
+                row: body.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
         .unwrap();
-    assert!(app.preview_path.as_ref().unwrap().ends_with("visible.txt"));
-    assert!(!app.preview_doc.as_ref().unwrap().wrap());
-    assert!(screen(&mut app).contains("visible.txt"));
+        assert_eq!(app.task, 10);
+        app.overlay = None;
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: body.x + 2,
+                row: body.bottom() - 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        assert_eq!(app.task, 10);
+        assert!(app.overlay.is_none(), "Blank row opened a task menu");
+    }
 }
 
 #[test]
@@ -1097,6 +1283,326 @@ fn periodic_refresh_coalesces_and_preserves_active_input() {
         app.jobs.results.try_recv().is_err(),
         "Passive refresh flooded the worker queue"
     );
+}
+
+#[test]
+fn scm_repository_inputs_survive_refresh_and_failed_commit_without_crossing_roots() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = app();
+    let nested = app.root.join("inner");
+    std::fs::create_dir(&nested).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .arg(&nested)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(nested.join("visible.txt"), "inner").unwrap();
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 1).unwrap());
+    app.code_state = LoadState::Ready;
+    app.switch_tab(Tab::Scm);
+    let rows = app.scm_rows();
+    assert!(
+        rows.iter()
+            .any(|r| matches!(r.3, crate::scm::ScmTarget::Message(0)))
+    );
+    assert!(
+        rows.iter()
+            .any(|r| matches!(r.3, crate::scm::ScmTarget::Message(1)))
+    );
+    app.scm_cursor = rows
+        .iter()
+        .position(|r| matches!(r.3, crate::scm::ScmTarget::Message(1)))
+        .unwrap();
+    app.activate_scm_row().unwrap();
+    app.input_key(
+        KeyEvent::new(KeyCode::Char('中'), KeyModifiers::NONE),
+        ratatui::layout::Rect::new(0, 0, 160, 32),
+    )
+    .unwrap();
+    app.input_key(
+        KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+        ratatui::layout::Rect::new(0, 0, 160, 32),
+    )
+    .unwrap();
+    let draft = app.desk.git_draft(&nested).unwrap();
+    assert_eq!(draft.message.iter().collect::<String>(), "中");
+    assert_eq!(draft.cursor, 0);
+    assert!(app.desk.git_draft(&app.root).unwrap().message.is_empty());
+    app.apply(
+        0,
+        Ok(Data::Code(
+            app.generation,
+            Ok(app.desk.code_snapshot(&app.root, &[], 2).unwrap()),
+        )),
+    );
+    assert_eq!(
+        app.git.drafts[&nested].message.iter().collect::<String>(),
+        "中"
+    );
+    // Failing before a commit has staged changes must keep the inline input.
+    app.input_key(
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        ratatui::layout::Rect::new(0, 0, 160, 32),
+    )
+    .unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    assert_eq!(
+        app.git.drafts[&nested].message.iter().collect::<String>(),
+        "中"
+    );
+}
+
+#[test]
+fn scm_folder_action_requires_its_snapshot_confirmation_and_never_stages_another_root() {
+    use crate::scm::ScmTarget;
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = app();
+    std::fs::create_dir(app.root.join("dir")).unwrap();
+    std::fs::write(app.root.join("dir/new.txt"), "new").unwrap();
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 1).unwrap());
+    app.code_state = LoadState::Ready;
+    app.switch_tab(Tab::Scm);
+    app.action(KeyCode::Char('t')).unwrap();
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| matches!(&r.3, ScmTarget::Directory(_, false, path) if path == "dir"))
+        .unwrap();
+    app.action(KeyCode::Char('s')).unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    assert!(matches!(app.prompt, Some(Prompt::WorkGit(_))));
+    assert!(screen(&mut app).contains("StageUnder"));
+    app.input = "wrong".into();
+    assert!(app.submit_prompt().is_err());
+    assert!(matches!(app.prompt, Some(Prompt::WorkGit(_))));
+    app.input = "APPLY".into();
+    app.submit_prompt().unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    let snapshot = app.desk.code_snapshot(&app.root, &[], 2).unwrap();
+    assert!(
+        snapshot
+            .changes
+            .iter()
+            .any(|c| c.path == "dir/new.txt" && c.staged)
+    );
+    assert!(
+        !snapshot
+            .changes
+            .iter()
+            .any(|c| c.path == "visible.txt" && c.staged)
+    );
+}
+
+#[test]
+fn late_git_preparation_cannot_replace_a_more_recent_modal() {
+    use herdr_work_engine::WorkGitAction;
+    let (_temp, mut app) = app();
+    let plan = app
+        .desk
+        .prepare_work_git(&app.root, WorkGitAction::StageAll)
+        .unwrap();
+    app.git.request = 2;
+    app.prompt = Some(Prompt::Folder);
+    app.input = "user input".into();
+    app.apply(0, Ok(Data::WorkGitReady(1, Ok(plan))));
+    assert!(matches!(app.prompt, Some(Prompt::Folder)));
+    assert_eq!(app.input, "user input");
+    let plan = app
+        .desk
+        .prepare_work_git(&app.root, WorkGitAction::StageAll)
+        .unwrap();
+    app.apply(0, Ok(Data::WorkGitReady(2, Ok(plan))));
+    assert!(matches!(app.prompt, Some(Prompt::Folder)));
+    assert_eq!(app.input, "user input");
+}
+
+#[test]
+fn failed_commit_keeps_the_edited_message_and_repository_draft() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = app();
+    for args in [
+        ["config", "user.name", "Fixture"],
+        ["config", "user.email", "fixture@example.invalid"],
+    ] {
+        assert!(
+            Command::new("git")
+                .args(args)
+                .current_dir(&app.root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    let snapshot = app.desk.code_snapshot(&app.root, &[], 1).unwrap();
+    app.desk.stage(&snapshot.changes[0], true).unwrap();
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 2).unwrap());
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| matches!(r.3, crate::scm::ScmTarget::Message(0)))
+        .unwrap();
+    app.activate_scm_row().unwrap();
+    app.paste_commit("keep my 中文 message").unwrap();
+    app.edit_commit_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    assert!(matches!(app.prompt, Some(Prompt::Commit(_))));
+    // Change HEAD/index after preparation: the commit must fail, preserving input.
+    std::fs::write(app.root.join("other.txt"), "external index edit").unwrap();
+    assert!(
+        Command::new("git")
+            .args(["add", "other.txt"])
+            .current_dir(&app.root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    app.submit_prompt().unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    assert!(app.status.contains("草稿已保留"));
+    assert_eq!(
+        app.git.drafts[&app.root].message.iter().collect::<String>(),
+        "keep my 中文 message"
+    );
+    assert_eq!(
+        app.desk.git_draft(&app.root).unwrap(),
+        app.git.drafts[&app.root]
+    );
+}
+
+#[test]
+fn unknown_git_operation_has_an_explicit_tui_evidence_flow_without_automatic_retry() {
+    use crate::menus::{Command as MenuCommand, Overlay};
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = app();
+    let plan = app
+        .desk
+        .prepare_work_git(
+            &app.root,
+            herdr_work_engine::WorkGitAction::CreateBranch("bad..name".into()),
+        )
+        .unwrap();
+    assert!(app.desk.execute_work_git(&plan).is_err());
+    app.switch_tab(Tab::Scm);
+    app.open_menu(false);
+    let Some(Overlay::Menu { rows, selected, .. }) = app.overlay.as_mut() else {
+        panic!("missing Git menu")
+    };
+    *selected = rows
+        .iter()
+        .position(|(cmd, _)| matches!(cmd, MenuCommand::Recovery))
+        .unwrap();
+    app.overlay_key(KeyCode::Enter).unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    assert!(matches!(app.overlay, Some(Overlay::Recovery(_))));
+    app.overlay_key(KeyCode::Enter).unwrap();
+    assert!(matches!(app.prompt, Some(Prompt::Resolve(_))));
+    assert!(screen(&mut app).contains("当前HEAD"));
+    app.input = "Inspected HEAD and refs: invalid name was never created".into();
+    app.submit_prompt().unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    assert!(app.status.contains("没有自动重试"));
+    assert!(app.desk.unresolved_git_operations().unwrap().is_empty());
+}
+
+#[test]
+fn staged_section_cannot_stage_unselected_changes_from_the_other_group() {
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = app();
+    let snapshot = app.desk.code_snapshot(&app.root, &[], 1).unwrap();
+    app.desk.stage(&snapshot.changes[0], true).unwrap();
+    std::fs::write(app.root.join("other.txt"), "must stay unstaged").unwrap();
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 2).unwrap());
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| matches!(r.3, crate::scm::ScmTarget::Section(_, true)))
+        .unwrap();
+    assert!(app.action(KeyCode::Char('s')).is_err());
+    assert!(app.prompt.is_none());
+}
+
+#[test]
+fn readonly_preview_wrap_selection_and_pinned_documents_share_source_model() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = loaded_app();
+    let source = format!("{}\nsecond line", "alpha界".repeat(30));
+    std::fs::write(app.root.join("visible.txt"), &source).unwrap();
+    app.open_preview(app.root.join("visible.txt"), None)
+        .unwrap();
+    receive(&mut app);
+    app.focus = Focus::Content;
+    let area = ratatui::layout::Rect::new(0, 0, 90, 32);
+    let mut terminal = Terminal::new(TestBackend::new(90, 32)).unwrap();
+    terminal.draw(|f| app.draw(f)).unwrap();
+    let wrapped = app.preview_doc.as_ref().unwrap().row_count();
+    app.input_key(
+        KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL),
+        area,
+    )
+    .unwrap();
+    assert_eq!(
+        app.preview_doc
+            .as_ref()
+            .unwrap()
+            .selection_text()
+            .as_deref(),
+        Some(source.as_str())
+    );
+    app.input_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE), area)
+        .unwrap();
+    terminal.draw(|f| app.draw(f)).unwrap();
+    assert!(app.preview_doc.as_ref().unwrap().row_count() < wrapped);
+    app.input_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE), area)
+        .unwrap();
+    std::fs::write(app.root.join("second.txt"), "another document").unwrap();
+    app.open_preview(app.root.join("second.txt"), None).unwrap();
+    receive(&mut app);
+    app.input_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE), area)
+        .unwrap();
+    assert!(app.preview_path.as_ref().unwrap().ends_with("visible.txt"));
+    assert!(!app.preview_doc.as_ref().unwrap().wrap());
+    assert!(screen(&mut app).contains("visible.txt"));
 }
 
 #[test]

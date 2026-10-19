@@ -21,17 +21,30 @@ pub struct FileRow {
 pub struct GitChange {
     pub root: PathBuf,
     pub instance: String,
+    pub repository: String,
     pub path: String,
     pub original: Option<String>,
     pub status: char,
     pub staged: bool,
     pub expected_index: u64,
+    pub expected_head: Option<String>,
+    pub expected_working: String,
     pub expected_content: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RepositoryStatus {
+    pub root: PathBuf,
+    pub branch: String,
+    pub ahead: usize,
+    pub behind: usize,
+    pub has_upstream: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CodeSnapshot {
     pub root: PathBuf,
     pub branch: String,
+    #[serde(default)]
+    pub repositories: Vec<RepositoryStatus>,
     pub files: Vec<FileRow>,
     pub changes: Vec<GitChange>,
     pub generation: u64,
@@ -56,6 +69,8 @@ pub struct DiffView {
 pub struct CommitPlan {
     pub root: PathBuf,
     pub instance: String,
+    pub repository: String,
+    pub branch: String,
     pub head: Option<String>,
     pub staged: u64,
 }
@@ -112,12 +127,7 @@ fn content_stamp(root: &Path, file: &str) -> Result<String> {
     }
     if path.is_dir() {
         let nested = git(&path)?;
-        return Ok(storage::fingerprint(
-            nested
-                .raw(&["diff", "--binary", "HEAD"])
-                .map_err(anyhow::Error::msg)?
-                .as_bytes(),
-        ));
+        return crate::work_git::working_stamp(&nested);
     }
     use sha2::Digest;
     let mut stream = std::fs::File::open(path)?;
@@ -161,28 +171,41 @@ impl HerdrWork {
             let mut changes = vec![];
             let mut decorations = vec![];
             let mut branch = String::new();
+            let mut repositories = vec![];
             for repo in Git::discover_all(&root) {
                 let status = repo.status().map_err(anyhow::Error::msg)?;
                 if branch.is_empty() {
                     branch = status.branch.clone();
                 }
+                repositories.push(RepositoryStatus {
+                    root: repo.root().into(),
+                    branch: status.branch.clone(),
+                    ahead: status.ahead,
+                    behind: status.behind,
+                    has_upstream: status.has_upstream,
+                });
                 decorations.push(herdr_work_code::gitdeco::RepoStatus {
                     root: repo.root().into(),
                     status: status.clone(),
                     ignored: repo.ignored().unwrap_or_default(),
                 });
                 let instance = Self::worktree_identity(repo.root())?;
+                let repository = crate::work_git::repository_identity(&repo)?;
+                let expected_working = crate::work_git::working_stamp(&repo)?;
                 for (staged, entries) in [(true, status.staged), (false, status.unstaged)] {
                     for e in entries {
                         let expected_content = content_stamp(repo.root(), &e.path)?;
                         changes.push(GitChange {
                             root: repo.root().into(),
                             instance: instance.clone(),
+                            repository: repository.clone(),
                             path: e.path,
                             original: e.orig,
                             status: e.letter,
                             staged,
                             expected_index,
+                            expected_head: expected_head.clone(),
+                            expected_working: expected_working.clone(),
                             expected_content,
                         });
                     }
@@ -195,6 +218,7 @@ impl HerdrWork {
             Ok(CodeSnapshot {
                 root,
                 branch,
+                repositories,
                 files,
                 changes,
                 generation,
@@ -381,6 +405,11 @@ impl HerdrWork {
             let repo = git(&change.root)?;
             let _lock = write_lock(&repo)?;
             ensure!(
+                crate::work_git::repository_identity(&repo)? == change.repository,
+                "仓库实例已改变"
+            );
+            ensure!(
+                    && crate::work_git::working_stamp(&repo)? == change.expected_working
                     && content_stamp(repo.root(), &change.path)? == change.expected_content,
                 "Index or working content changed; refresh before staging"
             );
@@ -396,7 +425,7 @@ impl HerdrWork {
                 .find(|e| e.path == change.path && e.orig == change.original)
                 .context("SCM entry changed; refresh before retrying")?;
             if staged {
-                repo.stage(entry)
+                repo.stage_under(&repo.root().join(&entry.path)).map(drop)
             } else {
                 repo.unstage(entry)
             }
@@ -413,6 +442,8 @@ impl HerdrWork {
             Ok(CommitPlan {
                 root: repo.root().canonicalize()?,
                 instance: Self::worktree_identity(repo.root())?,
+                repository: crate::work_git::repository_identity(&repo)?,
+                branch: repo.status().map_err(anyhow::Error::msg)?.branch,
             })
         })
     }
@@ -426,7 +457,12 @@ impl HerdrWork {
             let repo = git(&plan.root)?;
             let _lock = write_lock(&repo)?;
             ensure!(
-                "HEAD or staged content changed; review again"
+                crate::work_git::repository_identity(&repo)? == plan.repository,
+                "仓库实例已改变"
+            );
+            ensure!(
+                    && repo.status().map_err(anyhow::Error::msg)?.branch == plan.branch
+                "Branch, HEAD or staged content changed; review again"
             );
             let operation = self.root().join("operations").join(format!(
                 "commit-{}.json",

@@ -213,6 +213,22 @@ impl Git {
         run_in(&self.root, &["checkout", "--", &entry.path]).map(drop)
     }
 
+    /// Discard the exact confirmed entry set, preserving the source panel's
+    /// per-path failure reporting. Callers own confirmation and state checks.
+    pub fn discard_entries(&self, entries: &[FileEntry]) -> Result<usize, String> {
+        let mut errors = Vec::new();
+        for entry in entries {
+            if let Err(error) = self.discard(entry) {
+                errors.push(format!("{}: {error}", entry.path));
+            }
+        }
+        if errors.is_empty() {
+            Ok(entries.len())
+        } else {
+            Err(errors.join("; "))
+        }
+    }
+
     /// The diff a commit-message suggestion should describe: the staged diff
     /// when something is staged (that is what would be committed), else the
     /// working-tree diff. Untracked files only appear as names, so they ride
@@ -837,11 +853,21 @@ fn terminate_child(child: &mut Child, job: Option<&ChildJob>) -> bool {
 
 fn git_command(dir: &Path, args: &[&str]) -> Command {
     let mut command = Command::new("git");
+    // Every path from status/tree models is a literal filename, never a user glob.
     command
+        .env_remove("GIT_GLOB_PATHSPECS")
+        .env_remove("GIT_NOGLOB_PATHSPECS")
+        .env_remove("GIT_ICASE_PATHSPECS")
+        .env_remove("GIT_LITERAL_PATHSPECS")
         .arg("-c")
         .arg("color.ui=false")
         .args(args)
         .current_dir(dir);
+    // Scope literal parsing to calls carrying actual path arguments. Stash runs
+    // internal Git commands whose generated pathspecs require normal parsing.
+    if args.contains(&"--") {
+        command.env("GIT_LITERAL_PATHSPECS", "1");
+    }
     command
 }
 

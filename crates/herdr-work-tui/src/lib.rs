@@ -114,9 +114,16 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
                     if app.prompt.is_some() {
                         if app.input.len() + text.len() <= 1024 * 1024 {
                             app.input.push_str(&text);
+                            if let Err(error) = app.persist_commit_prompt() {
+                                app.status = error.to_string();
+                            }
                             app.search_input_changed()?;
                         } else {
                             app.status = "粘贴内容过长".into();
+                        }
+                    } else if app.git.editing.is_some() {
+                        if let Err(error) = app.paste_commit(&text) {
+                            app.status = error.to_string();
                         }
                     } else if let Some(session) = &mut app.editor {
                         if text.len() + session.editor.text().len() <= 1024 * 1024 {

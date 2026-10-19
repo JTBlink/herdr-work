@@ -1,6 +1,6 @@
 //! Activity and sidebar pointer actions share the geometry used by the renderer.
 use crate::{
-    layout::{ACTIVITIES, offset, settings_button},
+    layout::{ACTIVITIES, offset, settings_button, task_offset},
     state::*,
 };
 use anyhow::Result;
@@ -9,6 +9,10 @@ use ratatui::layout::{Position, Rect};
 
 impl App {
     pub(crate) fn mouse(&mut self, event: MouseEvent, area: Rect) -> Result<()> {
+        if let Some(picker) = self.git.picker.as_mut() {
+            let action = picker.mouse(event);
+            return self.picker_action(action);
+        }
         if self.overlay.is_some() {
             return self.overlay_mouse(event, area);
         }
@@ -69,14 +73,19 @@ impl App {
                 if self.tab == Tab::Review {
                     self.switch_tab(Tab::Scm);
                 }
-                let mut row = event.row.saturating_sub(layout.sidebar.y + 1) as usize;
+                let mut body = self.sidebar_block(String::new()).inner(layout.sidebar);
+                if !body.contains(point) {
+                    return Ok(());
+                }
+                let mut row = event.row.saturating_sub(body.y) as usize;
                 if self.tab == Tab::Search {
-                    if row < 4 {
+                    let (header, results) = self.search_regions(layout.sidebar);
+                    if header.contains(point) {
                         match row {
                             0 => self.query_prompt(self.search_quick),
                             1 if !self.search_quick => {
                                 self.prompt = None;
-                                let x = event.column.saturating_sub(layout.sidebar.x + 1);
+                                let x = event.column.saturating_sub(header.x);
                                 match x {
                                     0..=5 => {
                                         self.search_options.match_case =
@@ -111,15 +120,18 @@ impl App {
                     }
                     self.prompt = None;
                     self.input.clear();
-                    row -= 4;
+                    body = results;
+                    row = event.row.saturating_sub(body.y) as usize;
                 }
                 if self.tab == Tab::Scm {
                     let rows = self.scm_rows();
-                    let index = row + offset(self.scm_cursor, layout.sidebar.height);
-                    if row < layout.sidebar.height.saturating_sub(2) as usize
+                    let index = row + offset(self.scm_cursor, body.height);
+                    if row < body.height as usize
                         && let Some(entry) = rows.get(index)
                     {
+                        self.git.editing = None;
                         self.scm_cursor = index;
+                        self.git.active = Some(self.selected_repository());
                         if let Some(selected) = entry.0 {
                             self.selection = selected;
                             self.scm_selection = selected;
@@ -139,21 +151,14 @@ impl App {
                     _ => self.code.as_ref().map(|c| c.changes.len()).unwrap_or(0),
                 };
                 let selected = if self.tab == Tab::Tasks {
-                    row / 2
-                        + self
-                            .task
-                            .saturating_sub(layout.sidebar.height.saturating_sub(4) as usize / 2)
+                    if row >= (body.height / 2) as usize * 2 {
+                        return Ok(());
+                    }
+                    row / 2 + task_offset(self.task, body.height)
                 } else {
-                    row + offset(
-                        self.selection,
-                        if self.tab == Tab::Search {
-                            layout.sidebar.height.saturating_sub(6)
-                        } else {
-                            layout.sidebar.height
-                        },
-                    )
+                    row + offset(self.selection, body.height)
                 };
-                if selected < count && row < layout.sidebar.height.saturating_sub(2) as usize {
+                if selected < count && row < body.height as usize {
                     if self.tab == Tab::Tasks {
                         self.task = selected;
                     } else {

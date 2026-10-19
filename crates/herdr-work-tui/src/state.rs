@@ -11,7 +11,7 @@ pub(crate) enum Data {
     Tasks(Result<Vec<Task>>),
     Code(u64, Result<CodeSnapshot>),
     Diff(DiffView, Review),
-    CommitReady(herdr_work_engine::CommitPlan),
+    CommitReady(u64, Result<herdr_work_engine::CommitPlan>),
     Delivery(Review, String),
     Preview(u64, PathBuf, Result<herdr_work_code::preview::Doc>),
     Review(Review),
@@ -38,7 +38,13 @@ pub(crate) enum Data {
     Search(u64, Result<herdr_work_engine::SearchView>),
     FileReady(herdr_work_engine::FilePlan),
     Folder(Option<PathBuf>),
-    GitReady(herdr_work_engine::GitPlan),
+    GitReady(u64, Result<herdr_work_engine::GitPlan>),
+    WorkGitReady(u64, Result<herdr_work_engine::WorkGitPlan>),
+    WorkGitDone(Result<herdr_work_engine::WorkGitOutcome>),
+    CommitDone(PathBuf, String, Result<String>),
+    BranchPicker(u64, Result<herdr_work_code::branch_ui::BranchPicker>),
+    Reconcile(u64, Result<Vec<(String, String)>>),
+    Suggested(u64, PathBuf, Vec<char>, Result<String>),
 }
 pub(crate) enum Message {
     Input(Event),
@@ -71,6 +77,8 @@ pub(crate) enum Prompt {
     File(herdr_work_engine::FilePlan),
     Folder,
     Git(herdr_work_engine::GitPlan),
+    WorkGit(herdr_work_engine::WorkGitPlan),
+    Resolve(String),
 }
 pub(crate) struct App {
     pub(crate) background_pending: Option<(u64, u64)>,
@@ -111,6 +119,7 @@ pub(crate) struct App {
     pub(crate) overlay: Option<crate::menus::Overlay>,
     pub(crate) editor: Option<herdr_work_engine::EditorSession>,
     pub(crate) edit_request: Option<PathBuf>,
+    pub(crate) git: crate::scm::GitUi,
     pub(crate) editor_request: u64,
     pub(crate) editor_poll: Option<(u64, u64)>,
     pub(crate) editor_write: Option<(u64, u64)>,
@@ -183,6 +192,7 @@ impl App {
             overlay: None,
             editor: None,
             edit_request: None,
+            git: Default::default(),
             editor_request: 0,
             editor_poll: None,
             editor_write: None,
@@ -257,12 +267,12 @@ impl App {
             })
     }
     pub(crate) fn apply(&mut self, epoch: u64, data: Result<Data>) {
-        // Editor results belong to their guarded session, which can outlive an
-        // unrelated Agent binding epoch. Their handlers reject closed/new sessions.
+        // Guarded editor sessions and commit drafts can outlive unrelated binding epochs.
         if epoch != self.context.epoch
             && !matches!(
                 &data,
                 Ok(Data::Tasks(_)
+                    | Data::CommitDone(..)
                     | Data::EditorObserved(..)
                     | Data::EditorSaved(..)
                     | Data::EditorReloaded(..))
@@ -301,12 +311,14 @@ impl App {
             Ok(Data::EditorReloaded(session, request, text, result)) => {
                 self.editor_reloaded(session, request, text, result)
             }
-            Ok(_) if epoch != self.context.epoch => {}
+            Ok(data) if epoch != self.context.epoch && !matches!(&data, Data::CommitDone(..)) => {}
             Ok(Data::Code(generation, _)) if generation != self.generation => {}
             Ok(Data::Code(_, Err(error))) => {
                 self.code_state = LoadState::Failed(format!("{error:#}"));
             }
             Ok(Data::Code(_, Ok(code))) => {
+                let previous_scm = self.scm_rows().get(self.scm_cursor).map(|r| r.3.clone());
+                let previous_root = self.selected_repository();
                 let was_change = self
                     .scm_rows()
                     .get(self.scm_cursor)
@@ -334,6 +346,9 @@ impl App {
                 self.selection = position
                     .unwrap_or(self.selection)
                     .min(count.saturating_sub(1));
+                for repo in &code.repositories {
+                    let _ = self.ensure_draft(&repo.root);
+                }
                 self.code = Some(code);
                 if was_change {
                     self.scm_cursor = self
@@ -341,12 +356,58 @@ impl App {
                         .iter()
                         .position(|r| r.0 == Some(self.selection))
                         .unwrap_or(0);
+                } else if let Some(previous) = previous_scm {
+                    use crate::scm::ScmTarget;
+                    self.scm_cursor = self
+                        .scm_rows()
+                        .iter()
+                        .position(|r| match (&previous, &r.3) {
+                            (ScmTarget::Repository(_), ScmTarget::Repository(i))
+                            | (ScmTarget::Message(_), ScmTarget::Message(i))
+                            | (ScmTarget::Commit(_), ScmTarget::Commit(i)) => self
+                                .repository_root(*i)
+                                .is_ok_and(|root| root == previous_root),
+                            (ScmTarget::Section(_, old), ScmTarget::Section(i, new)) => {
+                                old == new
+                                    && self
+                                        .repository_root(*i)
+                                        .is_ok_and(|root| root == previous_root)
+                            }
+                            (
+                                ScmTarget::Directory(_, staged, path),
+                                ScmTarget::Directory(i, new_staged, new_path),
+                            ) => {
+                                staged == new_staged
+                                    && path == new_path
+                                    && self
+                                        .repository_root(*i)
+                                        .is_ok_and(|root| root == previous_root)
+                            }
+                            _ => previous == r.3,
+                        })
+                        .unwrap_or(self.scm_cursor.min(self.scm_rows().len().saturating_sub(1)));
                 }
             }
-            Ok(Data::CommitReady(plan)) => {
-                self.prompt = Some(Prompt::Commit(plan));
-                self.input.clear();
+            Ok(Data::CommitReady(request, result))
+                if request == self.git.request
+                    && self.prompt.is_none()
+                    && self.overlay.is_none() =>
+            {
+                match result {
+                    Ok(plan) => {
+                        let _ = self.ensure_draft(&plan.root);
+                        self.input = self
+                            .git
+                            .drafts
+                            .get(&plan.root)
+                            .map(|d| d.message.iter().collect())
+                            .unwrap_or_default();
+                        self.prompt = Some(Prompt::Commit(plan));
+                    }
+                    Err(error) => self.status = format!("提交未准备：{error:#}（草稿已保留）"),
+                }
             }
+            Ok(Data::CommitReady(..)) => {}
             Ok(Data::Delivery(review, status)) => {
                 self.status = status;
                 self.review = Some(review);
@@ -382,10 +443,118 @@ impl App {
                     self.status = error.to_string();
                 }
             }
-            Ok(Data::GitReady(plan)) => {
-                self.input.clear();
-                self.prompt = Some(Prompt::Git(plan));
+
+            Ok(Data::WorkGitReady(request, result))
+                if request == self.git.request
+                    && self.prompt.is_none()
+                    && self.overlay.is_none() =>
+            {
+                match result {
+                    Ok(plan) => {
+                        self.git.active = Some(plan.root.clone());
+                        self.input.clear();
+                        self.prompt = Some(Prompt::WorkGit(plan));
+                    }
+                    Err(e) => self.status = e.to_string(),
+                }
             }
+            Ok(Data::WorkGitReady(..)) => {}
+            Ok(Data::BranchPicker(request, result))
+                if request == self.git.request
+                    && self.prompt.is_none()
+                    && self.overlay.is_none() =>
+            {
+                match result {
+                    Ok(picker) => self.git.picker = Some(picker),
+                    Err(error) => self.status = error.to_string(),
+                }
+            }
+            Ok(Data::BranchPicker(..)) => {}
+            Ok(Data::WorkGitDone(result)) => match result {
+                Ok(herdr_work_engine::WorkGitOutcome::Finished(text)) => {
+                    self.apply(epoch, Ok(Data::Business(text)))
+                }
+                Ok(herdr_work_engine::WorkGitOutcome::DeleteNotMerged(plan)) => {
+                    self.input.clear();
+                    self.prompt = Some(Prompt::WorkGit(plan));
+                    self.status = "分支尚未合并；强删会丢失提交，请再次明确确认".into();
+                }
+                Err(error) => {
+                    self.status = format!("{error:#}；结果未知时请从 Git 菜单选择核对恢复");
+                    let _ = self.refresh();
+                }
+            },
+            Ok(Data::CommitDone(root, message, result)) => {
+                self.git.committing.remove(&root);
+                match result {
+                    Ok(text) => {
+                        if self
+                            .git
+                            .drafts
+                            .get(&root)
+                            .is_some_and(|d| d.message.iter().collect::<String>() == message)
+                        {
+                            self.git.drafts.insert(root.clone(), Default::default());
+                            let _ = self.desk.save_git_draft(&root, &Default::default());
+                        }
+                        self.apply(epoch, Ok(Data::Business(text)));
+                    }
+                    Err(error) if epoch == self.context.epoch => {
+                        self.status = format!("提交失败（草稿已保留）：{error:#}")
+                    }
+                    Err(_) => {}
+                }
+            }
+            Ok(Data::Suggested(request, root, baseline, result)) if request == self.git.request => {
+                match result {
+                    Ok(message)
+                        if self
+                            .git
+                            .drafts
+                            .get(&root)
+                            .is_some_and(|d| d.message == baseline) =>
+                    {
+                        let draft = herdr_work_engine::CommitDraft {
+                            message: message.chars().collect(),
+                            cursor: message.chars().count(),
+                        };
+                        let _ = self.desk.save_git_draft(&root, &draft);
+                        self.git.drafts.insert(root, draft);
+                        self.status = "提交消息建议已生成".into();
+                    }
+                    Ok(_) => self.status = "提交消息已编辑，保留当前草稿".into(),
+                    Err(error) => self.status = error.to_string(),
+                }
+            }
+            Ok(Data::Suggested(..)) => {}
+            Ok(Data::Reconcile(request, result))
+                if request == self.git.request
+                    && self.prompt.is_none()
+                    && self.overlay.is_none() =>
+            {
+                match result {
+                    Ok(operations) => {
+                        self.git.unresolved = operations;
+                        self.overlay = Some(crate::menus::Overlay::Recovery(0));
+                    }
+                    Err(error) => self.status = error.to_string(),
+                }
+            }
+            Ok(Data::Reconcile(..)) => {}
+            Ok(Data::GitReady(request, result))
+                if request == self.git.request
+                    && self.prompt.is_none()
+                    && self.overlay.is_none() =>
+            {
+                match result {
+                    Ok(plan) => {
+                        self.input.clear();
+                        self.prompt = Some(Prompt::Git(plan));
+                    }
+                    Err(error) => self.status = error.to_string(),
+                }
+            }
+            Ok(Data::GitReady(..)) => {}
             Ok(Data::FileReady(plan)) => {
                 self.input = if plan.action == herdr_work_code::actions::MenuAction::Rename {
                     plan.target

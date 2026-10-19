@@ -214,8 +214,16 @@ impl App {
         Ok(())
     }
     pub(crate) fn input_key(&mut self, key: KeyEvent, area: Rect) -> Result<bool> {
+        if let Some(picker) = self.git.picker.as_mut() {
+            let action = picker.key(key);
+            self.picker_action(action)?;
+            return Ok(false);
+        }
         if self.overlay.is_some() || self.prompt.is_some() {
             return self.key(key.code);
+        }
+        if self.edit_commit_key(key)? {
+            return Ok(false);
         }
         if self.editor.is_some() {
             let layout = self.panes(area);
@@ -302,23 +310,15 @@ impl App {
         f.render_widget(block, panes.content);
         let footer = Rect::new(
             panes.footer.x,
-            panes.footer.y,
+            panes.footer.y.saturating_add(1),
             panes.footer.width,
-            panes.footer.height.min(2),
+            panes.footer.height.saturating_sub(1),
         );
-        let notice = if session.editor.external_changed {
-            "磁盘已改变，保留编辑内容 · "
-        } else {
-            ""
-        };
         self.editor.as_mut().unwrap().editor.draw(
             f,
             body,
             footer,
-            Some(&format!(
-                "{notice}{} · Ctrl+S 保存 · Esc 返回 · Ctrl+F 查找",
-                self.status
-            )),
+            Some("Ctrl+S 保存 · Esc 返回 · Ctrl+F 查找 · 滚轮滚动"),
         );
     }
 }
