@@ -353,6 +353,25 @@ impl HerdrWork {
         let path = checked_path(&root, file)?;
         Ok(herdr_work_code::preview::file(&path, line, width))
     }
+    pub fn preview_file_if_changed(
+        &self,
+        root: &Path,
+        file: &str,
+        baseline: Option<(std::time::SystemTime, u64)>,
+        line: Option<usize>,
+        width: u16,
+    ) -> Result<Option<herdr_work_code::preview::Doc>> {
+        let root = root.canonicalize()?;
+        let path = checked_path(&root, file)?;
+        let stamp = path
+            .metadata()
+            .ok()
+            .and_then(|meta| Some((meta.modified().ok()?, meta.len())));
+        if baseline.is_some() && baseline == stamp {
+            return Ok(None);
+        }
+        Ok(Some(herdr_work_code::preview::file(&path, line, width)))
+    }
     pub fn file(&self, root: &Path, file: &str) -> Result<String> {
         let root = root.canonicalize()?;
         let path = checked_path(&root, file)?;

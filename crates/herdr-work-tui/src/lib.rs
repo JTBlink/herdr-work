@@ -15,7 +15,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 mod actions;
@@ -25,6 +25,7 @@ mod loading;
 mod menus;
 mod mouse;
 mod preview;
+mod refresh;
 mod scm;
 mod search;
 mod sidebar_view;
@@ -86,13 +87,20 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
             }
         }
     });
-    app.refresh()?;
-    app.load_tasks()?;
     let result = (|| -> Result<()> {
+        app.refresh()?;
+        app.load_tasks()?;
+        let mut last_tick = Instant::now();
+        let mut last_editor_poll = Instant::now();
         loop {
             terminal.draw(|frame| app.draw(frame))?;
-            match rx.recv()? {
-                Message::Input(Event::Key(key)) if key.kind == KeyEventKind::Press => {
+            let message = match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(message) => Some(message),
+                Err(mpsc::RecvTimeoutError::Timeout) => None,
+                Err(error) => return Err(error.into()),
+            };
+            match message {
+                Some(Message::Input(Event::Key(key))) if key.kind == KeyEventKind::Press => {
                     let size = terminal.size()?;
                     if app.input_key(
                         key,
@@ -101,11 +109,12 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
                         break;
                     }
                 }
-                Message::Result(epoch, data) => app.apply(epoch, data),
-                Message::Input(Event::Paste(text)) if app.overlay.is_none() => {
+                Some(Message::Result(epoch, data)) => app.apply(epoch, data),
+                Some(Message::Input(Event::Paste(text))) if app.overlay.is_none() => {
                     if app.prompt.is_some() {
                         if app.input.len() + text.len() <= 1024 * 1024 {
                             app.input.push_str(&text);
+                            app.search_input_changed()?;
                         } else {
                             app.status = "粘贴内容过长".into();
                         }
@@ -117,7 +126,7 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
                         }
                     }
                 }
-                Message::Input(Event::Mouse(mouse)) => {
+                Some(Message::Input(Event::Mouse(mouse))) => {
                     let area = terminal.size()?;
                     if let Err(error) = app.mouse(
                         mouse,
@@ -127,6 +136,16 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
                     }
                 }
                 _ => {}
+            }
+            let now = Instant::now();
+            if now.duration_since(last_tick) >= Duration::from_millis(100) {
+                app.tick_search(now)?;
+                app.tick_refresh(now)?;
+                if now.duration_since(last_editor_poll) >= Duration::from_secs(2) {
+                    app.poll_editor()?;
+                    last_editor_poll = now;
+                }
+                last_tick = now;
             }
         }
         Ok(())
