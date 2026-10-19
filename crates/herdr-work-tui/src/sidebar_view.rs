@@ -11,7 +11,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::Line,
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, Paragraph},
 };
 
 impl App {
@@ -69,12 +69,16 @@ impl App {
         if scm {
             let rows = self.scm_rows();
 
+            let models = self.scm_hover_models();
             let row = self.scm_cursor.min(rows.len().saturating_sub(1));
             let items = rows
                 .into_iter()
                 .skip(offset(row, body.height))
                 .enumerate()
-                .map(|(position, (_index, text, status, target))| {
+                .map(|(position, entry)| {
+                    let (_index, _text, status, target) = &entry;
+                    let index = position + offset(row, body.height);
+                    let hovered = self.sidebar_hovered(body, index, row);
                     let style = if matches!(target, ScmTarget::Commit(_)) {
                         Style::default()
                             .bg(palette().button_bg)
@@ -89,9 +93,24 @@ impl App {
                             .fg(palette().header_accent)
                             .add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default().fg(status_color(status))
+                        let style = Style::default().fg(status_color(*status));
+                        if hovered {
+                            style.patch(herdr_work_code::ui::hover_style())
+                        } else {
+                            style
+                        }
                     };
-                    ListItem::new(text).style(style)
+                    self.scm_hover_item(
+                        &entry,
+                        body.width,
+                        hovered,
+                        self.hover
+                            .point
+                            .filter(|p| body.contains(*p))
+                            .map(|p| p.x - body.x),
+                        &models,
+                    )
+                    .style(style)
                 })
                 .collect::<Vec<_>>();
             f.render_widget(List::new(items).block(block), area);
@@ -115,12 +134,14 @@ impl App {
                         is_symlink: row.symlink,
                         expanded: self.expanded.contains(&row.path),
                     };
-                    let item = ListItem::new(herdr_work_code::file_view::row_line(
+                    let item = herdr_work_code::file_view::row_item(
                         &row,
                         self.icon_theme(),
+                        self.sidebar_hovered(body, i, self.selection),
+                        false,
                         status,
                         body.width,
-                    ));
+                    );
                     if i == self.selection {
                         item.style(selection_style(self.focus == Focus::Sidebar))
                     } else {
@@ -130,6 +151,7 @@ impl App {
                 .collect::<Vec<_>>();
             f.render_widget(List::new(items).block(block), area);
         }
+        self.draw_sidebar_actions(f, area);
     }
     pub(crate) fn scm_rows(&self) -> Vec<ScmRow> {
         let mut rows = vec![];

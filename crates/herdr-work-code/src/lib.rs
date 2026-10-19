@@ -24,6 +24,7 @@ pub mod rundir;
 pub mod scm;
 pub mod scm_input;
 pub mod scm_tree;
+pub mod scm_view;
 pub mod search;
 #[cfg(any(feature = "reference-ui", test))]
 pub mod snooze;

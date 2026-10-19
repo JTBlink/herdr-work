@@ -19,7 +19,9 @@ use std::{
 };
 
 mod actions;
+mod drafts;
 mod editing;
+mod hover;
 mod layout;
 mod loading;
 mod menus;
@@ -153,7 +155,9 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
             let now = Instant::now();
             if now.duration_since(last_tick) >= Duration::from_millis(100) {
                 app.tick_search(now)?;
+                app.tick_git_drafts(now)?;
                 redraw |= app.tick_preview();
+                redraw |= app.tick_hover();
                 app.tick_refresh(now)?;
                 if now.duration_since(last_editor_poll) >= Duration::from_secs(2) {
                     app.poll_editor()?;
@@ -166,5 +170,6 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
     })();
     stop.store(true, Ordering::Relaxed);
     let _ = input.join();
-    result
+    let draft_flush = app.flush_git_drafts();
+    result.and(draft_flush)
 }

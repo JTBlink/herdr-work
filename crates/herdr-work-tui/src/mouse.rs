@@ -19,6 +19,16 @@ impl App {
         if self.prompt.is_some() && !self.search_prompt() {
             return Ok(());
         }
+        let old_hover = self.hover.point;
+        let title_zones = self.sidebar_title_actions(self.panes(area).sidebar).1;
+        self.track_sidebar_mouse(Position::new(event.column, event.row), area);
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && let Some((_, action)) = title_zones
+                .iter()
+                .find(|(rect, _)| rect.contains(Position::new(event.column, event.row)))
+        {
+            return self.sidebar_title_action(*action);
+        }
         if self.preview_mouse(&event, area) {
             return Ok(());
         }
@@ -138,7 +148,9 @@ impl App {
                         }
                         if right {
                             self.open_menu(true);
-                        } else {
+                        } else if !(old_hover.is_some_and(|p| body.contains(p) && p.y == point.y)
+                            && self.scm_hover_action(index, event.column - body.x, body.width)?)
+                        {
                             self.activate_scm_row()?;
                         }
                     }
