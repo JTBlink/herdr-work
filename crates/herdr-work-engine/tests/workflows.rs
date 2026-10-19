@@ -18,6 +18,9 @@ fn fixture() -> (tempfile::TempDir, tempfile::TempDir, HerdrWork) {
     let repo = tempfile::tempdir().unwrap();
     let home = tempfile::tempdir().unwrap();
     git(repo.path(), &["init", "-q"]);
+    // These fixtures assert exact LF bytes after checkout/stash. Keep their
+    // policy local to the temporary repo, independent of the runner's config.
+    git(repo.path(), &["config", "core.autocrlf", "false"]);
     git(repo.path(), &["config", "user.name", "Fixture"]);
     git(
         repo.path(),

@@ -78,9 +78,13 @@ impl Git {
         if root.is_empty() {
             return Err("not inside a git repository".to_string());
         }
-        Ok(Git {
-            root: PathBuf::from(root),
-        })
+        // Explorer rows and write plans use filesystem-canonical paths. Git
+        // for Windows reports `C:/...`, whereas canonicalize uses `\\?\C:\...`;
+        // keeping both spellings breaks ownership checks and decorations.
+        let root = Path::new(root)
+            .canonicalize()
+            .map_err(|error| format!("cannot resolve repository root: {error}"))?;
+        Ok(Git { root })
     }
 
     /// All repositories visible from `dir`, VS Code style: the repository
@@ -1271,6 +1275,29 @@ mod tests {
         names.sort();
         assert_eq!(names, ["a", "b"]);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn discovered_root_matches_canonical_explorer_paths() {
+        let git = repo_with_head("canonical-root");
+        let child = git.root.join("src");
+        std::fs::create_dir(&child).unwrap();
+        let file = child.join("new.txt");
+        std::fs::write(&file, "new").unwrap();
+        let discovered = Git::discover(&child).unwrap();
+        assert_eq!(discovered.root(), git.root.canonicalize().unwrap());
+        assert_eq!(Git::owner_of(&file).unwrap().root(), discovered.root());
+        // The canonical file selected by Explorer must be stageable without
+        // falling back to staging its whole repository.
+        assert_eq!(
+            discovered
+                .stage_under(&file.canonicalize().unwrap())
+                .unwrap()
+                .count,
+            1
+        );
+        assert_eq!(discovered.status().unwrap().staged[0].path, "src/new.txt");
+        std::fs::remove_dir_all(git.root).unwrap();
     }
 
     /// A fresh repo with one commit on `main`, so HEAD resolves.
