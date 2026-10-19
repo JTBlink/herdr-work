@@ -33,6 +33,7 @@ pub(crate) struct GitUi {
     pub unresolved: Vec<(String, String)>,
     pub picker: Option<herdr_work_code::branch_ui::BranchPicker>,
     pub committing: BTreeSet<PathBuf>,
+    pub draft_runtime: crate::drafts::DraftRuntime,
 }
 pub(crate) type ScmRow = (Option<usize>, String, char, ScmTarget);
 impl App {
@@ -184,9 +185,17 @@ impl App {
     }
     pub(crate) fn ensure_draft(&mut self, root: &std::path::Path) -> Result<()> {
         if !self.git.drafts.contains_key(root) {
-            self.git
-                .drafts
-                .insert(root.into(), self.desk.git_draft(root)?);
+            let repo = self
+                .code
+                .as_ref()
+                .and_then(|c| c.repositories.iter().find(|r| r.root == root))
+                .context("仓库草稿正在加载，请稍候")?;
+            anyhow::ensure!(
+                repo.draft_error.is_none(),
+                "无法读取草稿（保留原文件）：{}",
+                repo.draft_error.as_deref().unwrap_or_default()
+            );
+            self.git.drafts.insert(root.into(), repo.draft.clone());
         }
         Ok(())
     }
@@ -210,7 +219,7 @@ impl App {
                     &mut draft.cursor,
                     key,
                 );
-                self.desk.save_git_draft(&root, draft)?;
+                self.mark_git_draft(root.clone());
             }
         }
         Ok(true)
@@ -220,14 +229,15 @@ impl App {
             let draft = self.git.drafts.entry(plan.root.clone()).or_default();
             draft.message = self.input.chars().collect();
             draft.cursor = draft.message.len();
-            self.desk.save_git_draft(&plan.root, draft)?;
+            let root = plan.root.clone();
+            self.mark_git_draft(root);
         }
         Ok(())
     }
     pub(crate) fn suggest_commit(&mut self) -> Result<()> {
         let root = self.selected_repository();
         self.ensure_draft(&root)?;
-        let baseline = self.git.drafts[&root].message.clone();
+        let baseline = self.git.drafts[&root].clone();
         self.git.request += 1;
         let request = self.git.request;
         self.status = "正在生成提交消息…".into();
@@ -249,7 +259,7 @@ impl App {
             draft.message.insert(draft.cursor, c);
             draft.cursor += 1;
         }
-        self.desk.save_git_draft(&root, draft)?;
+        self.mark_git_draft(root);
         Ok(true)
     }
     pub(crate) fn prepare_commit(&mut self) -> Result<()> {

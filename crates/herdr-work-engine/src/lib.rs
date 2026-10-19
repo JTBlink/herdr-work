@@ -146,6 +146,17 @@ impl<T: Send + 'static> Default for JobQueue<T> {
     }
 }
 impl<T: Send + 'static> JobQueue<T> {
+    /// FIFO shutdown barrier. Only use after the input loop has ended: unlike
+    /// submit, this waits for capacity so final persistence cannot be dropped.
+    pub fn submit_on_shutdown(
+        &self,
+        epoch: u64,
+        job: impl FnOnce() -> Result<T> + Send + 'static,
+    ) -> Result<()> {
+        self.tx
+            .send((epoch, Box::new(job)))
+            .map_err(|_| anyhow::anyhow!("Worker stopped before final persistence"))
+    }
     pub fn submit(
         &self,
         epoch: u64,

@@ -543,7 +543,7 @@ impl App {
                 let draft = self.git.drafts.entry(root.clone()).or_default();
                 draft.message = input.chars().collect();
                 draft.cursor = draft.message.len();
-                self.desk.save_git_draft(&root, draft)?;
+                self.mark_git_draft(root.clone());
                 self.git.committing.insert(root.clone());
                 self.job(move |d| {
                     let result = d.commit(&plan, &input);
