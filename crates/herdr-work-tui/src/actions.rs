@@ -477,6 +477,17 @@ impl App {
         })
     }
     pub(crate) fn submit_prompt(&mut self) -> Result<()> {
+        let prompt = self.prompt.clone();
+        let input = self.input.clone();
+        let epoch = self.context.epoch;
+        let result = self.submit_prompt_inner();
+        if result.is_err() && self.prompt.is_none() && self.context.epoch == epoch {
+            self.prompt = prompt;
+            self.input = input;
+        }
+        result
+    }
+    fn submit_prompt_inner(&mut self) -> Result<()> {
         match self.prompt.as_ref() {
             Some(Prompt::Git(_)) => {
                 anyhow::ensure!(self.input == "APPLY", "请输入 APPLY 确认 Git 操作")
@@ -567,11 +578,12 @@ impl App {
                 draft.message = input.chars().collect();
                 draft.cursor = draft.message.len();
                 self.mark_git_draft(root.clone());
-                self.git.committing.insert(root.clone());
+                let queued_root = root.clone();
                 self.job(move |d| {
                     let result = d.commit(&plan, &input);
                     Ok(Data::CommitDone(root, input, result))
                 })?;
+                self.git.committing.insert(queued_root);
             }
             Prompt::Comment { review, anchor } => {
                 self.job(move |d| Ok(Data::Review(d.add_comment_at(&review, &anchor, &input)?)))?;

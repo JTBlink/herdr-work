@@ -24,7 +24,7 @@ pub enum WorkGitAction {
     DeleteBranch(String),
     ForceDeleteBranch(String),
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct WorkGitPlan {
     pub root: PathBuf,
     action: WorkGitAction,

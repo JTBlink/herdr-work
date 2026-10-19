@@ -4,6 +4,7 @@ use anyhow::{Context, Result, ensure};
 use herdr_work_code::actions::{self, MenuAction};
 use std::path::{Path, PathBuf};
 
+#[derive(Clone)]
 pub struct FilePlan {
     pub action: MenuAction,
     pub target: PathBuf,
