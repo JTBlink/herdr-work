@@ -17,8 +17,23 @@ pub(crate) enum Data {
     Bound(Execution),
     Business(String),
     Editor(PathBuf, Result<herdr_work_engine::EditorSession>),
+    EditorObserved(
+        u64,
+        u64,
+        Result<herdr_work_engine::EditorExternalObservation>,
+    ),
+    EditorSaved(
+        u64,
+        u64,
+        Result<(
+            herdr_work_engine::EditorSession,
+            herdr_work_code::editor::SaveOutcome,
+        )>,
+    ),
+    EditorReloaded(u64, u64, String, Result<herdr_work_engine::EditorSession>),
     Drawer(u64, Result<herdr_work_engine::DrawerView>),
     Show(u64, Result<String>),
+    QuickIndex(u64, Result<herdr_work_engine::QuickIndex>),
     Search(u64, Result<herdr_work_engine::SearchView>),
     FileReady(herdr_work_engine::FilePlan),
     Folder(Option<PathBuf>),
@@ -93,6 +108,10 @@ pub(crate) struct App {
     pub(crate) editor: Option<herdr_work_engine::EditorSession>,
     pub(crate) edit_request: Option<PathBuf>,
     pub(crate) git: crate::scm::GitUi,
+    pub(crate) editor_request: u64,
+    pub(crate) editor_poll: Option<(u64, u64)>,
+    pub(crate) editor_write: Option<(u64, u64)>,
+    pub(crate) editor_leave_after_save: bool,
     pub(crate) scm_cursor: usize,
     pub(crate) active_drawer: Option<herdr_work_code::scm::Drawer>,
     pub(crate) drawer_open: [bool; 8],
@@ -102,6 +121,9 @@ pub(crate) struct App {
     pub(crate) drawer_state: LoadState,
     pub(crate) drawer_scroll: u16,
     pub(crate) drawer_show: Option<String>,
+    pub(crate) search_runtime: crate::search::SearchRuntime,
+    pub(crate) preview_target: Option<(PathBuf, usize)>,
+    pub(crate) edit_line: Option<usize>,
     pub(crate) search_query: String,
     pub(crate) search_quick: bool,
     pub(crate) search_options: herdr_work_code::search::SearchOptions,
@@ -147,6 +169,10 @@ impl App {
             editor: None,
             edit_request: None,
             git: Default::default(),
+            editor_request: 0,
+            editor_poll: None,
+            editor_write: None,
+            editor_leave_after_save: false,
             scm_cursor: 0,
             active_drawer: None,
             drawer_open: [false; 8],
@@ -155,6 +181,9 @@ impl App {
             drawer_state: LoadState::Ready,
             drawer_scroll: 0,
             drawer_show: None,
+            search_runtime: Default::default(),
+            preview_target: None,
+            edit_line: None,
             search_query: String::new(),
             search_quick: false,
             search_options: Default::default(),
@@ -213,8 +242,16 @@ impl App {
             })
     }
     pub(crate) fn apply(&mut self, epoch: u64, data: Result<Data>) {
+        // Guarded editor sessions and commit drafts can outlive unrelated binding epochs.
         if epoch != self.context.epoch
-            && !matches!(&data, Ok(Data::Tasks(_) | Data::CommitDone(..)))
+            && !matches!(
+                &data,
+                Ok(Data::Tasks(_)
+                    | Data::CommitDone(..)
+                    | Data::EditorObserved(..)
+                    | Data::EditorSaved(..)
+                    | Data::EditorReloaded(..))
+            )
         {
             return;
         }
@@ -238,6 +275,15 @@ impl App {
                     .and_then(|id| tasks.iter().position(|t| t.id == id))
                     .unwrap_or(self.task.min(tasks.len().saturating_sub(1)));
                 self.tasks = tasks;
+            }
+            Ok(Data::EditorObserved(session, request, result)) => {
+                self.editor_observed(session, request, result)
+            }
+            Ok(Data::EditorSaved(session, request, result)) => {
+                self.editor_saved(session, request, result)
+            }
+            Ok(Data::EditorReloaded(session, request, text, result)) => {
+                self.editor_reloaded(session, request, text, result)
             }
             Ok(data) if epoch != self.context.epoch && !matches!(&data, Data::CommitDone(..)) => {}
             Ok(Data::Code(generation, _)) if generation != self.generation => {}
@@ -359,14 +405,12 @@ impl App {
                     Ok(text) => text,
                     Err(error) => format!("无法预览文件：{error:#}"),
                 };
-                self.preview_scroll = if self.tab == Tab::Search {
-                    self.search_rows
-                        .get(self.selection)
-                        .map(|r| r.line.saturating_sub(1).min(u16::MAX as usize) as u16)
-                        .unwrap_or(0)
-                } else {
-                    0
-                };
+                self.preview_scroll = self
+                    .preview_target
+                    .as_ref()
+                    .filter(|(p, _)| p == &path)
+                    .map(|(_, line)| line.saturating_sub(1).min(u16::MAX as usize) as u16)
+                    .unwrap_or(0);
             }
             Ok(Data::Preview(_, _)) => {}
             Ok(Data::WorkGitReady(request, result))
@@ -500,21 +544,30 @@ impl App {
             Ok(Data::Folder(None)) => {
                 self.status = "已取消打开文件夹".into();
             }
-            Ok(Data::Search(request, result)) if request == self.search_request => match result {
-                Ok(view) => {
-                    self.search_rows = view.rows;
-                    self.search_state = LoadState::Ready;
-                    self.selection = 0;
-                    if view.truncated {
-                        self.status = "结果已截断，请缩小搜索范围".into();
+            Ok(Data::QuickIndex(request, result)) => {
+                self.search_finished(request);
+                self.receive_quick_index(result);
+            }
+            Ok(Data::Search(request, result)) => {
+                self.search_finished(request);
+                if request != self.search_request {
+                    return;
+                }
+                match result {
+                    Ok(view) => {
+                        self.search_rows = view.rows;
+                        self.search_state = LoadState::Ready;
+                        self.selection = 0;
+                        if view.truncated {
+                            self.status = "结果已截断，请缩小搜索范围".into();
+                        }
+                    }
+                    Err(error) => {
+                        self.search_state = LoadState::Failed(error.to_string());
+                        self.search_rows.clear();
                     }
                 }
-                Err(error) => {
-                    self.search_state = LoadState::Failed(error.to_string());
-                    self.search_rows.clear();
-                }
-            },
-            Ok(Data::Search(..)) => {}
+            }
             Ok(Data::Drawer(request, result)) if request == self.drawer_request => match result {
                 Ok(view) => {
                     self.drawer_state = LoadState::Ready;
@@ -530,7 +583,10 @@ impl App {
             Ok(Data::Editor(path, result)) if self.edit_request.as_ref() == Some(&path) => {
                 self.edit_request = None;
                 match result {
-                    Ok(editor) if self.overlay.is_none() && self.prompt.is_none() => {
+                    Ok(mut editor) if self.overlay.is_none() && self.prompt.is_none() => {
+                        if let Some(line) = self.edit_line.take() {
+                            editor.editor.goto_line(line);
+                        }
                         self.preview_path = Some(editor.editor.path().into());
                         self.editor = Some(editor);
                         self.focus = Focus::Content;
@@ -567,6 +623,8 @@ impl App {
         self.context.select(e);
         self.desk.save_context(&self.context)?;
         self.diff = None;
+        self.search_runtime = Default::default();
+        self.preview_target = None;
         self.search_request += 1;
         self.search_rows.clear();
         self.active_drawer = None;
@@ -602,6 +660,8 @@ impl App {
         self.edit_request = None;
         self.text.clear();
         self.expanded.clear();
+        self.search_runtime = Default::default();
+        self.preview_target = None;
         self.search_request += 1;
         self.search_rows.clear();
         self.drawer_request += 1;

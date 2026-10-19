@@ -16,19 +16,37 @@ impl App {
         if self.overlay.is_some() {
             return self.overlay_mouse(event, area);
         }
-        if self.prompt.is_some() {
+        if self.prompt.is_some() && !self.search_prompt() {
             return Ok(());
         }
         let layout = self.panes(area);
         let point = Position::new(event.column, event.row);
+        let editor_body = self.content_block(String::new()).inner(layout.content);
         if let Some(session) = &mut self.editor {
             if layout.content.contains(point) {
-                let body = ratatui::widgets::Block::default()
-                    .borders(ratatui::widgets::Borders::ALL)
-                    .inner(layout.content);
-                session.editor.on_mouse(&event, body);
+                let delta = match event.kind {
+                    MouseEventKind::ScrollDown => 3,
+                    MouseEventKind::ScrollUp => -3,
+                    _ => 0,
+                };
+                if delta != 0 {
+                    session.editor.scroll_by(
+                        delta,
+                        session.editor.wrap_width(editor_body.width),
+                        editor_body.height as usize,
+                    );
+                } else {
+                    session.editor.on_mouse(&event, editor_body);
+                }
             }
             return Ok(());
+        }
+        if self.search_prompt()
+            && !layout.sidebar.contains(point)
+            && matches!(event.kind, MouseEventKind::Down(_))
+        {
+            self.prompt = None;
+            self.input.clear();
         }
         let right = event.kind == MouseEventKind::Down(MouseButton::Right);
         if event.kind == MouseEventKind::Down(MouseButton::Left) || right {
@@ -55,9 +73,45 @@ impl App {
                 let mut row = event.row.saturating_sub(layout.sidebar.y + 1) as usize;
                 if self.tab == Tab::Search {
                     if row < 4 {
-                        self.query_prompt(false);
+                        match row {
+                            0 => self.query_prompt(self.search_quick),
+                            1 if !self.search_quick => {
+                                self.prompt = None;
+                                let x = event.column.saturating_sub(layout.sidebar.x + 1);
+                                match x {
+                                    0..=5 => {
+                                        self.search_options.match_case =
+                                            !self.search_options.match_case
+                                    }
+                                    7..=11 => {
+                                        self.search_options.whole_word =
+                                            !self.search_options.whole_word
+                                    }
+                                    13..=18 => {
+                                        self.search_options.regex = !self.search_options.regex
+                                    }
+                                    _ => return Ok(()),
+                                }
+                                self.search()?;
+                            }
+                            2 | 3 if !self.search_quick => {
+                                self.prompt = Some(if row == 2 {
+                                    Prompt::SearchInclude
+                                } else {
+                                    Prompt::SearchExclude
+                                });
+                                self.input = if row == 2 {
+                                    self.search_include.clone()
+                                } else {
+                                    self.search_exclude.clone()
+                                };
+                            }
+                            _ => {}
+                        }
                         return Ok(());
                     }
+                    self.prompt = None;
+                    self.input.clear();
                     row -= 4;
                 }
                 if self.tab == Tab::Scm {
@@ -96,7 +150,7 @@ impl App {
                     row + offset(
                         self.selection,
                         if self.tab == Tab::Search {
-                            layout.sidebar.height.saturating_sub(4)
+                            layout.sidebar.height.saturating_sub(6)
                         } else {
                             layout.sidebar.height
                         },

@@ -15,7 +15,42 @@ pub struct SearchView {
     pub rows: Vec<SearchRow>,
     pub truncated: bool,
 }
+pub struct QuickIndex {
+    pub root: PathBuf,
+    pub show_hidden: bool,
+    files: Vec<search::QuickFile>,
+    truncated: bool,
+}
+impl QuickIndex {
+    pub fn matches(&self, query: &str) -> SearchView {
+        SearchView {
+            rows: search::quick_matches(&self.files, query)
+                .into_iter()
+                .take(1000)
+                .map(|i| SearchRow {
+                    path: self.files[i].path.clone(),
+                    label: self.files[i].label.clone(),
+                    line: 1,
+                    context: String::new(),
+                })
+                .collect(),
+            truncated: self.truncated,
+        }
+    }
+}
 impl HerdrWork {
+    pub fn quick_index(&self, root: &Path, show_hidden: bool) -> Result<QuickIndex> {
+        let root = root.canonicalize()?;
+        let (files, truncated) =
+            search::collect_quick_files(&root, show_hidden, search::QUICK_OPEN_FILE_LIMIT);
+        Ok(QuickIndex {
+            root,
+            show_hidden,
+            files,
+            truncated,
+        })
+    }
+
     pub fn search_files(
         &self,
         root: &Path,
@@ -28,19 +63,7 @@ impl HerdrWork {
     ) -> Result<SearchView> {
         let root = root.canonicalize()?;
         if quick {
-            let (files, truncated) =
-                search::collect_quick_files(&root, show_hidden, search::QUICK_OPEN_FILE_LIMIT);
-            let rows = search::quick_matches(&files, query)
-                .into_iter()
-                .take(1000)
-                .map(|i| SearchRow {
-                    path: files[i].path.clone(),
-                    label: files[i].label.clone(),
-                    line: 1,
-                    context: String::new(),
-                })
-                .collect();
-            Ok(SearchView { rows, truncated })
+            Ok(self.quick_index(&root, show_hidden)?.matches(query))
         } else {
             let (hits, truncated) = search::collect_content_hits(
                 &root,

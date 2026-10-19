@@ -20,6 +20,8 @@ pub(crate) enum Command {
     Edit,
     SaveEditor,
     DiscardEditor,
+    ReloadEditor,
+    OverwriteEditor,
     Cancel,
     Drawer(herdr_work_code::scm::Drawer),
     Search(bool),
@@ -190,11 +192,12 @@ impl App {
                         .is_some_and(|r| matches!(r.3, crate::scm::ScmTarget::Change(_)))
                 {
                     rows.push((Command::Key(KeyCode::Enter), "查看差异"));
-                    if let Some(change) = self
-                        .code
-                        .as_ref()
-                        .and_then(|c| c.changes.get(self.selection))
-                    {
+                    if let Some(change) = self.code.as_ref().and_then(|c| {
+                        self.scm_rows()
+                            .get(self.scm_cursor)
+                            .and_then(|r| r.0)
+                            .and_then(|index| c.changes.get(index))
+                    }) {
                         rows.push((
                             Command::Key(KeyCode::Char(if change.staged { 'u' } else { 's' })),
                             if change.staged {
@@ -383,10 +386,15 @@ impl App {
                 .path
                 .clone())
         } else {
+            let index = self
+                .scm_rows()
+                .get(self.scm_cursor)
+                .and_then(|r| r.0)
+                .context("未选择 Git 文件")?;
             let c = self
                 .code
                 .as_ref()
-                .and_then(|c| c.changes.get(self.selection))
+                .and_then(|c| c.changes.get(index))
                 .context("未选择 Git 更改")?;
             Ok(c.root.join(&c.path))
         }
@@ -412,8 +420,13 @@ impl App {
             }
             Command::Copy(relative) => {
                 let path = self.selected_path()?;
+                let relative_root = if matches!(self.tab, Tab::Scm | Tab::Review) {
+                    self.selected_repository()
+                } else {
+                    self.root.clone()
+                };
                 let path = if relative {
-                    path.strip_prefix(&self.root).unwrap_or(&path)
+                    path.strip_prefix(&relative_root).unwrap_or(&path)
                 } else {
                     &path
                 };
@@ -430,11 +443,16 @@ impl App {
             }
             Command::Edit => self.start_editor()?,
             Command::SaveEditor => {
-                self.save_editor()?;
-                self.finish_editor()?;
+                self.save_editor_with(false, true)?;
             }
             Command::DiscardEditor => self.finish_editor()?,
-            Command::Cancel => {}
+            Command::ReloadEditor => self.reload_editor()?,
+            Command::OverwriteEditor => {
+                self.save_editor_with(true, self.editor_leave_after_save)?
+            }
+            Command::Cancel => {
+                self.editor_leave_after_save = false;
+            }
             Command::Reference(action) => {
                 use herdr_work_code::scm::{DrawerRef, MenuAction, drawer_spec, parse_drawer_ref};
                 let (view, index) = self
@@ -446,6 +464,7 @@ impl App {
                 let reference = parse_drawer_ref(view.kind, line);
                 match action {
                     MenuAction::ShowRef => {
+                        self.drawer_request += 1;
                         let request = self.drawer_request;
                         self.job(move |d| Ok(Data::Show(request, d.scm_show(&view, index))))?;
                     }

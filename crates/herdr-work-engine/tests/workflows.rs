@@ -382,6 +382,121 @@ fn git_hook_descendants_and_blocking_hooks_are_bounded_after_commit() {
 }
 
 #[test]
+fn editor_observation_never_replaces_edits_made_while_the_disk_check_is_pending() {
+    let (repo, _home, desk) = fixture();
+    let mut session = desk.edit_file(repo.path(), "file.txt").unwrap();
+    let request = session.external_request();
+    std::fs::write(repo.path().join("file.txt"), "external\n").unwrap();
+    let observed = request.observe().unwrap();
+    session.editor.insert_text("local ");
+    let cursor = session.editor.cursor();
+    session.apply_external(observed);
+    assert_eq!(session.editor.text(), "local after\n");
+    assert_eq!(session.editor.cursor(), cursor);
+    assert!(session.editor.external_changed);
+    assert!(session.save().is_err());
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("file.txt")).unwrap(),
+        "external\n"
+    );
+}
+
+#[test]
+fn editor_reload_and_overwrite_preserve_utf8_bom_and_crlf() {
+    use herdr_work_code::editor::SaveOutcome;
+    let (repo, _home, desk) = fixture();
+    std::fs::write(
+        repo.path().join("file.txt"),
+        b"\xef\xbb\xbfhello\r\nworld\r\n",
+    )
+    .unwrap();
+    let mut session = desk.edit_file(repo.path(), "file.txt").unwrap();
+    std::fs::write(
+        repo.path().join("file.txt"),
+        b"\xef\xbb\xbfhello\r\nnew disk\r\n",
+    )
+    .unwrap();
+    session.apply_external(session.external_request().observe().unwrap());
+    session.editor.insert_text("界");
+    assert_eq!(session.editor.text(), "界hello\nnew disk\n");
+    std::fs::write(repo.path().join("file.txt"), "changed again\n").unwrap();
+    assert_eq!(
+        session.save_with_overwrite(false).unwrap(),
+        SaveOutcome::Conflict
+    );
+    assert_eq!(
+        session.save_with_overwrite(true).unwrap(),
+        SaveOutcome::Saved
+    );
+    assert_eq!(
+        std::fs::read(repo.path().join("file.txt")).unwrap(),
+        "\u{feff}界hello\r\nnew disk\r\n".as_bytes()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn editor_reload_observe_and_explicit_overwrite_reject_replaced_path_or_root() {
+    use std::os::unix::fs::symlink;
+    let (repo, _home, desk) = fixture();
+    let outside = tempfile::tempdir().unwrap();
+    let protected = outside.path().join("private.txt");
+    std::fs::write(&protected, "private").unwrap();
+    let mut session = desk.edit_file(repo.path(), "file.txt").unwrap();
+    std::fs::remove_file(repo.path().join("file.txt")).unwrap();
+    symlink(&protected, repo.path().join("file.txt")).unwrap();
+    assert!(session.external_request().observe().is_err());
+    assert!(session.reload().is_err());
+    assert!(session.save_with_overwrite(true).is_err());
+    assert_eq!(std::fs::read_to_string(protected).unwrap(), "private");
+
+    let root = outside.path().join("worktree");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("file.txt"), "old root").unwrap();
+    let mut session = desk.edit_file(&root, "file.txt").unwrap();
+    std::fs::rename(&root, outside.path().join("old-worktree")).unwrap();
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("file.txt"), "replacement root").unwrap();
+    assert!(session.external_request().observe().is_err());
+    assert!(session.reload().is_err());
+    assert!(session.save_with_overwrite(true).is_err());
+    assert_eq!(
+        std::fs::read_to_string(root.join("file.txt")).unwrap(),
+        "replacement root"
+    );
+}
+
+#[test]
+fn file_history_show_contains_colored_patch_only_for_selected_file() {
+    use herdr_work_code::scm::Drawer;
+    let (repo, _home, desk) = fixture();
+    std::fs::write(repo.path().join("other.txt"), "unrelated-patch\n").unwrap();
+    git(repo.path(), &["add", "."]);
+    git(repo.path(), &["commit", "-qm", "change both"]);
+    let history = desk
+        .scm_drawer(repo.path(), Drawer::FileHistory, Some("file.txt"))
+        .unwrap();
+    let patch = desk.scm_show(&history, 0).unwrap();
+    let plain = herdr_work_code::ansi::to_lines(&patch)
+        .into_iter()
+        .map(|l| {
+            l.spans
+                .into_iter()
+                .map(|s| s.content.into_owned())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(plain.contains("+after"), "missing actual patch: {patch}");
+    assert!(
+        patch.contains("\u{1b}["),
+        "patch should retain source colors"
+    );
+    assert!(!patch.contains("unrelated-patch"));
+    assert!(!patch.contains("other.txt"));
+}
+
+#[test]
 fn bulk_git_confirmation_tracks_untracked_bytes_and_respects_nested_ownership() {
     use herdr_work_engine::WorkGitAction;
     let (repo, _home, desk) = fixture();
@@ -600,4 +715,17 @@ fn remote_branch_checkout_establishes_tracking_and_sync_pushes_the_active_reposi
         .unwrap();
     desk.execute_work_git(&plan).unwrap();
     assert!(desk.prepare_work_git(repo.path(), A::Sync).is_err());
+}
+
+#[test]
+fn commit_confirmation_binds_the_branch_even_when_the_head_oid_is_identical() {
+    let (repo, _home, desk) = fixture();
+    git(repo.path(), &["add", "file.txt"]);
+    let plan = desk.prepare_commit(repo.path()).unwrap();
+    git(repo.path(), &["checkout", "-qb", "other-same-head"]);
+    assert!(
+        desk.commit(&plan, "must not commit on a different branch")
+            .is_err()
+    );
+    assert!(desk.prepare_commit(repo.path()).is_ok());
 }

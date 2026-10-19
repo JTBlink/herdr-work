@@ -7,33 +7,132 @@ use ratatui::{
     widgets::{List, ListItem, Paragraph},
 };
 
+use std::time::{Duration, Instant};
+
+#[derive(Default)]
+pub(crate) struct SearchRuntime {
+    cache: Option<herdr_work_engine::QuickIndex>,
+    in_flight: Option<(u64, u64)>,
+    dirty_since: Option<Instant>,
+}
 impl App {
+    pub(crate) fn invalidate_quick_index(&mut self) {
+        self.search_runtime.cache = None;
+        if self.tab == Tab::Search && self.search_quick {
+            let _ = self.search();
+        }
+    }
+    pub(crate) fn search_prompt(&self) -> bool {
+        matches!(
+            self.prompt,
+            Some(Prompt::Search(_) | Prompt::SearchInclude | Prompt::SearchExclude)
+        )
+    }
     pub(crate) fn query_prompt(&mut self, quick: bool) {
         self.edit_request = None;
+        if self.search_quick != quick {
+            self.search_query.clear();
+        }
+        self.search_quick = quick;
+        self.switch_tab(Tab::Search);
         self.prompt = Some(Prompt::Search(quick));
-        self.input = if self.search_quick == quick {
-            self.search_query.clone()
-        } else {
-            String::new()
-        };
+        self.input = self.search_query.clone();
+        if let Err(error) = self.search() {
+            self.status = error.to_string();
+        }
+    }
+    /// Called after typing or paste; source search uses a 300 ms quiet interval.
+    pub(crate) fn search_input_changed(&mut self) -> Result<()> {
+        match self.prompt {
+            Some(Prompt::Search(_)) => self.search_query = self.input.clone(),
+            Some(Prompt::SearchInclude) => self.search_include = self.input.clone(),
+            Some(Prompt::SearchExclude) => self.search_exclude = self.input.clone(),
+            _ => return Ok(()),
+        }
+        self.search_request += 1;
+        self.search_runtime.dirty_since = Some(Instant::now());
+        self.search_state = LoadState::Loading;
+        if self.search_quick {
+            self.tick_search(Instant::now())?;
+        }
+        Ok(())
     }
     pub(crate) fn search(&mut self) -> Result<()> {
         self.search_request += 1;
+        self.search_runtime.dirty_since = Some(Instant::now() - Duration::from_millis(300));
+        self.search_state = LoadState::Loading;
+        self.tick_search(Instant::now())
+    }
+    pub(crate) fn tick_search(&mut self, now: Instant) -> Result<()> {
+        let Some(dirty) = self.search_runtime.dirty_since else {
+            return Ok(());
+        };
+        if self.search_quick {
+            if let Some(index) = &self.search_runtime.cache {
+                if index.root == self.root && index.show_hidden == self.preferences.show_hidden {
+                    let view = index.matches(&self.search_query);
+                    self.search_rows = view.rows;
+                    self.search_state = LoadState::Ready;
+                    self.selection = 0;
+                    self.search_runtime.dirty_since = None;
+                    if view.truncated {
+                        self.status = "结果已截断，请缩小搜索范围".into();
+                    }
+                    return Ok(());
+                }
+            }
+        } else if now.saturating_duration_since(dirty) < Duration::from_millis(300) {
+            return Ok(());
+        }
+        if self
+            .search_runtime
+            .in_flight
+            .is_some_and(|(epoch, _)| epoch == self.context.epoch)
+        {
+            return Ok(());
+        }
         let request = self.search_request;
         let root = self.root.clone();
         let query = self.search_query.clone();
-        let quick = self.search_quick;
         let hidden = self.preferences.show_hidden;
         let options = self.search_options;
         let include = self.search_include.clone();
         let exclude = self.search_exclude.clone();
-        self.search_state = LoadState::Loading;
-        self.job(move |d| {
-            Ok(Data::Search(
-                request,
-                d.search_files(&root, &query, quick, hidden, options, &include, &exclude),
-            ))
-        })
+        if self.search_quick {
+            self.job(move |d| Ok(Data::QuickIndex(request, d.quick_index(&root, hidden))))?;
+        } else {
+            self.job(move |d| {
+                Ok(Data::Search(
+                    request,
+                    d.search_files(&root, &query, false, hidden, options, &include, &exclude),
+                ))
+            })?;
+        }
+        self.search_runtime.in_flight = Some((self.context.epoch, request));
+        self.search_runtime.dirty_since = None;
+        Ok(())
+    }
+    pub(crate) fn search_finished(&mut self, request: u64) {
+        if self.search_runtime.in_flight == Some((self.context.epoch, request)) {
+            self.search_runtime.in_flight = None;
+        }
+    }
+    pub(crate) fn receive_quick_index(&mut self, result: Result<herdr_work_engine::QuickIndex>) {
+        match result {
+            Ok(index)
+                if index.root == self.root && index.show_hidden == self.preferences.show_hidden =>
+            {
+                self.search_runtime.cache = Some(index);
+                if self.search_quick {
+                    self.search_runtime.dirty_since = Some(Instant::now());
+                    let _ = self.tick_search(Instant::now());
+                }
+            }
+            Err(error) if self.search_quick => {
+                self.search_state = LoadState::Failed(error.to_string())
+            }
+            _ => {}
+        }
     }
     pub(crate) fn open_search_result(&mut self) -> Result<()> {
         self.edit_request = None;
@@ -43,6 +142,8 @@ impl App {
             .context("暂无结果；按 / 输入搜索内容")?
             .clone();
         self.preview_path = Some(row.path.clone());
+        self.preview_target = Some((row.path.clone(), row.line));
+        self.preview_scroll = row.line.saturating_sub(1).min(u16::MAX as usize) as u16;
         self.text = "正在读取文件…".into();
         let root = self.root.clone();
         let file = row.path.strip_prefix(&root)?.to_string_lossy().into_owned();
@@ -62,10 +163,18 @@ impl App {
         let options = self.search_options;
         let header = format!(
             "{}\n[Aa:{}] [W:{}] [.*:{}]\n包含: {}\n排除: {}",
-            self.search_query,
-            options.match_case,
-            options.whole_word,
-            options.regex,
+            format!(
+                "{}{}",
+                if matches!(self.prompt, Some(Prompt::Search(_))) {
+                    "› "
+                } else {
+                    ""
+                },
+                self.search_query
+            ),
+            if options.match_case { "●" } else { "○" },
+            if options.whole_word { "●" } else { "○" },
+            if options.regex { "●" } else { "○" },
             self.search_include,
             self.search_exclude
         );
