@@ -1,6 +1,6 @@
 # 固定源码与导入映射
 
-用户已确定[产品内部模块整合方向](../architecture/herdr-work-internal-modules.md)：本页记录当前来源位置与实际调用，后续迁至根 workspace 和 `crates/`，来源记录最终进入 `docs/provenance/`。当前源码尚未移动。
+用户已确定[产品内部模块整合方向](../architecture/herdr-work-internal-modules.md)：本页记录当前来源位置与实际调用，后续迁至根 workspace 和 `crates/`，来源记录最终进入 `docs/provenance/`。Sidebar 已迁入 `crates/herdr-work-code`，其余来源仍待迁移；见[当前迁移记录](../provenance/sidebar-source.md)。
 
 ## 当前获取状态
 
@@ -21,14 +21,10 @@
 | 来源根目录 | 目标目录 | 保留内容 |
 | --- | --- | --- |
 | Projects 完整仓库 | `upstream/herdr-projects/` | 原根 package/CLI、crates/core、crates/flow、crates/board、crates/web、资源和测试 |
-| Sidebar 完整仓库 | `upstream/herdr-sidebar/` | 原根结构、plugins/herdr-sidebar package、资源和测试 |
+| Sidebar package | `crates/herdr-work-code/` | 原算法、资源及测试；独立插件入口移为显式测试特性，原说明/清单归档到 docs/provenance |
 | Reviewr 完整仓库 | `upstream/herdr-reviewr/` | 原根 package、src、资源和测试 |
 
-来源根目录下面的相对路径不变。工作台通过 path dependency 和保留的 Projects 后端复用实际实现，不修改来源的模块命名来迎合自有 crate 命名。
-
-工作台根 workspace 显式列出 `herdr-work-core`、`herdr-work-engine`、`herdr-work-tui`、`herdr-work` 四个成员，排除上游项目自动加入；保留来源 workspace 与锁文件。统一构建入口分别编排工作台和后端，记录使用的锁文件、固定 commit、适配补丁及行为测试。
-
-根 workspace 和 Projects 后端分别以原锁文件编译。目录统一不等于扁平化上游结构，也不意味着共用一个 Cargo.lock；暂不降低来源声明的工具链要求。
+Code 已作为产品内部 crate 命名和维护，原说明、清单及版权留有记录。Projects、Reviewr 当前保持原源码布局。根 workspace 现有六个成员：core、engine、tui、主 CLI、Code、专属 Projects worker；worker 通过本地库依赖复用原任务实现。主程序与 worker 均使用根 Cargo.lock 和 target 构建，不再从另一个 target 取后端。来源工程自身的 manifest/锁仍供原测试基线核对，不能据此宣称全部 package 已扁平化。
 
 ## 复用与升级约束
 
@@ -49,12 +45,12 @@
 | Projects `crates/flow/src/flow/sidebar.rs` | managed 模式关闭旧 Sidebar 元数据同步，避免驱动另一插件界面。 |
 | Reviewr `src/herdr.rs` | 导出显式 endpoint 的有界 socket 请求，保留原 transport；发送直接复用原 send_text、就绪检查和错误分类。宿主 API 不支持原子 send-if-ready，最终检查与写入之间仍有宿主侧竞态。 |
 | Reviewr `src/proc.rs` | 导出原 process-tree/JobObject 有界进程执行入口，供工作台运行来源后端。 |
-| Sidebar `plugins/herdr-sidebar/src/git.rs` | 导出线程范围的 HerdrWork 进程执行回调，让原 Git::discover_all/status/stage/unstage/commit 使用 Reviewr 原 process-tree/JobObject 有界执行器（同时限制子进程和管道排空）；原调用方默认行为不变。Tree 直接复用。 |
+| Code `crates/herdr-work-code/src/git.rs` | 导出线程范围的 HerdrWork 进程执行回调，让原 Git::discover_all/status/stage/unstage/commit 使用 Reviewr 原 process-tree/JobObject 有界执行器（同时限制子进程和管道排空）；原调用方默认行为不变。Tree 直接复用。 |
 
 HerdrWork 自身补充执行身份、epoch/generation、草稿、固定发送批次、导入日志及操作核对，不新增第二套任务阶段状态机。Reviewr 原评论仍为内存状态，持久化仅属于 HerdrWork。上游测试与 fixtures 完整保留。
 
 ## 当前名称与兼容清理
 
-当前根 workspace 为 `herdr-work-core`、`herdr-work-engine`、`herdr-work-tui`、`herdr-work`。适配接口使用 `herdr_work_*`，托管环境只读取 `HERDR_WORK_MANAGED`。旧命令别名、旧托管变量、旧暂停标记均已移除；profile、Git 写锁、收据和归档只使用 HerdrWork 当前名称，不再支持旧目录或旧插件数据导入。来源 Git 哈希是导入基线，实际改动由本项目提交追踪。
+当前根 workspace 已增加 `herdr-work-code` 与 `herdr-work-projects`。适配接口使用 `herdr_work_*`，托管环境只读取 `HERDR_WORK_MANAGED`。旧命令别名、旧托管变量、旧暂停标记均已移除；profile、Git 写锁、收据和归档只使用 HerdrWork 当前名称，不再支持旧目录或旧插件数据导入。来源 Git 哈希是导入基线，实际改动由本项目提交追踪。
 
 默认 TUI 已改为 Explorer。文件树/SCM 继续执行原 Tree/Git；活动栏选中样式、Git 状态颜色直接复用 Sidebar 的 `ui` 模块。主程序自行维护一个终端和 scoped 布局，不运行原插件 App 或 pane 自动补建。视口几何与鼠标命中使用同一个 layout 模块，预览有独立焦点与滚动，过期文件预览不覆盖当前选择。

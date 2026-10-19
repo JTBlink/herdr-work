@@ -8,7 +8,7 @@
 
 | Issue | 实现入口 | 可复现验收 |
 | --- | --- | --- |
-| #2 | 四个 crates、upstream、scripts/build.py | 锁定工具链和 Cargo.lock，编译 HerdrWork 与 Unix Projects 后端；doctor 报告固定来源 |
+| #2 | 根 workspace、来源库、scripts/build.py | 锁定工具链和 Cargo.lock，编译 HerdrWork 与 Unix Projects 后端；doctor 报告固定来源 |
 | #3 | engine/tasks.rs、host.rs、tui/state.rs | 原 tasks::list 快照，保留 attempt、terminal/socket、worktree 实例；唯一匹配才绑定；过期 epoch 不更新当前视图 |
 | #4 | engine/code.rs、tui/view.rs | 原 Reviewr diff/base/highlight；staged/unstaged/working/branch；Sidebar Git 命令有界运行 |
 | #5 | engine/review.rs | 评论锚定显示时的 fingerprint，原子落盘；重启、编辑、文件改变和工作目录实例替换测试 |
@@ -25,7 +25,7 @@
 ## 本机已验证命令
 
 ```sh
-cargo fmt --all --check
+cargo fmt --check
 cargo test --workspace --locked
 python3 -m unittest discover -s scripts/tests -v
 python3 scripts/build.py --target aarch64-apple-darwin
@@ -54,4 +54,14 @@ macOS/Linux 的归档安装 smoke 调用 `scripts/ui_smoke.py`，在私有 PTY �
 
 ## 后续模块迁移
 
-[内部模块架构](architecture/herdr-work-internal-modules.md)与[任务索引](plans/internal-modules/README.md)定义九个产品模块及十一成员过渡布局。当前源码尚未迁移，不能将本次两项修复记为 workspace 整合完成。
+[内部模块架构](architecture/herdr-work-internal-modules.md)与[任务索引](plans/internal-modules/README.md)定义九个产品模块及十一成员过渡布局。Sidebar 已迁入 crates/herdr-work-code，根 workspace 当前有六个成员，两个发布二进制使用根锁文件和 target。Projects、Reviewr 的其余源码仍在 upstream/；完整九模块整合尚未完成。实际复用和隔离边界见 [Sidebar 来源记录](provenance/sidebar-source.md)。
+
+## Sidebar 能力和独立性验收
+
+- `cargo test --workspace --locked`：373 通过、3 项来源测试沿用 ignored；包含原 Code 库 336 项、TUI 12 项及 worker 实际启动隔离测试。
+- `cargo test -p herdr-work-code --features reference-ui --bin herdr-work-code-browser --locked`：保留来源界面 54 项通过。
+- Python 合约测试 13 项通过，覆盖与独立 Sidebar/Projects/Reviewr 共存时的安装、回滚、重装、卸载。
+- 原生 macOS PTY 已实际检查菜单、设置、内置编辑器选择/粘贴/保存、预览、暂存/取消暂存、Diff、创建任务、80 列和终端恢复。
+- HerdrWork 不读取独立 Sidebar 的配置，不启用其接管/更新/窗格生命周期模块；专属任务入口忽略继承的第三方 Projects 资料路径。第三方命令、配置和注册表在隔离测试前后字节一致。
+
+格式检查使用 `cargo fmt --check`，避免 `--all` 连带格式化尚未迁移的来源 Projects 独立工程。上列结果属于本机当前源码验证，三平台结果以同一提交的 Actions 为准。

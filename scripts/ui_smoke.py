@@ -84,10 +84,20 @@ def ui_smoke(binary):
             text = wait_for('任务：0')
             assert '加载中' not in text and 'Loading' not in text, 'Startup remained pending'
             assert 'EXPLORER' in text and 'visible.txt' in text and 'Preview' in text, 'Default Explorer is missing'
-            assert '暂无任务' not in text and text.count('Tasks') == 1, 'Tasks displaced the default sidebar'
+            assert '暂无任务' not in text and text.count('Tasks') == 0, 'Tasks displaced the default sidebar'
             wait_for('changedpreviewfixture', b'\r')
+            wait_for('侧栏设置', b',')
+            wait_for('EXPLORER', b'\x1b')
+            wait_for('文件菜单', b'm')
+            wait_for('EXPLORER', b'\x1b')
+            wait_for('编辑·visible.txt', b'e')
+            screen(b'\x01')  # Original editor: select all.
+            screen(b'\x1b[200~changed preview fixture\neditor saved UTF-8\n\x1b[201~')
+            wait_for('文件已保存', b'\x13')
+            assert file.read_text() == 'changed preview fixture\neditor saved UTF-8\n', 'Built-in editor did not save the actual UTF-8 file'
+            wait_for('Preview', b'\x1b')
             # Click the Git activity using the terminal's SGR mouse protocol.
-            text = wait_for('SOURCECONTROL', b'\x1b[<0;4;7M\x1b[<0;4;7m')
+            text = wait_for('SOURCECONTROL', b'\x1b[<0;4;9M\x1b[<0;4;9m')
             assert 'Changes(1)' in text, 'Git changes were not shown in the sidebar'
             wait_for('Staged(1)', b's')
             assert git('diff', '--cached', '--name-only').strip() == 'visible.txt', 'UI stage did not update the actual index'
@@ -119,7 +129,7 @@ def ui_smoke(binary):
                 process.wait(timeout=5)
             os.close(master)
             os.close(slave)
-    print('UI loaded: default Explorer, mouse navigation, preview, stage/unstage, real Diff, task creation, 80-column split and clean exit')
+    print('UI loaded: default Explorer, settings/menu, original editor save, mouse navigation, preview, stage/unstage, real Diff, task creation, 80-column split and clean exit')
 
 
 if __name__ == '__main__':

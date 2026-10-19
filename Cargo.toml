@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/herdr-work-core", "crates/herdr-work-engine", "crates/herdr-work-tui", "crates/herdr-work"]
-exclude = ["upstream/herdr-projects", "upstream/herdr-sidebar/plugins/herdr-sidebar", "upstream/herdr-reviewr"]
+members = ["crates/herdr-work-core", "crates/herdr-work-engine", "crates/herdr-work-tui", "crates/herdr-work", "crates/herdr-work-projects", "crates/herdr-work-code"]
+exclude = ["upstream/herdr-projects", "upstream/herdr-reviewr"]
 resolver = "3"
 
 [workspace.package]
@@ -10,6 +10,7 @@ license = "MIT"
 rust-version = "1.99"
 
 [workspace.dependencies]
+herdr-work-code = { path = "crates/herdr-work-code" }
 herdr-work-core = { path = "crates/herdr-work-core" }
 herdr-work-engine = { path = "crates/herdr-work-engine" }
 herdr-work-tui = { path = "crates/herdr-work-tui" }

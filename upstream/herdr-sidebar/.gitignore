@@ -1,7 +1,0 @@
-target/
-.claude/worktrees/
-.claude/settings.local.json
-/.claude/commands/
-/.codex/prompts/
-__pycache__/
-tools/screenshots/attach.log

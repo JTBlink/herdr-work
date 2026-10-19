@@ -16,6 +16,13 @@ pub(crate) enum Data {
     Review(Review),
     Bound(Execution),
     Business(String),
+    Editor(PathBuf, Result<herdr_work_engine::EditorSession>),
+    Drawer(u64, Result<herdr_work_engine::DrawerView>),
+    Show(u64, Result<String>),
+    Search(u64, Result<herdr_work_engine::SearchView>),
+    FileReady(herdr_work_engine::FilePlan),
+    Folder(Option<PathBuf>),
+    GitReady(herdr_work_engine::GitPlan),
 }
 pub(crate) enum Message {
     Input(Event),
@@ -27,6 +34,7 @@ pub(crate) enum Tab {
     Files,
     Scm,
     Review,
+    Search,
 }
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Focus {
@@ -41,6 +49,12 @@ pub(crate) enum Prompt {
     Commit(herdr_work_engine::CommitPlan),
     NewTask,
     Stop(TaskId),
+    Search(bool),
+    SearchInclude,
+    SearchExclude,
+    File(herdr_work_engine::FilePlan),
+    Folder,
+    Git(herdr_work_engine::GitPlan),
 }
 pub(crate) struct App {
     pub(crate) desk: HerdrWork,
@@ -66,11 +80,36 @@ pub(crate) struct App {
     pub(crate) prompt: Option<Prompt>,
     pub(crate) input: String,
     pub(crate) jobs: JobQueue<Data>,
+    pub(crate) preferences: herdr_work_engine::UiPreferences,
+    pub(crate) overlay: Option<crate::menus::Overlay>,
+    pub(crate) editor: Option<herdr_work_engine::EditorSession>,
+    pub(crate) edit_request: Option<PathBuf>,
+    pub(crate) scm_cursor: usize,
+    pub(crate) active_drawer: Option<herdr_work_code::scm::Drawer>,
+    pub(crate) drawer_open: [bool; 8],
+    pub(crate) drawers:
+        std::collections::HashMap<herdr_work_code::scm::Drawer, herdr_work_engine::DrawerView>,
+    pub(crate) drawer_request: u64,
+    pub(crate) drawer_state: LoadState,
+    pub(crate) drawer_scroll: u16,
+    pub(crate) drawer_show: Option<String>,
+    pub(crate) search_query: String,
+    pub(crate) search_quick: bool,
+    pub(crate) search_options: herdr_work_code::search::SearchOptions,
+    pub(crate) search_include: String,
+    pub(crate) search_exclude: String,
+    pub(crate) search_rows: Vec<herdr_work_engine::SearchRow>,
+    pub(crate) search_state: LoadState,
+    pub(crate) search_request: u64,
+    pub(crate) menu_path: Option<PathBuf>,
+    pub(crate) menu_reference: Option<(herdr_work_engine::DrawerView, usize)>,
 }
 
 impl App {
-    pub(crate) fn new(desk: HerdrWork, root: PathBuf, context: Context) -> Self {
-        Self {
+    pub(crate) fn new(desk: HerdrWork, root: PathBuf, context: Context) -> Result<Self> {
+        let root = root.canonicalize()?;
+        let preferences = desk.ui_preferences()?;
+        Ok(Self {
             desk,
             context,
             tasks: vec![],
@@ -94,7 +133,29 @@ impl App {
             prompt: None,
             input: String::new(),
             jobs: JobQueue::default(),
-        }
+            preferences,
+            overlay: None,
+            editor: None,
+            edit_request: None,
+            scm_cursor: 0,
+            active_drawer: None,
+            drawer_open: [false; 8],
+            drawers: Default::default(),
+            drawer_request: 0,
+            drawer_state: LoadState::Ready,
+            drawer_scroll: 0,
+            drawer_show: None,
+            search_query: String::new(),
+            search_quick: false,
+            search_options: Default::default(),
+            search_include: String::new(),
+            search_exclude: String::new(),
+            search_rows: vec![],
+            search_state: LoadState::Ready,
+            search_request: 0,
+            menu_path: None,
+            menu_reference: None,
+        })
     }
 
     pub(crate) fn job(
@@ -114,10 +175,11 @@ impl App {
         let generation = self.generation;
         let root = self.root.clone();
         let expanded = self.expanded.clone();
+        let show_hidden = self.preferences.show_hidden;
         self.job(move |d| {
             Ok(Data::Code(
                 generation,
-                d.code_snapshot(&root, &expanded, generation),
+                d.code_snapshot_with_hidden(&root, &expanded, generation, show_hidden),
             ))
         })?;
         self.code_state = LoadState::Loading;
@@ -141,12 +203,18 @@ impl App {
             })
     }
     pub(crate) fn apply(&mut self, epoch: u64, data: Result<Data>) {
+        if epoch != self.context.epoch && !matches!(&data, Ok(Data::Tasks(_))) {
+            return;
+        }
         match data {
             Err(e) => self.status = format!("{e:#}"),
             Ok(Data::Business(text)) => {
                 self.status = text;
                 let _ = self.refresh();
                 let _ = self.load_tasks();
+                if let Some(kind) = self.active_drawer {
+                    let _ = self.load_drawer(kind);
+                }
             }
             Ok(Data::Tasks(Err(error))) => {
                 self.tasks_state = LoadState::Failed(format!("{error:#}"));
@@ -165,6 +233,10 @@ impl App {
                 self.code_state = LoadState::Failed(format!("{error:#}"));
             }
             Ok(Data::Code(_, Ok(code))) => {
+                let was_change = self
+                    .scm_rows()
+                    .get(self.scm_cursor)
+                    .is_some_and(|r| r.0.is_some());
                 self.code_state = LoadState::Ready;
                 let old = self.code.as_ref();
                 let position = match self.tab {
@@ -189,6 +261,13 @@ impl App {
                     .unwrap_or(self.selection)
                     .min(count.saturating_sub(1));
                 self.code = Some(code);
+                if was_change {
+                    self.scm_cursor = self
+                        .scm_rows()
+                        .iter()
+                        .position(|r| r.0 == Some(self.selection))
+                        .unwrap_or(0);
+                }
             }
             Ok(Data::CommitReady(plan)) => {
                 self.prompt = Some(Prompt::Commit(plan));
@@ -199,6 +278,7 @@ impl App {
                 self.review = Some(review);
             }
             Ok(Data::Diff(diff, review)) => {
+                self.active_drawer = None;
                 self.status = format!("{} saved comment(s)", review.comments.len());
                 self.review = Some(review);
                 self.diff = Some(diff);
@@ -216,9 +296,81 @@ impl App {
                     Ok(text) => text,
                     Err(error) => format!("无法预览文件：{error:#}"),
                 };
-                self.preview_scroll = 0;
+                self.preview_scroll = if self.tab == Tab::Search {
+                    self.search_rows
+                        .get(self.selection)
+                        .map(|r| r.line.saturating_sub(1).min(u16::MAX as usize) as u16)
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
             }
             Ok(Data::Preview(_, _)) => {}
+            Ok(Data::GitReady(plan)) => {
+                self.input.clear();
+                self.prompt = Some(Prompt::Git(plan));
+            }
+            Ok(Data::FileReady(plan)) => {
+                self.input = if plan.action == herdr_work_code::actions::MenuAction::Rename {
+                    plan.target
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned()
+                } else {
+                    String::new()
+                };
+                self.prompt = Some(Prompt::File(plan));
+            }
+            Ok(Data::Folder(Some(path))) => {
+                if let Err(error) = self.change_folder(path) {
+                    self.status = error.to_string();
+                }
+            }
+            Ok(Data::Folder(None)) => {
+                self.status = "已取消打开文件夹".into();
+            }
+            Ok(Data::Search(request, result)) if request == self.search_request => match result {
+                Ok(view) => {
+                    self.search_rows = view.rows;
+                    self.search_state = LoadState::Ready;
+                    self.selection = 0;
+                    if view.truncated {
+                        self.status = "结果已截断，请缩小搜索范围".into();
+                    }
+                }
+                Err(error) => {
+                    self.search_state = LoadState::Failed(error.to_string());
+                    self.search_rows.clear();
+                }
+            },
+            Ok(Data::Search(..)) => {}
+            Ok(Data::Drawer(request, result)) if request == self.drawer_request => match result {
+                Ok(view) => {
+                    self.drawer_state = LoadState::Ready;
+                    self.drawers.insert(view.kind, view);
+                }
+                Err(error) => self.drawer_state = LoadState::Failed(error.to_string()),
+            },
+            Ok(Data::Show(request, result)) if request == self.drawer_request => {
+                self.drawer_show =
+                    Some(result.unwrap_or_else(|e| format!("无法显示 Git 对象：{e}")));
+            }
+            Ok(Data::Drawer(..) | Data::Show(..)) => {}
+            Ok(Data::Editor(path, result)) if self.edit_request.as_ref() == Some(&path) => {
+                self.edit_request = None;
+                match result {
+                    Ok(editor) if self.overlay.is_none() && self.prompt.is_none() => {
+                        self.preview_path = Some(editor.editor.path().into());
+                        self.editor = Some(editor);
+                        self.focus = Focus::Content;
+                        self.status = "文本编辑：Ctrl+S 保存 · Esc 返回".into();
+                    }
+                    Err(error) => self.status = error.to_string(),
+                    _ => {}
+                }
+            }
+            Ok(Data::Editor(..)) => {}
             Ok(Data::Review(review)) => {
                 self.status = format!("{} saved comment(s)", review.comments.len());
                 self.review = Some(review);
@@ -245,6 +397,12 @@ impl App {
         self.context.select(e);
         self.desk.save_context(&self.context)?;
         self.diff = None;
+        self.search_request += 1;
+        self.search_rows.clear();
+        self.active_drawer = None;
+        self.drawers.clear();
+        self.drawer_open = [false; 8];
+        self.drawer_request += 1;
         self.review = None;
         self.code = None;
         self.text.clear();
@@ -254,6 +412,34 @@ impl App {
         self.selection = 0;
         self.tab = Tab::Files;
         self.focus = Focus::Sidebar;
+        self.refresh()
+    }
+    pub(crate) fn change_folder(&mut self, root: PathBuf) -> Result<()> {
+        let root = root.canonicalize()?;
+        anyhow::ensure!(root.is_dir(), "请选择目录");
+        anyhow::ensure!(self.editor.is_none(), "请先结束文本编辑");
+        let context = Context {
+            epoch: self.context.epoch.wrapping_add(1),
+            execution: None,
+        };
+        self.desk.save_context(&context)?;
+        self.context = context;
+        self.root = root;
+        self.code = None;
+        self.diff = None;
+        self.review = None;
+        self.preview_path = None;
+        self.edit_request = None;
+        self.text.clear();
+        self.expanded.clear();
+        self.search_request += 1;
+        self.search_rows.clear();
+        self.drawer_request += 1;
+        self.drawers.clear();
+        self.active_drawer = None;
+        self.drawer_open = [false; 8];
+        self.overlay = None;
+        self.switch_tab(Tab::Files);
         self.refresh()
     }
     pub(crate) fn open_diff(&self, root: PathBuf, path: String, scope: String) -> Result<()> {

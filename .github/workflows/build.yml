@@ -64,7 +64,6 @@ jobs:
           shared-key: herdr-work-${{ matrix.target }}
           workspaces: |
             . -> target
-            upstream/herdr-projects -> target
       - name: Build real release binaries
         env:
           BUILD_TARGET: ${{ matrix.target }}
@@ -74,6 +73,8 @@ jobs:
           subprocess.run(['python', 'scripts/build.py', '--target', os.environ['BUILD_TARGET']], check=True)
       - name: Verify domain and Git/review workflows
         run: cargo test --workspace --locked
+      - name: Verify migrated Sidebar reference UI and shared capabilities
+        run: cargo test -p herdr-work-code --features reference-ui --bin herdr-work-code-browser --locked
       - name: Package and verify archives
         env:
           BUILD_TARGET: ${{ matrix.target }}

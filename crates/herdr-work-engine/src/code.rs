@@ -1,7 +1,7 @@
 use crate::{HerdrWork, storage};
 use anyhow::{Context, Result, ensure};
 use fs2::FileExt;
-use herdr_sidebar::{git::Git, tree::Tree};
+use herdr_work_code::{git::Git, tree::Tree};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::OpenOptions,
@@ -14,6 +14,8 @@ pub struct FileRow {
     pub name: String,
     pub depth: usize,
     pub directory: bool,
+    pub symlink: bool,
+    pub status: Option<char>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GitChange {
@@ -76,7 +78,7 @@ pub(crate) fn checked_path(root: &Path, file: &str) -> Result<PathBuf> {
     }
     Ok(full)
 }
-fn write_lock(git: &Git) -> Result<std::fs::File> {
+pub(crate) fn write_lock(git: &Git) -> Result<std::fs::File> {
     let common = git
         .raw(&["rev-parse", "--git-common-dir"])
         .map_err(anyhow::Error::msg)?;
@@ -96,8 +98,8 @@ fn write_lock(git: &Git) -> Result<std::fs::File> {
         .context("Another HerdrWork Git operation is running")?;
     Ok(lock)
 }
-fn bounded_git<T>(job: impl FnOnce() -> T) -> T {
-    herdr_sidebar::git::herdr_work_bounded(
+pub(crate) fn bounded_git<T>(job: impl FnOnce() -> T) -> T {
+    herdr_work_code::git::herdr_work_bounded(
         |command, timeout| {
             herdr_reviewr::proc::herdr_work_run(command, timeout).map_err(|e| format!("{e:#}"))
         },
@@ -131,11 +133,21 @@ impl HerdrWork {
         expanded: &[PathBuf],
         generation: u64,
     ) -> Result<CodeSnapshot> {
+        self.code_snapshot_with_hidden(root, expanded, generation, true)
+    }
+    pub fn code_snapshot_with_hidden(
+        &self,
+        root: &Path,
+        expanded: &[PathBuf],
+        generation: u64,
+        show_hidden: bool,
+    ) -> Result<CodeSnapshot> {
         bounded_git(|| {
             let root = root.canonicalize()?;
             let mut tree = Tree::new(root.clone());
+            tree.show_hidden = show_hidden;
             tree.set_expanded(expanded.iter().cloned());
-            let files = tree
+            let mut files: Vec<FileRow> = tree
                 .rows()
                 .into_iter()
                 .map(|r| FileRow {
@@ -143,15 +155,23 @@ impl HerdrWork {
                     name: r.name,
                     depth: r.depth,
                     directory: r.is_dir,
+                    symlink: r.is_symlink,
+                    status: None,
                 })
                 .collect();
             let mut changes = vec![];
+            let mut decorations = vec![];
             let mut branch = String::new();
             for repo in Git::discover_all(&root) {
                 let status = repo.status().map_err(anyhow::Error::msg)?;
                 if branch.is_empty() {
-                    branch = status.branch;
+                    branch = status.branch.clone();
                 }
+                decorations.push(herdr_work_code::gitdeco::RepoStatus {
+                    root: repo.root().into(),
+                    status: status.clone(),
+                    ignored: repo.ignored().unwrap_or_default(),
+                });
                 let instance = Self::worktree_identity(repo.root())?;
                 let expected_index = herdr_reviewr::git::staged_fingerprint(repo.root())?;
                 for (staged, entries) in [(true, status.staged), (false, status.unstaged)] {
@@ -169,6 +189,10 @@ impl HerdrWork {
                         });
                     }
                 }
+            }
+            let decorations = herdr_work_code::gitdeco::Decorations::build(&decorations);
+            for row in &mut files {
+                row.status = decorations.letter(&row.path, row.directory);
             }
             Ok(CodeSnapshot {
                 root,

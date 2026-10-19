@@ -22,7 +22,7 @@ def package(target, output, tag=None):
     suffix = '.exe' if 'windows' in target else ''
     binaries = {'herdr-work': ROOT / f'target/{target}/release/herdr-work{suffix}'}
     if info['projects_backend']:
-        binaries['herdr-work-projects'] = ROOT / f'upstream/herdr-projects/target/{target}/release/herdr-projects'
+        binaries['herdr-work-projects'] = ROOT / f'target/{target}/release/herdr-work-projects'
     for path in binaries.values():
         if not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f'Compiled binary missing: {path}')
@@ -42,7 +42,7 @@ def package(target, output, tag=None):
         shutil.copy2(ROOT / 'CHANGELOG.md', stage / 'CHANGELOG.md')
         (stage / 'licenses').mkdir()
         for label in ['herdr-projects', 'herdr-sidebar', 'herdr-reviewr']:
-            shutil.copy2(ROOT / f'upstream/{label}/LICENSE', stage / f'licenses/{label}.txt')
+            shutil.copy2((ROOT / 'crates/herdr-work-code/LICENSE' if label == 'herdr-sidebar' else ROOT / f'upstream/{label}/LICENSE'), stage / f'licenses/{label}.txt')
         info['files'] = {p.relative_to(stage).as_posix(): digest(p) for p in sorted(stage.rglob('*')) if p.is_file()}
         (stage / 'MANIFEST.json').write_text(json.dumps(info, indent=2) + '\n')
         archive = output / (name + ('.zip' if suffix else '.tar.gz'))
