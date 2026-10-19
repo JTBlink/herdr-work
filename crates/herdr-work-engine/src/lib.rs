@@ -28,6 +28,16 @@ struct Profile {
     _lock: File,
     _legacy_lock: Option<File>,
 }
+impl Drop for Profile {
+    fn drop(&mut self) {
+        // Closing our fd alone can leave a Unix flock alive in a child that
+        // forked before exec. Release when the final shared owner exits.
+        if let Some(legacy) = &self._legacy_lock {
+            let _ = fs2::FileExt::unlock(legacy);
+        }
+        let _ = fs2::FileExt::unlock(&self._lock);
+    }
+}
 
 impl HerdrWork {
     pub fn worktree_identity(root: &Path) -> Result<String> {
