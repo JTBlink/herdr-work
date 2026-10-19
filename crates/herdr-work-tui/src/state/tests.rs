@@ -788,7 +788,7 @@ fn quick_open_filters_while_typing_and_keeps_results_navigable() {
         .recv_timeout(Duration::from_secs(3))
         .unwrap();
     app.apply(epoch, data);
-    assert_eq!(app.text, "fixture");
+    assert_eq!(app.text, "fixture\n");
 }
 
 #[test]
@@ -1627,4 +1627,61 @@ fn repeated_preview_requests_coalesce_and_same_path_old_load_cannot_win() {
     receive(&mut app);
     assert_eq!(app.text, "latest content");
     assert!(app.jobs.results.try_recv().is_err());
+}
+
+#[test]
+fn compact_scm_repository_input_click_matches_the_scrolled_rendered_row() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    for dock_right in [false, true] {
+        let (_temp, mut app) = app();
+        let nested = app.root.join("inner");
+        std::fs::create_dir(&nested).unwrap();
+        assert!(
+            Command::new("git")
+                .args(["init", "-q"])
+                .arg(&nested)
+                .status()
+                .unwrap()
+                .success()
+        );
+        std::fs::write(nested.join("own.txt"), "nested").unwrap();
+        app.code = Some(app.desk.code_snapshot(&app.root, &[], 1).unwrap());
+        app.code_state = LoadState::Ready;
+        app.preferences.dock_right = dock_right;
+        app.preferences.show_hotkeys = false;
+        app.switch_tab(Tab::Scm);
+        app.ensure_draft(&nested).unwrap();
+        app.git.drafts.get_mut(&nested).unwrap().message = "inner-draft".chars().collect();
+        app.scm_cursor = app
+            .scm_rows()
+            .iter()
+            .position(|r| matches!(r.3, crate::scm::ScmTarget::Message(1)))
+            .unwrap();
+        let area = ratatui::layout::Rect::new(0, 0, 100, 10);
+        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let row = (0..area.height)
+            .find(|y| {
+                (0..area.width)
+                    .map(|x| terminal.backend().buffer()[(x, *y)].symbol())
+                    .collect::<String>()
+                    .contains("inner-draft")
+            })
+            .expect("selected repository input must be visible in a short panel");
+        let body = app
+            .sidebar_block(String::new())
+            .inner(app.panes(area).sidebar);
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: body.x + 2,
+                row,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        assert_eq!(app.git.editing, Some(nested.clone()));
+        assert_eq!(app.git.active, Some(nested));
+    }
 }

@@ -30,6 +30,9 @@ pub struct GitChange {
     pub expected_head: Option<String>,
     pub expected_working: String,
     pub expected_content: String,
+    /// Missing a complete confirmation fingerprint never grants write authority.
+    #[serde(default)]
+    pub write_error: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RepositoryStatus {
@@ -38,6 +41,8 @@ pub struct RepositoryStatus {
     pub ahead: usize,
     pub behind: usize,
     pub has_upstream: bool,
+    #[serde(default)]
+    pub write_error: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CodeSnapshot {
@@ -177,12 +182,20 @@ impl HerdrWork {
                 if branch.is_empty() {
                     branch = status.branch.clone();
                 }
+                // Listing is useful even when a complete write confirmation is too
+                // large or unreadable. Keep its error explicit and disable writes
+                // from this snapshot; preparation still requires the full stamp.
+                let (expected_working, write_error) = match crate::work_git::working_stamp(&repo) {
+                    Ok(stamp) => (stamp, None),
+                    Err(error) => (String::new(), Some(format!("{error:#}"))),
+                };
                 repositories.push(RepositoryStatus {
                     root: repo.root().into(),
                     branch: status.branch.clone(),
                     ahead: status.ahead,
                     behind: status.behind,
                     has_upstream: status.has_upstream,
+                    write_error: write_error.clone(),
                 });
                 decorations.push(herdr_work_code::gitdeco::RepoStatus {
                     root: repo.root().into(),
@@ -191,10 +204,16 @@ impl HerdrWork {
                 });
                 let instance = Self::worktree_identity(repo.root())?;
                 let repository = crate::work_git::repository_identity(&repo)?;
-                let expected_working = crate::work_git::working_stamp(&repo)?;
                 for (staged, entries) in [(true, status.staged), (false, status.unstaged)] {
                     for e in entries {
-                        let expected_content = content_stamp(repo.root(), &e.path)?;
+                        let (expected_content, row_write_error) = if write_error.is_some() {
+                            (String::new(), write_error.clone())
+                        } else {
+                            match content_stamp(repo.root(), &e.path) {
+                                Ok(stamp) => (stamp, None),
+                                Err(error) => (String::new(), Some(format!("{error:#}"))),
+                            }
+                        };
                         changes.push(GitChange {
                             root: repo.root().into(),
                             instance: instance.clone(),
@@ -207,6 +226,7 @@ impl HerdrWork {
                             expected_head: expected_head.clone(),
                             expected_working: expected_working.clone(),
                             expected_content,
+                            write_error: row_write_error,
                         });
                     }
                 }
@@ -398,6 +418,11 @@ impl HerdrWork {
     }
     pub fn stage(&self, change: &GitChange, staged: bool) -> Result<()> {
         bounded_git(|| {
+            ensure!(
+                change.write_error.is_none(),
+                "此快照仅供只读，请修复后刷新：{}",
+                change.write_error.as_deref().unwrap_or_default()
+            );
             ensure!(
                 Self::worktree_identity(&change.root)? == change.instance,
                 "Worktree instance changed; refresh SCM"
