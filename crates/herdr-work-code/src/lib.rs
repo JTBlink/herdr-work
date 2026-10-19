@@ -21,12 +21,13 @@ pub mod launch;
 #[cfg(any(feature = "reference-ui", test))]
 pub mod rundir;
 pub mod scm;
+pub mod scm_input;
+pub mod scm_tree;
 pub mod search;
 #[cfg(any(feature = "reference-ui", test))]
 pub mod snooze;
 #[cfg(any(feature = "reference-ui", test))]
 pub mod state;
-#[cfg(any(feature = "reference-ui", test))]
 pub mod suggest;
 pub mod syntax;
 #[cfg(any(feature = "reference-ui", test))]

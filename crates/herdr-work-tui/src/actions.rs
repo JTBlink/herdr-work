@@ -7,6 +7,8 @@ use crate::state::*;
 impl App {
     pub(crate) fn switch_tab(&mut self, tab: Tab) {
         self.edit_request = None;
+        self.git.editing = None;
+        self.git.picker = None;
         if self.tab == Tab::Scm {
             self.scm_selection = self.selection;
         }
@@ -39,6 +41,7 @@ impl App {
         if self.prompt.is_some() {
             match key {
                 KeyCode::Esc => {
+                    self.persist_commit_prompt()?;
                     self.prompt = None;
                     self.input.clear();
                 }
@@ -53,6 +56,7 @@ impl App {
                 }
                 _ => {}
             }
+            self.persist_commit_prompt()?;
             return Ok(false);
         }
         let result = self.action(key);
@@ -116,6 +120,7 @@ impl App {
                     } else {
                         self.scm_cursor.saturating_sub(1)
                     };
+                    self.git.active = Some(self.selected_repository());
                     if let Some(index) = rows.get(self.scm_cursor).and_then(|r| r.0) {
                         self.selection = index;
                         self.scm_selection = index;
@@ -236,6 +241,42 @@ impl App {
                     Ok(Data::Business("Focused Agent".into()))
                 })?;
             }
+            KeyCode::Char('t') if self.tab == Tab::Scm => {
+                self.git.tree = !self.git.tree;
+                self.scm_cursor = 0;
+            }
+            KeyCode::Char('B') => self.open_branches()?,
+            KeyCode::Char('S') => self.work_git(herdr_work_engine::WorkGitAction::Sync)?,
+            KeyCode::Char('A') if self.tab == Tab::Scm => self.suggest_commit()?,
+            KeyCode::Char('a') if self.tab == Tab::Scm => {
+                self.work_git(herdr_work_engine::WorkGitAction::StageAll)?
+            }
+            KeyCode::Char('U') if self.tab == Tab::Scm => {
+                self.work_git(herdr_work_engine::WorkGitAction::UnstageAll)?
+            }
+            KeyCode::Char('D') if self.tab == Tab::Scm => {
+                self.work_git(herdr_work_engine::WorkGitAction::DiscardAll)?
+            }
+            KeyCode::Char('z') if self.tab == Tab::Scm => {
+                self.work_git(herdr_work_engine::WorkGitAction::Stash)?
+            }
+            KeyCode::Char('d') if self.tab == Tab::Scm => {
+                let c = self
+                    .code
+                    .as_ref()
+                    .and_then(|c| c.changes.get(self.selection))
+                    .context("请选择未暂存文件")?;
+                anyhow::ensure!(
+                    !c.staged
+                        && self
+                            .scm_rows()
+                            .get(self.scm_cursor)
+                            .is_some_and(|r| r.0 == Some(self.selection)),
+                    "请选择未暂存文件"
+                );
+                self.work_git(herdr_work_engine::WorkGitAction::Discard(c.path.clone()))?;
+            }
+            KeyCode::Char('s') if self.tab == Tab::Files => self.stage_explorer()?,
             KeyCode::Char('s') if self.tab == Tab::Scm => self.change_stage(true)?,
             KeyCode::Char('u') if self.tab == Tab::Scm => self.change_stage(false)?,
             KeyCode::Char('C') if self.tab == Tab::Scm => {
@@ -319,7 +360,27 @@ impl App {
         }
         Ok(())
     }
-    pub(crate) fn change_stage(&self, stage: bool) -> Result<()> {
+    pub(crate) fn change_stage(&mut self, stage: bool) -> Result<()> {
+        use crate::scm::ScmTarget;
+        if let Some(row) = self.scm_rows().get(self.scm_cursor) {
+            match row.3.clone() {
+                ScmTarget::Directory(_, _, path) => {
+                    return self.work_git(if stage {
+                        herdr_work_engine::WorkGitAction::StageUnder(path)
+                    } else {
+                        herdr_work_engine::WorkGitAction::UnstageUnder(path)
+                    });
+                }
+                ScmTarget::Section(..) | ScmTarget::Repository(_) => {
+                    return self.work_git(if stage {
+                        herdr_work_engine::WorkGitAction::StageAll
+                    } else {
+                        herdr_work_engine::WorkGitAction::UnstageAll
+                    });
+                }
+                _ => {}
+            }
+        }
         anyhow::ensure!(
             self.scm_rows()
                 .get(self.scm_cursor)
@@ -340,9 +401,48 @@ impl App {
         })
     }
     pub(crate) fn submit_prompt(&mut self) -> Result<()> {
+        match self.prompt.as_ref() {
+            Some(Prompt::Git(_)) => {
+                anyhow::ensure!(self.input == "APPLY", "请输入 APPLY 确认 Git 操作")
+            }
+            Some(Prompt::WorkGit(plan)) => {
+                let token = if matches!(
+                    plan.action(),
+                    herdr_work_engine::WorkGitAction::ForceDeleteBranch(_)
+                ) {
+                    "FORCE DELETE"
+                } else {
+                    "APPLY"
+                };
+                anyhow::ensure!(self.input == token, "请输入 {token} 确认 Git 操作");
+            }
+            Some(Prompt::Resolve(_)) => {
+                anyhow::ensure!(!self.input.trim().is_empty(), "请输入实际核对证据")
+            }
+            _ => {}
+        }
         let input = std::mem::take(&mut self.input);
         let prompt = self.prompt.take().unwrap();
         match prompt {
+            Prompt::Resolve(name) => {
+                anyhow::ensure!(!input.trim().is_empty(), "请输入实际核对证据");
+                self.job(move |d| {
+                    d.resolve_operation(&name, &input)?;
+                    Ok(Data::Business("核对记录已保存；没有自动重试操作".into()))
+                })?;
+            }
+            Prompt::WorkGit(plan) => {
+                let token = if matches!(
+                    plan.action(),
+                    herdr_work_engine::WorkGitAction::ForceDeleteBranch(_)
+                ) {
+                    "FORCE DELETE"
+                } else {
+                    "APPLY"
+                };
+                anyhow::ensure!(input == token, "请输入 {token} 确认 Git 操作");
+                self.job(move |d| Ok(Data::WorkGitDone(d.execute_work_git(&plan))))?;
+            }
             Prompt::Git(plan) => {
                 anyhow::ensure!(input == "APPLY", "请输入 APPLY 确认 Git 操作");
                 self.job(move |d| Ok(Data::Business(d.execute_git_plan(&plan)?)))?;
@@ -386,7 +486,16 @@ impl App {
                 })?;
             }
             Prompt::Commit(plan) => {
-                self.job(move |d| Ok(Data::Business(d.commit(&plan, &input)?)))?;
+                let root = plan.root.clone();
+                let draft = self.git.drafts.entry(root.clone()).or_default();
+                draft.message = input.chars().collect();
+                draft.cursor = draft.message.len();
+                self.desk.save_git_draft(&root, draft)?;
+                self.git.committing.insert(root.clone());
+                self.job(move |d| {
+                    let result = d.commit(&plan, &input);
+                    Ok(Data::CommitDone(root, input, result))
+                })?;
             }
             Prompt::Comment { review, anchor } => {
                 self.job(move |d| Ok(Data::Review(d.add_comment_at(&review, &anchor, &input)?)))?;

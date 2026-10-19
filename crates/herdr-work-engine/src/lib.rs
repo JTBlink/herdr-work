@@ -10,8 +10,9 @@ mod scm;
 mod search;
 mod storage;
 mod tasks;
+mod work_git;
 
-pub use code::{CodeSnapshot, CommitPlan, DiffView, FileRow, GitChange};
+pub use code::{CodeSnapshot, CommitPlan, DiffView, FileRow, GitChange, RepositoryStatus};
 pub use editing::EditorSession;
 pub use files::FilePlan;
 pub use herdr_work_core as model;
@@ -20,6 +21,7 @@ pub use review::SendOutcome;
 pub use scm::{DrawerView, GitPlan};
 pub use search::{SearchRow, SearchView};
 pub use storage::fingerprint;
+pub use work_git::{CommitDraft, WorkGitAction, WorkGitOutcome, WorkGitPlan};
 
 use anyhow::Result;
 use std::{
