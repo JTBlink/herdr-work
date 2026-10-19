@@ -41,7 +41,6 @@ impl App {
     fn force_delete_idle(&self) -> bool {
         self.prompt.is_none()
             && self.overlay.is_none()
-            && self.input.is_empty()
             && self.editor.is_none()
             && self.edit_request.is_none()
             && self.git.editing.is_none()
@@ -49,7 +48,7 @@ impl App {
     }
     pub(crate) fn offer_force_delete(&mut self, plan: herdr_work_engine::WorkGitPlan) {
         self.git.pending_force = Some(plan);
-        if self.force_delete_idle() {
+        if self.force_delete_idle() && self.input.is_empty() {
             let _ = self.resume_force_delete();
         } else {
             self.status = "分支尚未合并；已保留计划，完成当前输入后从 Git 菜单重开强删确认".into();
@@ -63,6 +62,9 @@ impl App {
             .take()
             .context("没有待确认的未合并分支")?;
         self.git.active = Some(plan.root.clone());
+        // Explicitly reopening the confirmation replaces only inactive input;
+        // every active input owner was checked above.
+        self.input.clear();
         self.prompt = Some(Prompt::WorkGit(plan));
         self.status = "分支尚未合并；强删会丢失提交，请再次明确确认".into();
         Ok(())

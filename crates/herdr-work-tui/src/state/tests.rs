@@ -2531,6 +2531,7 @@ fn late_unmerged_branch_result_keeps_new_task_comment_and_path_input() {
         app.prompt = None;
         app.input.clear();
         app.switch_tab(Tab::Scm);
+        app.input = "inactive search text".into();
         app.open_menu(false);
         let Some(crate::menus::Overlay::Menu { rows, selected, .. }) = &mut app.overlay else {
             panic!("missing Git menu");
@@ -2663,4 +2664,65 @@ fn restored_file_history_keeps_its_query_repository_when_another_repository_is_a
     assert!(history.lines.iter().all(|line| !line.contains("history B")));
     assert_eq!(restored.selected_repository(), second);
     assert_eq!(restored.drawers[&Drawer::Branches].root, second);
+}
+
+#[test]
+fn history_from_a_working_subdirectory_restores_the_discovered_enclosing_repository() {
+    use herdr_work_code::scm::Drawer;
+    let (_temp, app) = loaded_app();
+    let scope = app.root.join("src");
+    std::fs::create_dir(&scope).unwrap();
+    std::fs::write(scope.join("visible.txt"), "source history\n").unwrap();
+    for args in [
+        vec!["add", "src/visible.txt"],
+        vec![
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "subdir history",
+        ],
+    ] {
+        assert!(
+            Command::new("git")
+                .args(args)
+                .current_dir(&app.root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    let mut sub = App::new(app.desk.clone(), scope.clone(), Context::default()).unwrap();
+    sub.refresh().unwrap();
+    receive(&mut sub);
+    assert_eq!(sub.code.as_ref().unwrap().root, scope);
+    assert_eq!(sub.code.as_ref().unwrap().repositories[0].root, app.root);
+    sub.drawers.insert(
+        Drawer::FileHistory,
+        sub.desk
+            .scm_drawer(&app.root, Drawer::FileHistory, Some("src/visible.txt"))
+            .unwrap(),
+    );
+    sub.drawer_open[Drawer::FileHistory.index()] = true;
+    sub.active_drawer = Some(Drawer::FileHistory);
+    sub.persist_workspace_on_exit().unwrap();
+    let mut restored = App::new(app.desk.clone(), scope, Context::default()).unwrap();
+    restored.refresh().unwrap();
+    receive(&mut restored);
+    assert!(
+        restored.interaction.workspace.drawers.len() == 1,
+        "enclosing query identity was omitted"
+    );
+    receive(&mut restored);
+    let history = &restored.drawers[&Drawer::FileHistory];
+    assert_eq!(history.root, app.root);
+    assert_eq!(history.file.as_deref(), Some("src/visible.txt"));
+    assert!(
+        history
+            .lines
+            .iter()
+            .any(|line| line.contains("subdir history"))
+    );
 }

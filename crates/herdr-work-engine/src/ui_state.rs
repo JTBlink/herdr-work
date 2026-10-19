@@ -16,9 +16,15 @@ pub struct DocumentState {
     pub active: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DrawerRoot {
+    Workspace(PathBuf),
+    /// The enclosing repository found by the original discovery for this scope.
+    Enclosing,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DrawerState {
     pub kind: String,
-    pub root: PathBuf,
+    pub root: DrawerRoot,
     pub instance: String,
     pub file: Option<String>,
 }
@@ -37,16 +43,42 @@ pub struct WorkspaceUiState {
     pub documents: Vec<DocumentState>,
     pub drawers: Vec<DrawerState>,
 }
-fn relative(root: &Path, path: &Path, allow_root: bool) -> Result<PathBuf> {
-    if allow_root && path.as_os_str().is_empty() {
-        return Ok(root.to_path_buf());
-    }
+fn path_parts(path: &Path, allow_root: bool) -> Result<()> {
     ensure!(
-        path.components()
-            .all(|part| matches!(part, Component::Normal(name) if name != ".git")),
+        (allow_root || !path.as_os_str().is_empty())
+            && path
+                .components()
+                .all(|part| matches!(part, Component::Normal(name) if name != ".git")),
         "无效的界面状态路径"
     );
+    Ok(())
+}
+fn relative(root: &Path, path: &Path, allow_root: bool) -> Result<PathBuf> {
+    path_parts(path, allow_root)?;
+    if path.as_os_str().is_empty() {
+        return Ok(root.to_path_buf());
+    }
     checked_path(root, &path.to_string_lossy())
+}
+fn discovered_roots(scope: &Path) -> Vec<PathBuf> {
+    crate::code::bounded_git(|| {
+        herdr_work_code::git::Git::discover_all(scope)
+            .into_iter()
+            .map(|git| git.root().to_path_buf())
+            .collect()
+    })
+}
+fn drawer_repository(scope: &Path, root: &DrawerRoot, allowed: &[PathBuf]) -> Result<PathBuf> {
+    let repository = match root {
+        DrawerRoot::Workspace(path) => relative(scope, path, true)?,
+        DrawerRoot::Enclosing => allowed
+            .iter()
+            .find(|root| *root != scope && scope.starts_with(root))
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("未发现原包含仓库"))?,
+    };
+    ensure!(allowed.contains(&repository), "抽屉仓库不在当前发现集合中");
+    Ok(repository)
 }
 impl WorkspaceUiState {
     fn validate(&self, root: &Path) -> Result<()> {
@@ -80,9 +112,11 @@ impl WorkspaceUiState {
         }
         ensure!(self.drawers.len() <= 8, "抽屉状态数量无效");
         for drawer in &self.drawers {
-            let repository = relative(root, &drawer.root, true)?;
+            if let DrawerRoot::Workspace(path) = &drawer.root {
+                relative(root, path, true)?;
+            }
             if let Some(file) = &drawer.file {
-                relative(&repository, Path::new(file), false)?;
+                path_parts(Path::new(file), false)?;
             }
             ensure!(
                 herdr_work_code::scm::Drawer::ALL
@@ -103,7 +137,7 @@ impl HerdrWork {
         saved: &DrawerState,
     ) -> Result<crate::DrawerView> {
         let scope = scope.canonicalize()?;
-        let repository = relative(&scope, &saved.root, true)?;
+        let repository = drawer_repository(&scope, &saved.root, &discovered_roots(&scope))?;
         ensure!(
             Self::worktree_identity(&repository)? == saved.instance,
             "抽屉仓库实例已改变"
@@ -144,10 +178,14 @@ impl HerdrWork {
             });
         }
         saved.validate(&root)?;
-        saved.drawers.retain(|drawer| {
-            Self::worktree_identity(&root.join(&drawer.root))
-                .is_ok_and(|instance| instance == drawer.instance)
-        });
+        if !saved.drawers.is_empty() {
+            let allowed = discovered_roots(&root);
+            saved.drawers.retain(|drawer| {
+                drawer_repository(&root, &drawer.root, &allowed)
+                    .and_then(|repo| Self::worktree_identity(&repo))
+                    .is_ok_and(|instance| instance == drawer.instance)
+            });
+        }
         saved.tree.expanded.retain(|path| root.join(path).is_dir());
         saved.tree.selected = saved.tree.selected.filter(|path| root.join(path).exists());
         saved

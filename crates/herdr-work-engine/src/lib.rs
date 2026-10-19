@@ -24,7 +24,7 @@ pub use review::SendOutcome;
 pub use scm::{DrawerView, GitPlan};
 pub use search::{QuickIndex, SearchRow, SearchView};
 pub use storage::fingerprint;
-pub use ui_state::{DocumentState, DrawerState, WorkspaceUiState};
+pub use ui_state::{DocumentState, DrawerRoot, DrawerState, WorkspaceUiState};
 pub use work_git::{CommitDraft, WorkGitAction, WorkGitOutcome, WorkGitPlan};
 
 use anyhow::Result;
