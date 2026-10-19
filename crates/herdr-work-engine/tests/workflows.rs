@@ -145,65 +145,11 @@ fn changed_content_invalidates_review_even_when_head_has_not_changed() {
     );
 }
 #[test]
-fn profile_is_exclusive_and_preview_import_is_read_only_and_idempotent() {
+fn profile_is_exclusive_and_can_be_reopened_after_release() {
     let (_repo, home, desk) = fixture();
     assert!(HerdrWork::open(home.path(), None).is_err());
-    let source = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(source.path().join("data/tasks/p/1")).unwrap();
-    std::fs::write(
-        source.path().join("data/tasks/p/1/task.json"),
-        "{\"id\":\"p/1\"}",
-    )
-    .unwrap();
-    let preview = desk.import_preview(source.path()).unwrap();
-    assert!(!desk.projects_home().exists());
-    desk.import_projects(&preview).unwrap();
-    desk.import_projects(&preview).unwrap();
-    assert!(
-        desk.projects_home()
-            .join("data/tasks/p/1/task.json")
-            .exists()
-    );
-    std::fs::write(desk.projects_home().join("new-file"), "new work").unwrap();
-    assert!(desk.rollback_import().is_err());
-}
-
-#[test]
-fn interrupted_import_after_backup_rename_finishes_from_verified_staging() {
-    let (_repo, home, desk) = fixture();
-    let source = tempfile::tempdir().unwrap();
-    std::fs::write(source.path().join("tasks.json"), "imported").unwrap();
-    let preview = desk.import_preview(source.path()).unwrap();
-    std::fs::create_dir(desk.projects_home()).unwrap();
-    std::fs::write(desk.projects_home().join("old"), "original").unwrap();
-    let stage = home.path().join("staged-import");
-    std::fs::create_dir(&stage).unwrap();
-    std::fs::copy(source.path().join("tasks.json"), stage.join("tasks.json")).unwrap();
-    std::fs::write(
-        home.path().join("import.pending.json"),
-        serde_json::to_vec(&serde_json::json!({
-            "phase":"import", "preview":preview, "staged":"staged-import", "had_target":true
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    std::fs::rename(
-        desk.projects_home(),
-        home.path().join("projects.before-import"),
-    )
-    .unwrap();
     drop(desk);
-    let desk = HerdrWork::open(home.path(), None).unwrap();
-    assert_eq!(
-        std::fs::read_to_string(desk.projects_home().join("tasks.json")).unwrap(),
-        "imported"
-    );
-    desk.rollback_import().unwrap();
-    assert_eq!(
-        std::fs::read_to_string(desk.projects_home().join("old")).unwrap(),
-        "original"
-    );
-    assert!(!home.path().join("import.pending.json").exists());
+    assert!(HerdrWork::open(home.path(), None).is_ok());
 }
 
 #[test]

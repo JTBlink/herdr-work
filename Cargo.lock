@@ -1213,6 +1213,7 @@ version = "0.1.4"
 dependencies = [
  "anyhow",
  "crossterm",
+ "herdr-sidebar",
  "herdr-work-core",
  "herdr-work-engine",
  "ratatui",

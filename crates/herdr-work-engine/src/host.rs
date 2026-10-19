@@ -71,7 +71,7 @@ impl HerdrWork {
         }
         ensure!(
             execution.task.0 == "browse" || execution.origin_terminal.is_some() || pane.is_some(),
-            "Legacy execution has no terminal evidence; select an explicit pane to bind"
+            "Execution has no terminal evidence; select an explicit pane to bind"
         );
         let (snapshot, agents) = session(&socket)?;
         let root = execution.worktree.canonicalize()?;

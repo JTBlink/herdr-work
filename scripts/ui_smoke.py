@@ -25,7 +25,7 @@ def ui_smoke(binary):
         repo = root / 'repo'
         repo.mkdir()
         def git(*args):
-            subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True)
+            return subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True, text=True).stdout
         git('init', '-q')
         git('config', 'user.name', 'UI Fixture')
         git('config', 'user.email', 'fixture@example.invalid')
@@ -39,7 +39,7 @@ def ui_smoke(binary):
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, columns, 0, 0))
         size(36, 120)
         original = termios.tcgetattr(slave)
-        env = {k: v for k, v in os.environ.items() if not k.startswith(('HERDR_', 'WORKDESK_'))}
+        env = {k: v for k, v in os.environ.items() if not k.startswith(('HERDR_',))}
         env.update(TERM='xterm-256color', HERDR_PROJECTS_NO_KEEPER='1', HERDR_PROJECTS_INLINE='1')
         def seat():
             os.setsid()
@@ -80,22 +80,33 @@ def ui_smoke(binary):
                 raise AssertionError(f'UI did not render {expected!r}')
             return text
         try:
-            text = wait_for('Git修改：1')
-            assert '任务：0' in text, 'Task load did not finish'
+            wait_for('Git修改：1')
+            text = wait_for('任务：0')
             assert '加载中' not in text and 'Loading' not in text, 'Startup remained pending'
-            assert '暂无任务' in text and 'import' in text, 'Empty tasks offer no guidance'
-            assert text.count('Tasks') == 2, 'Task list rendered twice'
-            wait_for('visible.txt', b'2')
+            assert 'EXPLORER' in text and 'visible.txt' in text and 'Preview' in text, 'Default Explorer is missing'
+            assert '暂无任务' not in text and text.count('Tasks') == 1, 'Tasks displaced the default sidebar'
             wait_for('changedpreviewfixture', b'\r')
-            wait_for('visible.txt', b'3')
+            # Click the Git activity using the terminal's SGR mouse protocol.
+            text = wait_for('SOURCECONTROL', b'\x1b[<0;4;7M\x1b[<0;4;7m')
+            assert 'Changes(1)' in text, 'Git changes were not shown in the sidebar'
+            wait_for('Staged(1)', b's')
+            assert git('diff', '--cached', '--name-only').strip() == 'visible.txt', 'UI stage did not update the actual index'
+            wait_for('Changes(1)', b'u')
+            assert not git('diff', '--cached', '--name-only').strip(), 'UI unstage did not restore the actual index'
             wait_for('changedpreviewfixture', b'\r')
+            wait_for('Staged(1)', b's')
+            assert git('diff', '--cached', '--name-only').strip() == 'visible.txt', 'Diff preview changed the SCM stage action'
+            wait_for('Changes(1)', b'u')
+            assert not git('diff', '--cached', '--name-only').strip()
+
             wait_for('Newtask', b'1n')
             wait_for('任务：1', b'UI smoke task\r')
             assert 'UIsmoketask' in screen(), 'Created task not visible'
+            wait_for('EXPLORER', b'2')
             size(24, 80)
             os.killpg(process.pid, signal.SIGWINCH)
             text = drain(.3)
-            assert 'HerdrWork' in text, 'No narrow terminal redraw'
+            assert 'EXPLORER' in text and 'Preview' in text, 'Narrow split view is missing'
             os.write(master, b'q')
             drain(.4)
             restored = termios.tcgetattr(slave)
@@ -108,7 +119,7 @@ def ui_smoke(binary):
                 process.wait(timeout=5)
             os.close(master)
             os.close(slave)
-    print('UI loaded: empty guidance, file preview, real Git diff, task creation, resize and clean exit')
+    print('UI loaded: default Explorer, mouse navigation, preview, stage/unstage, real Diff, task creation, 80-column split and clean exit')
 
 
 if __name__ == '__main__':

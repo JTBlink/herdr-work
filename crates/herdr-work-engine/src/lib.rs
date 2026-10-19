@@ -1,7 +1,6 @@
 //! HerdrWork orchestration. All terminal-free business commands enter here.
 mod code;
 mod host;
-mod migration;
 mod profile;
 mod review;
 mod storage;
@@ -9,7 +8,6 @@ mod tasks;
 
 pub use code::{CodeSnapshot, CommitPlan, DiffView, FileRow, GitChange};
 pub use herdr_work_core as model;
-pub use migration::ImportPreview;
 pub use review::SendOutcome;
 pub use storage::fingerprint;
 
@@ -26,15 +24,11 @@ struct Profile {
     root: PathBuf,
     backend: PathBuf,
     _lock: File,
-    _legacy_lock: Option<File>,
 }
 impl Drop for Profile {
     fn drop(&mut self) {
         // Closing our fd alone can leave a Unix flock alive in a child that
         // forked before exec. Release when the final shared owner exits.
-        if let Some(legacy) = &self._legacy_lock {
-            let _ = fs2::FileExt::unlock(legacy);
-        }
         let _ = fs2::FileExt::unlock(&self._lock);
     }
 }
@@ -82,15 +76,9 @@ impl HerdrWork {
 
     pub fn open(root: &Path, backend: Option<PathBuf>) -> Result<Self> {
         let absolute = std::path::absolute(root)?;
-        let _migration = profile::parent_lock(&absolute)?;
         std::fs::create_dir_all(&absolute)?;
         let root = absolute.canonicalize()?;
-        let lock = profile::profile_lock(&root, "herdr-work.lock")?;
-        let legacy_lock = if root.join("workdesk.lock").exists() {
-            Some(profile::profile_lock(&root, "workdesk.lock")?)
-        } else {
-            None
-        };
+        let lock = profile::profile_lock(&root)?;
         let backend = backend.unwrap_or_else(|| {
             std::env::current_exe()
                 .unwrap_or_default()
@@ -104,9 +92,7 @@ impl HerdrWork {
             root,
             backend,
             _lock: lock,
-            _legacy_lock: legacy_lock,
         }));
-        desk.recover_import()?;
         desk.recover_reviews()?;
         Ok(desk)
     }

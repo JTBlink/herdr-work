@@ -24,7 +24,7 @@ fn beat_file() -> PathBuf { data_dir().join("keeper.json") }
 fn log(msg: &str) { let _ = std::fs::OpenOptions::new().create(true).append(true).open(data_dir().join("keeper.log")).and_then(|mut f| { use std::io::Write; writeln!(f, "{} {} {msg}", iso(now()), std::process::id()) }); }
 /// Alive means the heartbeat file is less than five seconds old. Readers never touch the keeper's lock.
 pub fn keeper_alive() -> bool { std::fs::metadata(beat_file()).and_then(|m| m.modified()).map(|m| m.elapsed().map(|e| e.as_millis() < 5000).unwrap_or(true)).unwrap_or(false) }
-pub fn herdr_work_paused() -> bool { crate::store::files::herdr_work_managed() && (data_dir().join("herdr-work-paused").exists() || data_dir().join("workdesk-paused").exists()) }
+pub fn herdr_work_paused() -> bool { crate::store::files::herdr_work_managed() && data_dir().join("herdr-work-paused").exists() }
 fn no_keeper() -> bool { herdr_work_paused() || std::env::var("HERDR_PROJECTS_NO_KEEPER").as_deref() == Ok("1") }
 pub fn ensure_keeper() -> bool {
     if no_keeper() || inline() || keeper_alive() { return false; }

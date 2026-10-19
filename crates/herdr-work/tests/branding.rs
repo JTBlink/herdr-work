@@ -41,33 +41,44 @@ fn doctor_reports_new_product_profile_and_backend_names() {
     );
 }
 #[test]
-fn existing_legacy_profile_is_preserved_and_copied_to_the_new_default() {
+fn obsolete_environment_and_directory_are_ignored() {
     let temp = tempfile::tempdir().unwrap();
     let old = temp.path().join(".workdesk");
     std::fs::create_dir(&old).unwrap();
-    std::fs::write(old.join("config.json"), b"{\"keep\":42}").unwrap();
-    doctor(temp.path(), &[], &[]);
-    for root in [&old, &temp.path().join(".herdr-work")] {
-        assert_eq!(
-            std::fs::read(root.join("config.json")).unwrap(),
-            b"{\"keep\":42}"
-        );
-    }
+    std::fs::write(old.join("config.json"), b"do not import").unwrap();
+    let obsolete_env = temp.path().join("obsolete-env");
+    let data = doctor(
+        temp.path(),
+        &[],
+        &[("WORKDESK_HOME", obsolete_env.as_path())],
+    );
+    assert_eq!(
+        Path::new(data["profile"].as_str().unwrap()),
+        temp.path().canonicalize().unwrap().join(".herdr-work")
+    );
+    assert!(!obsolete_env.exists());
+    assert!(!temp.path().join(".herdr-work/config.json").exists());
+    assert!(
+        !temp
+            .path()
+            .join(".herdr-work/profile-migration.json")
+            .exists()
+    );
+    assert_eq!(
+        std::fs::read(old.join("config.json")).unwrap(),
+        b"do not import"
+    );
 }
 #[test]
-fn explicit_profile_then_new_environment_then_legacy_environment_take_precedence() {
+fn explicit_profile_overrides_environment_and_environment_overrides_default() {
     let temp = tempfile::tempdir().unwrap();
-    let new = temp.path().join("new-env");
-    let old = temp.path().join("old-env");
+    let configured = temp.path().join("configured");
     let explicit = temp.path().join("explicit");
-    let values = [
-        ("HERDR_WORK_HOME", new.as_path()),
-        ("WORKDESK_HOME", old.as_path()),
-    ];
+    let values = [("HERDR_WORK_HOME", configured.as_path())];
     let data = doctor(temp.path(), &[], &values);
     assert_eq!(
         Path::new(data["profile"].as_str().unwrap()),
-        new.canonicalize().unwrap()
+        configured.canonicalize().unwrap()
     );
     let data = doctor(
         temp.path(),
@@ -77,11 +88,6 @@ fn explicit_profile_then_new_environment_then_legacy_environment_take_precedence
     assert_eq!(
         Path::new(data["profile"].as_str().unwrap()),
         explicit.canonicalize().unwrap()
-    );
-    let data = doctor(temp.path(), &[], &[("WORKDESK_HOME", old.as_path())]);
-    assert_eq!(
-        Path::new(data["profile"].as_str().unwrap()),
-        old.canonicalize().unwrap()
     );
 }
 

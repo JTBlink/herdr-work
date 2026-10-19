@@ -12,7 +12,7 @@ pub(crate) enum Data {
     Diff(DiffView, Review),
     CommitReady(herdr_work_engine::CommitPlan),
     Delivery(Review, String),
-    Text(String),
+    Preview(PathBuf, Result<String>),
     Review(Review),
     Bound(Execution),
     Business(String),
@@ -27,6 +27,11 @@ pub(crate) enum Tab {
     Files,
     Scm,
     Review,
+}
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum Focus {
+    Sidebar,
+    Content,
 }
 pub(crate) enum Prompt {
     Comment {
@@ -44,6 +49,10 @@ pub(crate) struct App {
     pub(crate) task: usize,
     pub(crate) tab: Tab,
     pub(crate) selection: usize,
+    pub(crate) scm_selection: usize,
+    pub(crate) focus: Focus,
+    pub(crate) preview_scroll: u16,
+    pub(crate) preview_path: Option<PathBuf>,
     pub(crate) root: PathBuf,
     pub(crate) code: Option<CodeSnapshot>,
     pub(crate) diff: Option<DiffView>,
@@ -60,6 +69,34 @@ pub(crate) struct App {
 }
 
 impl App {
+    pub(crate) fn new(desk: HerdrWork, root: PathBuf, context: Context) -> Self {
+        Self {
+            desk,
+            context,
+            tasks: vec![],
+            task: 0,
+            tab: Tab::Files,
+            selection: 0,
+            scm_selection: 0,
+            focus: Focus::Sidebar,
+            preview_scroll: 0,
+            preview_path: None,
+            root,
+            code: None,
+            diff: None,
+            review: None,
+            text: String::new(),
+            status: String::new(),
+            tasks_state: LoadState::Loading,
+            code_state: LoadState::Loading,
+            expanded: vec![],
+            generation: 0,
+            prompt: None,
+            input: String::new(),
+            jobs: JobQueue::default(),
+        }
+    }
+
     pub(crate) fn job(
         &self,
         job: impl FnOnce(HerdrWork) -> Result<Data> + Send + 'static,
@@ -165,10 +202,23 @@ impl App {
                 self.status = format!("{} saved comment(s)", review.comments.len());
                 self.review = Some(review);
                 self.diff = Some(diff);
-                self.tab = Tab::Review;
-                self.selection = 0;
+                if self.tab == Tab::Scm {
+                    self.focus = Focus::Sidebar;
+                    self.selection = self.scm_selection;
+                } else {
+                    self.tab = Tab::Review;
+                    self.focus = Focus::Content;
+                    self.selection = 0;
+                }
             }
-            Ok(Data::Text(text)) => self.text = text,
+            Ok(Data::Preview(path, text)) if self.preview_path.as_ref() == Some(&path) => {
+                self.text = match text {
+                    Ok(text) => text,
+                    Err(error) => format!("无法预览文件：{error:#}"),
+                };
+                self.preview_scroll = 0;
+            }
+            Ok(Data::Preview(_, _)) => {}
             Ok(Data::Review(review)) => {
                 self.status = format!("{} saved comment(s)", review.comments.len());
                 self.review = Some(review);
@@ -198,8 +248,12 @@ impl App {
         self.review = None;
         self.code = None;
         self.text.clear();
+        self.preview_path = None;
+        self.preview_scroll = 0;
         self.expanded.clear();
         self.selection = 0;
+        self.tab = Tab::Files;
+        self.focus = Focus::Sidebar;
         self.refresh()
     }
     pub(crate) fn open_diff(&self, root: PathBuf, path: String, scope: String) -> Result<()> {

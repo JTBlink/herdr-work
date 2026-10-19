@@ -76,7 +76,7 @@ pub(crate) fn checked_path(root: &Path, file: &str) -> Result<PathBuf> {
     }
     Ok(full)
 }
-fn write_lock(git: &Git) -> Result<(std::fs::File, std::fs::File)> {
+fn write_lock(git: &Git) -> Result<std::fs::File> {
     let common = git
         .raw(&["rev-parse", "--git-common-dir"])
         .map_err(anyhow::Error::msg)?;
@@ -94,16 +94,7 @@ fn write_lock(git: &Git) -> Result<(std::fs::File, std::fs::File)> {
         .open(common.join("herdr-work-write.lock"))?;
     lock.try_lock_exclusive()
         .context("Another HerdrWork Git operation is running")?;
-    let legacy = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(common.join("workdesk-write.lock"))?;
-    legacy
-        .try_lock_exclusive()
-        .context("An older HerdrWork Git operation is running")?;
-    Ok((lock, legacy))
+    Ok(lock)
 }
 fn bounded_git<T>(job: impl FnOnce() -> T) -> T {
     herdr_sidebar::git::herdr_work_bounded(

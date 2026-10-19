@@ -11,7 +11,7 @@ use std::path::PathBuf;
 )]
 pub(crate) struct Cli {
     #[arg(long, global = true)]
-    /// 数据目录，默认 HERDR_WORK_HOME 或 ~/.herdr-work；兼容旧 WORKDESK_HOME
+    /// 数据目录，默认 HERDR_WORK_HOME 或 ~/.herdr-work
     pub(crate) home: Option<PathBuf>,
     #[arg(long, global = true)]
     /// Projects 后端程序路径，默认使用主程序旁的 herdr-work-projects
@@ -99,16 +99,6 @@ pub(crate) enum Command {
         /// status 查看状态，pause 暂停调度，resume 恢复调度
         action: String,
     },
-    /// 预览原 Projects 数据，使用 --apply 执行导入
-    Import {
-        /// 原 Projects 数据目录
-        source: PathBuf,
-        #[arg(long)]
-        /// 执行导入；不传时仅预览
-        apply: bool,
-    },
-    /// 回滚上一次导入，保留原始来源数据
-    RollbackImport,
 }
 #[derive(Args)]
 pub(crate) struct FileArgs {

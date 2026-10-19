@@ -5,6 +5,22 @@ use herdr_work_core::Side;
 
 use crate::state::*;
 impl App {
+    pub(crate) fn switch_tab(&mut self, tab: Tab) {
+        if self.tab == Tab::Scm {
+            self.scm_selection = self.selection;
+        }
+        self.tab = tab;
+        self.selection = if tab == Tab::Scm {
+            self.scm_selection
+        } else {
+            0
+        };
+        self.focus = if tab == Tab::Review {
+            Focus::Content
+        } else {
+            Focus::Sidebar
+        };
+    }
     pub(crate) fn key(&mut self, key: KeyCode) -> Result<bool> {
         if self.prompt.is_some() {
             match key {
@@ -33,21 +49,38 @@ impl App {
     }
     pub(crate) fn action(&mut self, key: KeyCode) -> Result<()> {
         match key {
-            KeyCode::Char('1') => {
-                self.tab = Tab::Tasks;
-                self.selection = 0;
+            KeyCode::Char('1') => self.switch_tab(Tab::Tasks),
+            KeyCode::Char('2') => self.switch_tab(Tab::Files),
+            KeyCode::Char('3') => self.switch_tab(Tab::Scm),
+            KeyCode::Char('4') => self.switch_tab(Tab::Review),
+            KeyCode::Tab | KeyCode::BackTab => {
+                self.focus = if self.focus == Focus::Sidebar {
+                    Focus::Content
+                } else {
+                    Focus::Sidebar
+                };
+                if self.tab == Tab::Review {
+                    self.switch_tab(Tab::Scm);
+                } else if self.tab == Tab::Scm && self.diff.is_some() {
+                    self.scm_selection = self.selection;
+                    self.switch_tab(Tab::Review);
+                }
             }
-            KeyCode::Char('2') => {
-                self.tab = Tab::Files;
-                self.selection = 0;
+            KeyCode::Down | KeyCode::Char('j')
+                if self.tab == Tab::Files && self.focus == Focus::Content =>
+            {
+                self.preview_scroll = self.preview_scroll.saturating_add(1).min(
+                    self.text
+                        .lines()
+                        .count()
+                        .saturating_sub(1)
+                        .min(u16::MAX as usize) as u16,
+                );
             }
-            KeyCode::Char('3') => {
-                self.tab = Tab::Scm;
-                self.selection = 0;
-            }
-            KeyCode::Char('4') => {
-                self.tab = Tab::Review;
-                self.selection = 0;
+            KeyCode::Up | KeyCode::Char('k')
+                if self.tab == Tab::Files && self.focus == Focus::Content =>
+            {
+                self.preview_scroll = self.preview_scroll.saturating_sub(1);
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 if self.tab == Tab::Tasks {
@@ -93,12 +126,20 @@ impl App {
                         }
                         self.refresh()?;
                     } else {
-                        let root = self.root.clone();
+                        let root = self
+                            .code
+                            .as_ref()
+                            .map(|c| c.root.clone())
+                            .unwrap_or_else(|| self.root.clone());
                         let file = row.path.strip_prefix(&root)?.to_string_lossy().into_owned();
-                        self.job(move |d| Ok(Data::Text(d.file(&root, &file)?)))?;
+                        let path = row.path;
+                        self.preview_path = Some(path.clone());
+                        self.text = "正在读取文件…".into();
+                        self.job(move |d| Ok(Data::Preview(path, d.file(&root, &file))))?;
                     }
                 }
                 Tab::Scm => {
+                    self.scm_selection = self.selection;
                     let c = self
                         .code
                         .as_ref()
