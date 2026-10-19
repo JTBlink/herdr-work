@@ -18,6 +18,7 @@ pub mod icons;
 pub mod ipc;
 #[cfg(any(feature = "reference-ui", test))]
 pub mod launch;
+pub mod preview;
 #[cfg(any(feature = "reference-ui", test))]
 pub mod rundir;
 pub mod scm;

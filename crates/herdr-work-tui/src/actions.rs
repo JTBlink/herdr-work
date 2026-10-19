@@ -260,17 +260,7 @@ impl App {
                         }
                         self.refresh()?;
                     } else {
-                        let root = self
-                            .code
-                            .as_ref()
-                            .map(|c| c.root.clone())
-                            .unwrap_or_else(|| self.root.clone());
-                        let file = row.path.strip_prefix(&root)?.to_string_lossy().into_owned();
-                        let path = row.path;
-                        self.preview_target = None;
-                        self.preview_path = Some(path.clone());
-                        self.text = "正在读取文件…".into();
-                        self.job(move |d| Ok(Data::Preview(path, d.file(&root, &file))))?;
+                        self.open_preview(row.path, None)?;
                     }
                 }
                 Tab::Scm => self.activate_scm_row()?,

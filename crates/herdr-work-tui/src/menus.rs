@@ -66,6 +66,7 @@ impl App {
             format!("显示隐藏文件        {}", on(p.show_hidden)),
             format!("Git 状态装饰        {}", on(p.git_decorations)),
             format!("底部快捷键          {}", on(p.show_hotkeys)),
+            format!("预览选区自动复制    {}", on(p.copy_on_select)),
             format!("HerdrWork           v{}", env!("CARGO_PKG_VERSION")),
         ]
     }
@@ -298,6 +299,7 @@ impl App {
             4 => p.show_hidden = !p.show_hidden,
             5 => p.git_decorations = !p.git_decorations,
             6 => p.show_hotkeys = !p.show_hotkeys,
+            7 => p.copy_on_select = !p.copy_on_select,
             _ => return Ok(()),
         }
         self.desk.save_ui_preferences(&p)?;

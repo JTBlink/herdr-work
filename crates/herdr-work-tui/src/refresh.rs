@@ -12,7 +12,7 @@ pub(crate) struct BackgroundRefresh {
     pub generation: u64,
     pub root: PathBuf,
     pub code: Result<CodeSnapshot>,
-    pub preview: Option<(PathBuf, Result<String>)>,
+    pub preview: Option<(u64, PathBuf, Result<Option<herdr_work_code::preview::Doc>>)>,
     pub diff: Option<(DiffView, Result<DiffView>)>,
     pub drawer: Option<(u64, Result<DrawerView>)>,
 }
@@ -35,6 +35,14 @@ impl App {
         let expanded = self.expanded.clone();
         let hidden = self.preferences.show_hidden;
         let preview = self.preview_path.clone().filter(|_| self.editor.is_none());
+        let preview_request = self.preview_request;
+        let preview_width = self.preview_width;
+        let baseline = self
+            .preview_doc
+            .as_ref()
+            .filter(|doc| !doc.needs_width_reload(preview_width))
+            .and_then(|doc| doc.stamp());
+        let preview_line = self.preview_target.as_ref().map(|(_, line)| *line);
         let diff = self
             .diff
             .clone()
@@ -51,8 +59,16 @@ impl App {
                 let value = path
                     .strip_prefix(&root)
                     .map_err(anyhow::Error::from)
-                    .and_then(|file| desk.file(&root, &file.to_string_lossy()));
-                (path, value)
+                    .and_then(|file| {
+                        desk.preview_file_if_changed(
+                            &root,
+                            &file.to_string_lossy(),
+                            baseline,
+                            preview_line,
+                            preview_width,
+                        )
+                    });
+                (preview_request, path, value)
             });
             let diff = diff.map(|previous| {
                 let fresh = desk.diff(
@@ -112,16 +128,9 @@ impl App {
             Err(_) => {} // Retain the last usable snapshot on transient passive read errors.
         }
         if self.editor.is_none() {
-            if let Some((path, Ok(text))) = update.preview {
-                if self.preview_path.as_ref() == Some(&path) && self.text != text {
-                    self.text = text;
-                    self.preview_scroll = self.preview_scroll.min(
-                        self.text
-                            .lines()
-                            .count()
-                            .saturating_sub(1)
-                            .min(u16::MAX as usize) as u16,
-                    );
+            if let Some((request, path, Ok(Some(doc)))) = update.preview {
+                if request == self.preview_request && self.preview_path.as_ref() == Some(&path) {
+                    self.apply_preview(path, doc, true);
                 }
             }
         }

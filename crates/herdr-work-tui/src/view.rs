@@ -73,29 +73,7 @@ impl App {
         if layout.content.width > 0 {
             match self.tab {
                 Tab::Tasks => self.draw_task_detail(f, layout.content),
-                Tab::Files | Tab::Search => {
-                    let title = self
-                        .preview_path
-                        .as_ref()
-                        .map(|p| {
-                            format!(
-                                "Preview · {}",
-                                p.file_name().unwrap_or_default().to_string_lossy()
-                            )
-                        })
-                        .unwrap_or_else(|| "Preview".into());
-                    let text = if self.preview_path.is_none() {
-                        "选择文件，按 Enter 或点击预览。\n\ne 编辑文本 · m 文件菜单 · , 设置\nTab 切换焦点 · 3 查看 Git 变更 · 1 管理任务"
-                    } else {
-                        self.text.as_str()
-                    };
-                    f.render_widget(
-                        Paragraph::new(text)
-                            .scroll((self.preview_scroll, 0))
-                            .block(self.content_block(title)),
-                        layout.content,
-                    );
-                }
+                Tab::Files | Tab::Search => self.draw_preview(f, layout.content),
                 Tab::Scm if self.active_drawer.is_some() => self.draw_drawer(f, layout.content),
                 Tab::Scm | Tab::Review => self.draw_diff(f, layout.content),
             }

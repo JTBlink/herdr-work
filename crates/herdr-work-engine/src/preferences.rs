@@ -13,6 +13,7 @@ pub struct UiPreferences {
     pub show_hidden: bool,
     pub git_decorations: bool,
     pub show_hotkeys: bool,
+    pub copy_on_select: bool,
 }
 impl Default for UiPreferences {
     fn default() -> Self {
@@ -24,6 +25,7 @@ impl Default for UiPreferences {
             show_hidden: true,
             git_decorations: true,
             show_hotkeys: true,
+            copy_on_select: true,
         }
     }
 }

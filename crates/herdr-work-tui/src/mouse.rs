@@ -19,6 +19,9 @@ impl App {
         if self.prompt.is_some() && !self.search_prompt() {
             return Ok(());
         }
+        if self.preview_mouse(&event, area) {
+            return Ok(());
+        }
         let layout = self.panes(area);
         let point = Position::new(event.column, event.row);
         let editor_body = self.content_block(String::new()).inner(layout.content);
@@ -165,6 +168,9 @@ impl App {
                         self.open_menu(true);
                     } else {
                         self.action(KeyCode::Enter)?;
+                        if matches!(self.tab, Tab::Files | Tab::Search) {
+                            self.note_preview_click();
+                        }
                     }
                 }
             } else if layout.content.contains(point) {
