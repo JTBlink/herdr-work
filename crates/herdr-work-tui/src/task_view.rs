@@ -76,7 +76,7 @@ impl App {
             ),
             _ => match self.tasks.get(self.task) {
                 None => format!(
-                    "暂无任务\n\n按 n 创建任务，Enter 确认标题。\n按 2 浏览文件，按 3 查看 Git 修改。\n\nHerdrWork 使用独立数据目录，原 Projects 任务不会自动导入。\n预览：herdr-work import <原 Projects 数据目录>\n导入：herdr-work import <原 Projects 数据目录> --apply\n\n当前仓库：{}",
+                    "暂无任务\n\n按 n 创建任务，Enter 确认标题。\n按 2 浏览文件，按 3 查看 Git 修改。\n\n任务保存在 HerdrWork 自身的数据目录。\n创建后按 d 委派，按 r 刷新状态。\n\n当前仓库：{}",
                     self.root.display()
                 ),
                 Some(task) => {

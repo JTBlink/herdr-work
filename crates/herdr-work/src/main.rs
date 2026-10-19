@@ -132,17 +132,6 @@ fn run() -> Result<()> {
             }
         }
         Command::Scheduler { action } => print(&desk.scheduler(&action)?),
-        Command::Import { source, apply } => {
-            let preview = desk.import_preview(&source)?;
-            if apply {
-                desk.import_projects(&preview)?;
-            }
-            print(&preview)
-        }
-        Command::RollbackImport => {
-            desk.rollback_import()?;
-            print(&serde_json::json!({"ok":true}))
-        }
     }
 }
 

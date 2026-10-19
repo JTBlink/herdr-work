@@ -37,6 +37,6 @@ __pycache__/
 /herdr-work-install.json
 /.herdr-work-previous/
 
-# Legacy installation metadata retained for upgrade/rollback compatibility.
+# Local artifacts from previous development runs; never source inputs.
 /workdesk-install.json
 /.workdesk-previous/

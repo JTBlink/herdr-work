@@ -35,10 +35,7 @@ pub fn caller() -> Option<(Obj, &'static str)> {
 }
 fn stdin_json() -> Option<Value> { None }
 
-pub fn main(mut argv: Vec<String>) -> i32 {
-    if let Some(command) = argv.first_mut() {
-        if let Some(name) = command.strip_prefix("workdesk-") { *command = format!("herdr-work-{name}"); }
-    }
+pub fn main(argv: Vec<String>) -> i32 {
     // HerdrWork read-only seam: no startup migration, housekeeping, notification consumption or keeper.
     if argv.first().is_some_and(|s| s == "herdr-work-snapshot") {
         let tasks = crate::store::tasks::list(crate::store::tasks::ListOpts { include_archived: true, archived: false, attempts: true });
@@ -47,10 +44,9 @@ pub fn main(mut argv: Vec<String>) -> i32 {
     }
     if argv.first().is_some_and(|s| s == "herdr-work-scheduler") && crate::store::files::herdr_work_managed() {
         let marker = crate::store::files::data_dir().join("herdr-work-paused");
-        let legacy = crate::store::files::data_dir().join("workdesk-paused");
         let result = match argv.get(1).map(String::as_str) {
             Some("pause") => marker.parent().map(std::fs::create_dir_all).unwrap().and_then(|_| std::fs::write(&marker, b"paused")),
-            Some("resume") => { let r = [&marker, &legacy].into_iter().try_for_each(|p| if p.exists() { std::fs::remove_file(p) } else { Ok(()) }); if r.is_ok() { crate::keeper::ensure_keeper(); } r },
+            Some("resume") => { let r = if marker.exists() { std::fs::remove_file(&marker) } else { Ok(()) }; if r.is_ok() { crate::keeper::ensure_keeper(); } r },
             Some("status") => Ok(()),
             _ => { eprintln!("Expected pause, resume or status"); return 1; }
         };

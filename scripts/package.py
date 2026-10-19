@@ -76,6 +76,7 @@ def verify(archive):
         if len(roots) != 1 or not roots[0].is_dir(): raise ValueError('Expected one archive root')
         root = roots[0]
         manifest = json.loads((root / 'MANIFEST.json').read_text())
+        if manifest.get('product') != 'HerdrWork': raise ValueError('Unsupported product identity')
         if manifest['target'] not in TARGETS: raise ValueError('Unexpected platform')
         if manifest['projects_backend'] != TARGETS[manifest['target']]['backend']: raise ValueError('Platform backend capability differs')
         expected_files = set(manifest['files']) | {'MANIFEST.json'}
@@ -87,7 +88,7 @@ def verify(archive):
                 raise ValueError(f'Manifest checksum mismatch: {rel}')
         suffix = '.exe' if 'windows' in manifest['target'] else ''
         if manifest['projects_backend']:
-            required.add('bin/herdr-work-projects' if manifest['product'] == 'HerdrWork' else 'bin/workdesk-projects')
+            required.add('bin/herdr-work-projects')
         if not required <= actual_files: raise ValueError('Required executable or license missing')
         return manifest
 

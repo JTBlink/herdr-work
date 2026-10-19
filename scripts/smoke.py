@@ -9,7 +9,7 @@ import tarfile
 import tempfile
 import zipfile
 from package import verify
-from install import install, rollback, read_receipt, write_receipt, uninstall
+from install import install, rollback
 from ui_smoke import ui_smoke
 
 
@@ -19,7 +19,7 @@ def output(command, **kwargs):
 
 def projects_smoke(binary, backend, profile, root):
     command = [binary, '--home', profile]
-    env = {k: v for k, v in os.environ.items() if not k.startswith(('HERDR_', 'WORKDESK_'))}
+    env = {k: v for k, v in os.environ.items() if not k.startswith(('HERDR_',))}
     env.update(HERDR_PROJECTS_INLINE='1', HERDR_PROJECTS_NO_KEEPER='1')
     if json.loads(output(command + ['tasks'], env=env)) != []:
         raise ValueError('Fresh isolated profile is not empty')
@@ -61,36 +61,22 @@ def projects_smoke(binary, backend, profile, root):
     reported = json.loads(task_file.read_text())
     if reported['stage'] != 'asks' or not reported.get('selfBlocked'):
         raise ValueError('Original no-id report lost Agent blocked-turn semantics')
+    # Old names have no runtime behavior in this new product.
+    obsolete = dict(managed)
+    obsolete.pop('HERDR_WORK_MANAGED')
+    obsolete['WORKDESK_MANAGED'] = '1'
+    if json.loads(output([backend, 'herdr-work-environment'], env=obsolete))['managed']:
+        raise ValueError('Obsolete managed flag is still supported')
+    (projects / 'data' / 'workdesk-paused').write_text('obsolete')
+    if json.loads(output(command + ['scheduler', 'status'], env=env))['paused']:
+        raise ValueError('Obsolete pause marker still controls the scheduler')
+    rejected = subprocess.run([backend, 'workdesk-snapshot'], env=managed, text=True, capture_output=True, timeout=60)
+    if rejected.returncode == 0:
+        raise ValueError('Obsolete backend command is still supported')
     for action, paused in [('pause', True), ('status', True), ('resume', False)]:
         state = json.loads(output(command + ['scheduler', action], env=env))
         if state['paused'] != paused:
             raise ValueError('Scheduler state did not persist')
-
-
-def rename_smoke(stage, prefix, manifest):
-    prefix = prefix.resolve()
-    # Exercise real executable replacement on each native runner. The legacy
-    # filename is seeded with this build; cross-version macOS is checked separately.
-    install(stage, prefix)
-    suffix = '.exe' if 'windows' in manifest['target'] else ''
-    binary, legacy = prefix / 'bin' / f'herdr-work{suffix}', prefix / 'bin' / f'workdesk{suffix}'
-    binary.rename(legacy)
-    previous = read_receipt(prefix)
-    previous['files'] = [str(legacy) if file == str(binary) else file for file in previous['files']]
-    write_receipt(prefix, previous)
-    install(stage, prefix)
-    if legacy.exists() or output([binary, '--version']).strip() != f"herdr-work {manifest['version']}":
-        raise ValueError('Legacy executable was not migrated')
-    rollback(prefix)
-    if binary.exists() or not legacy.is_file():
-        raise ValueError('Rollback did not restore legacy executable name')
-    output([legacy, '--version'])
-    install(stage, prefix)
-    if legacy.exists():
-        raise ValueError('Reinstallation left a stale legacy executable')
-    uninstall(prefix)
-    if binary.exists() or legacy.exists():
-        raise ValueError('Uninstall left an owned executable')
 
 
 def smoke(archive):
@@ -106,7 +92,6 @@ def smoke(archive):
             with tarfile.open(archive) as bundle:
                 bundle.extractall(extract, filter='data')
         stage = next(extract.iterdir())
-        rename_smoke(stage, root / 'upgrade', manifest)
         prefix = root / 'installed'
         install(stage, prefix)
         binary = prefix / 'bin' / ('herdr-work.exe' if 'windows' in manifest['target'] else 'herdr-work')

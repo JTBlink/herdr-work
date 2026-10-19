@@ -38,7 +38,6 @@ pub fn reports_dir() -> PathBuf { env("HERDR_PROJECTS_REPORTS_DIR").map(PathBuf:
 /// environment (an agent's herdr space).
 pub fn herdr_work_managed() -> bool {
     std::env::var("HERDR_WORK_MANAGED").as_deref() == Ok("1")
-        || std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1")
 }
 pub fn board_env() -> Vec<(String, String)> {
     let mut pairs = vec![("HERDR_PROJECTS_DATA_DIR".into(), absolute(&data_dir()).display().to_string()),

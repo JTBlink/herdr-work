@@ -10,6 +10,7 @@ herdr-work-engine.workspace = true
 anyhow.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
+herdr-sidebar = { path = "../../upstream/herdr-sidebar/plugins/herdr-sidebar" }
 
 [dev-dependencies]
 tempfile.workspace = true
