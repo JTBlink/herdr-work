@@ -354,6 +354,8 @@ impl App {
             return Ok(());
         };
         if key == KeyCode::Esc {
+            self.editor_leave_after_save = false;
+            self.editor_close_after_leave = false;
             return Ok(());
         }
         match overlay {
@@ -500,6 +502,7 @@ impl App {
             }
             Command::Cancel => {
                 self.editor_leave_after_save = false;
+                self.editor_close_after_leave = false;
             }
             Command::Reference(action) => {
                 use herdr_work_code::scm::{DrawerRef, MenuAction, drawer_spec, parse_drawer_ref};

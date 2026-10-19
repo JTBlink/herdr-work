@@ -160,6 +160,9 @@ impl App {
                 if leave && let Err(error) = self.finish_editor() {
                     self.status = error.to_string();
                 }
+                if !leave {
+                    self.editor_close_after_leave = false;
+                }
             }
             Ok((_, SaveOutcome::Conflict)) => {
                 session.editor.external_changed = true;
@@ -168,6 +171,7 @@ impl App {
             Err(error) => {
                 self.status = error.to_string();
                 self.editor_leave_after_save = false;
+                self.editor_close_after_leave = false;
             }
         }
     }
@@ -201,11 +205,56 @@ impl App {
             Err(error) => self.status = error.to_string(),
         }
         self.editor_leave_after_save = false;
+        self.editor_close_after_leave = false;
+    }
+    /// Keyboard leave and the header close button share unsaved/write guards.
+    pub(crate) fn leave_editor(&mut self, close_document: bool) -> Result<()> {
+        if self.editor_write.is_some() {
+            self.status = "请等待文件保存或重载完成".into();
+            return Ok(());
+        }
+        self.editor_close_after_leave = close_document;
+        if self
+            .editor
+            .as_ref()
+            .is_some_and(|session| session.editor.dirty)
+        {
+            self.overlay = Some(Overlay::Menu {
+                title: "未保存的文本",
+                rows: vec![
+                    (
+                        Command::SaveEditor,
+                        if close_document {
+                            "保存并关闭"
+                        } else {
+                            "保存并返回"
+                        },
+                    ),
+                    (
+                        Command::DiscardEditor,
+                        if close_document {
+                            "放弃修改并关闭"
+                        } else {
+                            "放弃修改并返回"
+                        },
+                    ),
+                    (Command::Cancel, "继续编辑"),
+                ],
+                selected: 0,
+            });
+            Ok(())
+        } else {
+            self.finish_editor()
+        }
     }
     pub(crate) fn finish_editor(&mut self) -> Result<()> {
         anyhow::ensure!(self.editor_write.is_none(), "请等待文件保存或重载完成");
         self.editor_poll = None;
         if let Some(session) = self.editor.take() {
+            if std::mem::take(&mut self.editor_close_after_leave) {
+                self.close_preview();
+                return Ok(());
+            }
             let path = session.editor.path().to_path_buf();
             let line = session.editor.cursor().line + 1;
             self.open_preview(path, Some(line))?;
@@ -237,25 +286,7 @@ impl App {
             );
             let result = match action {
                 EditAction::Save => self.save_editor(),
-                EditAction::Leave | EditAction::Close => {
-                    if self.editor_write.is_some() {
-                        self.status = "请等待文件保存或重载完成".into();
-                        Ok(())
-                    } else if self.editor.as_ref().unwrap().editor.dirty {
-                        self.overlay = Some(Overlay::Menu {
-                            title: "未保存的文本",
-                            rows: vec![
-                                (Command::SaveEditor, "保存并返回"),
-                                (Command::DiscardEditor, "放弃修改并返回"),
-                                (Command::Cancel, "继续编辑"),
-                            ],
-                            selected: 0,
-                        });
-                        Ok(())
-                    } else {
-                        self.finish_editor()
-                    }
-                }
+                EditAction::Leave | EditAction::Close => self.leave_editor(false),
                 EditAction::None => Ok(()),
             };
             if let Err(error) = result {
@@ -315,9 +346,8 @@ impl App {
                 ""
             }
         );
-        let block = self.content_block(title);
-        let body = block.inner(panes.content);
-        f.render_widget(block, panes.content);
+        let body = self.preview_body(panes.content);
+        self.draw_document_header(f, panes.content, title);
         let footer = Rect::new(
             panes.footer.x,
             panes.footer.y.saturating_add(1),

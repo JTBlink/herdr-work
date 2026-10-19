@@ -17,6 +17,7 @@ use std::{
 
 mod actions;
 mod activation;
+mod activity;
 mod drafts;
 
 mod editing;

@@ -3,7 +3,12 @@ use crate::state::*;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use herdr_work_code::preview::{Doc, ReleaseCopier, ReleaseCopy};
-use ratatui::{Frame, layout::Rect, widgets::Paragraph};
+use ratatui::{
+    Frame,
+    layout::{Alignment, Rect},
+    style::Style,
+    widgets::Paragraph,
+};
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
@@ -16,6 +21,48 @@ pub(crate) struct PreviewDocument {
 }
 
 impl App {
+    pub(crate) fn preview_close_button(&self, area: Rect) -> Option<Rect> {
+        (area.width >= 4
+            && area.height > 0
+            && (self.editor.is_some()
+                || (matches!(self.tab, Tab::Files | Tab::Search) && self.preview_path.is_some())))
+        .then(|| Rect::new(area.right() - 3, area.y, 3, 1))
+    }
+    pub(crate) fn draw_document_header(&self, frame: &mut Frame, area: Rect, title: String) {
+        let block = self.content_block(String::new());
+        frame.render_widget(block, area);
+        let close = self.preview_close_button(area);
+        let width = close.map_or(area.width, |button| button.x.saturating_sub(area.x));
+        frame.render_widget(
+            Paragraph::new(title).style(Style::default().fg(if self.focus == Focus::Content {
+                herdr_work_code::ui::palette().accent_focus
+            } else {
+                herdr_work_code::ui::palette().ignored
+            })),
+            Rect::new(area.x, area.y, width, area.height.min(1)),
+        );
+        if let Some(button) = close {
+            let hovered = self
+                .interaction
+                .pointer
+                .is_some_and(|point| button.contains(point));
+            frame.render_widget(
+                Paragraph::new("×")
+                    .alignment(Alignment::Center)
+                    .style(herdr_work_code::ui::chrome_button_style(hovered)),
+                button,
+            );
+        }
+    }
+    pub(crate) fn close_document(&mut self) -> Result<()> {
+        self.edit_request = None;
+        if self.editor.is_some() {
+            self.leave_editor(true)
+        } else {
+            self.close_preview();
+            Ok(())
+        }
+    }
     fn readonly_doc(&self) -> Option<&Doc> {
         if self.tab == Tab::Scm {
             self.drawer_doc.as_ref()
@@ -147,13 +194,13 @@ impl App {
     }
     pub(crate) fn draw_preview(&mut self, frame: &mut Frame, area: Rect) {
         let title = self.preview_title();
-        let block = self.content_block(if title.is_empty() {
+        let title = if title.is_empty() {
             "Preview".into()
         } else {
             title
-        });
-        let body = block.inner(area);
-        frame.render_widget(block, area);
+        };
+        let body = self.preview_body(area);
+        self.draw_document_header(frame, area, title);
         self.preview_width = body.width;
         if let Some(doc) = &mut self.preview_doc {
             doc.draw_body(frame, body);
@@ -253,7 +300,7 @@ impl App {
         self.preview_doc = Some(saved.doc);
         self.preview_pinned = true;
     }
-    fn close_preview(&mut self) {
+    pub(crate) fn close_preview(&mut self) {
         self.preview_pending = None;
         self.preview_request = self.preview_request.wrapping_add(1);
         self.preview_doc = None;
