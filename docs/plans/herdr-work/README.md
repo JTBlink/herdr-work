@@ -1,5 +1,7 @@
 # HerdrWork：GitHub 任务索引
 
+后续规划转向[产品内部模块整合](../internal-modules/README.md)。本文保留首版 13 项任务及历史依赖，不将其状态改写为新一轮实施状态；旧目录规范与兼容条款以[新架构](../../architecture/herdr-work-internal-modules.md)为准。
+
 父规格：[[Spec] HerdrWork：复用优先工作台首版](https://github.com/JTBlink/herdr-work/issues/1)。保留 13 个实施子任务、默认标签与原生依赖。
 
 四个自有 crate 为 `herdr-work-core`、`herdr-work-engine`、`herdr-work-tui`、`herdr-work`，位于 `crates/`；固定版本的上游源码位于 `upstream/`，保留原目录和项目名。命令为 `herdr-work`，仓库地址仍为 `JTBlink/herdr-work`。

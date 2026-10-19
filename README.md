@@ -2,11 +2,11 @@
 
 面向 AI 编程的 Herdr Agent 工作台，在一个终端界面中连接任务、Agent、文件、Git 和代码审查。
 
-- 浏览 Projects 任务与执行目录，创建、委派、停止任务。
+- 管理任务与执行目录，创建、委派、停止任务。
 - 浏览文件树和 SCM，查看真实 Diff，暂存、取消暂存和提交。
 - 保存行级审查评论，验证 Agent 身份后回填固定评论批次。
 - 重启恢复草稿与选择，对结果未知的操作显式核对。
-- 独立数据目录 `~/.herdr-work`，原 Projects 插件数据需预览后显式导入。
+- 独立数据目录 `~/.herdr-work`，可通过 `--home` 或 `HERDR_WORK_HOME` 指定。
 
 ## 安装与启动
 
@@ -27,7 +27,9 @@ Windows 使用 `python install.py --prefix "$env:LOCALAPPDATA/HerdrWork"`，运�
 | Linux x86_64 | HerdrWork 与固定 Projects 后端 |
 | Windows x86_64 | 原生文件、Git、Diff 与评论界面；Projects 后端仍依赖 Unix，不提供原生任务执行 |
 
-Agent 定位和发送需要 Herdr 0.9.3+ 提供的宿主连接。独立启动时仍可浏览 Git 和保存评论。按 `1`–`4` 切换任务、文件、SCM、审查，`j/k` 移动，`Enter` 打开，`r` 刷新，`q` 关闭界面；空任务页可按 `n` 创建任务，也可先按 `2` 浏览文件或按 `3` 查看 Git；旧 Projects 数据需显式导入。具体操作见视图标题。关闭界面不会停止已委派的 Agent。
+默认页面是文件树与预览区，左侧活动栏可点击切换文件、Git、任务和审查。按 `1`–`4` 分别进入任务、文件、SCM、审查，`j/k` 移动，`Enter` 打开，`Tab` 切换焦点，`r` 刷新，`q` 关闭界面。SCM 按 `s/u` 暂存/取消暂存，按 `C` 提交；任务页按 `n` 创建任务。
+
+Agent 定位和发送需要 Herdr 0.9.3+ 提供的宿主连接。独立启动时仍可浏览 Git 和保存评论。关闭界面不会停止已委派的 Agent。
 
 ```sh
 herdr-work --help                 # 中文命令帮助
@@ -35,12 +37,10 @@ herdr-work review open --help     # 子命令的详细参数
 herdr-work scheduler status
 herdr-work scheduler pause   # 暂停工作台后端自动调度，不停止 Agent
 herdr-work scheduler resume
-herdr-work import /path/to/original-projects-home          # 只读预览
-herdr-work import /path/to/original-projects-home --apply  # 显式复制并保留原数据
 herdr-work reconcile         # 查看未知操作，核对后可记录证据
 ```
 
-卸载使用原归档的 `python3 install.py --prefix ~/.local --uninstall`；用户数据保留。导入回滚使用 `herdr-work rollback-import`，导入后数据已改变时会拒绝覆盖新工作。
+卸载使用原归档的 `python3 install.py --prefix ~/.local --uninstall`，用户数据保留。安装回滚使用 `python3 install.py --prefix ~/.local --rollback`。
 
 Herdr 插件入口使用稳定 ID `jtblink.herdr-work`。安装依赖 Python 3.12+，插件安装时按版本下载并校验归档；从源码开发可运行 `python3 scripts/plugin.py --from-source` 后 `herdr plugin link .`。插件的原 Projects hook 在独立数据目录运行。
 
@@ -58,7 +58,7 @@ python3 scripts/smoke.py --archives dist
 
 将 target 替换为 `x86_64-unknown-linux-gnu` 或 `x86_64-pc-windows-msvc` 可在对应原生平台构建。CI 编译、测试、打包并执行隔离安装验证；Release 工作流只在所有平台成功后发布附件。流程参考固定版本 Reviewr 的矩阵与打包方式，采用 draft 创建、附件校验、最后发布。
 
-四个自有 crate 位于 `crates/`；上游源码位于 `upstream/` 并保留原结构。详见[架构](docs/architecture/herdr-work-architecture.md)、[源码来源与补丁](docs/upstream/source-map.md)、[任务与验收标准](docs/plans/herdr-work/README.md)。GitHub 仓库仍使用 `JTBlink/herdr-work` 地址。
+当前四个产品 crate 位于 `crates/`，来源源码仍在 `upstream/`。后续按[内部模块架构](docs/architecture/herdr-work-internal-modules.md)统一工程，实施进度见[任务索引](docs/plans/internal-modules/README.md)，实际复用见[源码来源与补丁](docs/upstream/source-map.md)。GitHub 仓库仍使用 `JTBlink/herdr-work` 地址。
 
 ## 来源与许可
 

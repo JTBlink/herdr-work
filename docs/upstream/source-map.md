@@ -1,5 +1,7 @@
 # 固定源码与导入映射
 
+用户已确定[产品内部模块整合方向](../architecture/herdr-work-internal-modules.md)：本页记录当前来源位置与实际调用，后续迁至根 workspace 和 `crates/`，来源记录最终进入 `docs/provenance/`。当前源码尚未移动。
+
 ## 当前获取状态
 
 2026-10-18 三个固定 commit 的源码归档已下载到 `reference-plugins/`；根目录、package 版本及 LICENSE 已核对，关键逻辑已重新阅读。源码获取没有安装、注册或启用插件；随后已完整导入 upstream，实际编译与测试记录以 GitHub Issue 和 CI 为准。
@@ -14,7 +16,7 @@
 
 ## 已实施目录
 
-用户已确认以下目录规范。实施时将完整来源树复制到受版本管理的 upstream；已完整导入，参考副本保持原貌。四个工作台 crate 平铺在 crates 下，不把来源模块拆进其中。
+以下是首版已经实施的目录。后续按内部模块规划调整，其原始布局不再是永久约束；参考副本保持原貌。
 
 | 来源根目录 | 目标目录 | 保留内容 |
 | --- | --- | --- |
@@ -51,6 +53,8 @@
 
 HerdrWork 自身补充执行身份、epoch/generation、草稿、固定发送批次、导入日志及操作核对，不新增第二套任务阶段状态机。Reviewr 原评论仍为内存状态，持久化仅属于 HerdrWork。上游测试与 fixtures 完整保留。
 
-## HerdrWork 名称迁移
+## 当前名称与兼容清理
 
-自有 workspace 为 `herdr-work-core`、`herdr-work-engine`、`herdr-work-tui`、`herdr-work`。新增适配接口使用 `herdr_work_*`，托管环境为 `HERDR_WORK_MANAGED`。Projects CLI 接受旧 `workdesk-*` 命令别名及 `WORKDESK_MANAGED`；暂停标记读取旧文件以保持升级语义，恢复时清理两个名称。固定来源 crate、原始业务目录和许可证均保留。
+当前根 workspace 为 `herdr-work-core`、`herdr-work-engine`、`herdr-work-tui`、`herdr-work`。适配接口使用 `herdr_work_*`，托管环境只读取 `HERDR_WORK_MANAGED`。旧命令别名、旧托管变量、旧暂停标记均已移除；profile、Git 写锁、收据和归档只使用 HerdrWork 当前名称，不再支持旧目录或旧插件数据导入。来源 Git 哈希是导入基线，实际改动由本项目提交追踪。
+
+默认 TUI 已改为 Explorer。文件树/SCM 继续执行原 Tree/Git；活动栏选中样式、Git 状态颜色直接复用 Sidebar 的 `ui` 模块。主程序自行维护一个终端和 scoped 布局，不运行原插件 App 或 pane 自动补建。视口几何与鼠标命中使用同一个 layout 模块，预览有独立焦点与滚动，过期文件预览不覆盖当前选择。

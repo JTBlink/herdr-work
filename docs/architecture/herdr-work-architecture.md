@@ -10,6 +10,8 @@ tags:
 
 # HerdrWork 复用优先架构
 
+> 后续实施依据更新：用户于 2026-10-19 确认来源代码作为产品内部模块长期维护。统一 `crates/`、workspace 和锁文件，按产品职责整理，且不保留旧项目兼容。详见[内部模块架构](herdr-work-internal-modules.md)。本文保留首版设计基线，其中“四个 crate + upstream 原工程结构 + 双锁文件”的长期约束已被替代；实际迁移尚未完成。
+
 ## 设计结论与范围
 
 用户已确认复用 Projects、Sidebar、Reviewr 的业务源码逻辑、采用本文架构发布 13 项 GitHub 任务，并指定四个工作台 crate 与 upstream 原结构布局。本文记录已确认的设计；应用实现、工具链及真实会话验收尚未完成。
