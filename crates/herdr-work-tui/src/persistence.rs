@@ -210,9 +210,9 @@ impl App {
         let request = self.interaction.save_request;
         self.job(move |desk| {
             let result = desk.save_workspace_ui_state(&root, &state);
-            Ok(Data::Persistence(Update::Saved(
+            Ok(Data::Persistence(Box::new(Update::Saved(
                 request, root, state, result,
-            )))
+            ))))
         })?;
         self.interaction.save_pending = Some(request);
         Ok(())
@@ -241,12 +241,12 @@ impl App {
         let request = self.interaction.load_request;
         let revision = self.interaction.user_revision;
         self.job(move |desk| {
-            Ok(Data::Persistence(Update::Loaded(
+            Ok(Data::Persistence(Box::new(Update::Loaded(
                 request,
                 revision,
                 root.clone(),
                 desk.workspace_ui_state(&root),
-            )))
+            ))))
         })
     }
     pub(crate) fn restore_workspace_after_code(&mut self) -> Result<()> {
@@ -328,7 +328,7 @@ impl App {
             let revision = self.interaction.user_revision;
             let history = state.scm.history_target.clone();
             self.job(move |desk| {
-                Ok(Data::Persistence(Update::Drawers(
+                Ok(Data::Persistence(Box::new(Update::Drawers(
                     root,
                     request,
                     revision,
@@ -336,7 +336,7 @@ impl App {
                         .into_iter()
                         .map(|kind| desk.scm_drawer(&repository, kind, history.as_deref()))
                         .collect(),
-                )))
+                ))))
             })?;
         }
         if !state.documents.is_empty() && self.preview_path.is_none() && self.editor.is_none() {
@@ -357,9 +357,9 @@ impl App {
                         (document, loaded)
                     })
                     .collect();
-                Ok(Data::Persistence(Update::Documents(
+                Ok(Data::Persistence(Box::new(Update::Documents(
                     root, request, documents,
-                )))
+                ))))
             })?;
             self.interaction.restoring_documents = true;
         }

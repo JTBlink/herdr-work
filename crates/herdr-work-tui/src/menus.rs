@@ -441,7 +441,7 @@ impl App {
             Ok(c.root.join(&c.path))
         }
     }
-    fn menu_command(&mut self, command: Command) -> Result<()> {
+    pub(crate) fn menu_command(&mut self, command: Command) -> Result<()> {
         match command {
             Command::Key(key) => {
                 if self.tab == Tab::Review {

@@ -127,15 +127,16 @@ impl HerdrWork {
     }
 }
 
+type QueuedJob<T> = (u64, Box<dyn FnOnce() -> Result<T> + Send>);
+
 /// Runs jobs away from input/render. Results retain their originating context.
 pub struct JobQueue<T: Send + 'static> {
-    tx: std::sync::mpsc::SyncSender<(u64, Box<dyn FnOnce() -> Result<T> + Send>)>,
+    tx: std::sync::mpsc::SyncSender<QueuedJob<T>>,
     pub results: std::sync::mpsc::Receiver<(u64, Result<T>)>,
 }
 impl<T: Send + 'static> Default for JobQueue<T> {
     fn default() -> Self {
-        let (tx, rx) =
-            std::sync::mpsc::sync_channel::<(u64, Box<dyn FnOnce() -> Result<T> + Send>)>(32);
+        let (tx, rx) = std::sync::mpsc::sync_channel::<QueuedJob<T>>(32);
         let (out, results) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             while let Ok((epoch, job)) = rx.recv() {
@@ -148,6 +149,17 @@ impl<T: Send + 'static> Default for JobQueue<T> {
     }
 }
 impl<T: Send + 'static> JobQueue<T> {
+    /// FIFO shutdown barrier. Only use after the input loop has ended: unlike
+    /// submit, this waits for capacity so final persistence cannot be dropped.
+    pub fn submit_on_shutdown(
+        &self,
+        epoch: u64,
+        job: impl FnOnce() -> Result<T> + Send + 'static,
+    ) -> Result<()> {
+        self.tx
+            .send((epoch, Box::new(job)))
+            .map_err(|_| anyhow::anyhow!("Worker stopped before final persistence"))
+    }
     pub fn submit(
         &self,
         epoch: u64,

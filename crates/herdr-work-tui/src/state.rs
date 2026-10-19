@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 pub(crate) enum Data {
     Preferences(crate::preferences::Update),
-    Persistence(crate::persistence::Update),
-    Background(crate::refresh::BackgroundRefresh),
+    Persistence(Box<crate::persistence::Update>),
+    Background(Box<crate::refresh::BackgroundRefresh>),
     Tasks(Result<Vec<Task>>),
     Code(u64, Result<CodeSnapshot>),
     Diff(DiffView, Review),
@@ -46,11 +46,13 @@ pub(crate) enum Data {
     CommitDone(PathBuf, String, Result<String>),
     BranchPicker(u64, Result<herdr_work_code::branch_ui::BranchPicker>),
     Reconcile(u64, Result<Vec<(String, String)>>),
-    Suggested(u64, PathBuf, Vec<char>, Result<String>),
+    Suggested(u64, PathBuf, herdr_work_engine::CommitDraft, Result<String>),
+    GitDraftSaved(PathBuf, u64, Result<()>),
+    GitDraftFlush,
 }
 pub(crate) enum Message {
     Input(Event),
-    Result(u64, Result<Data>),
+    Result(u64, Box<Result<Data>>),
 }
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Tab {
@@ -123,6 +125,7 @@ pub(crate) struct App {
     pub(crate) editor: Option<herdr_work_engine::EditorSession>,
     pub(crate) edit_request: Option<PathBuf>,
     pub(crate) git: crate::scm::GitUi,
+    pub(crate) hover: crate::hover::HoverState,
     pub(crate) editor_request: u64,
     pub(crate) editor_poll: Option<(u64, u64)>,
     pub(crate) editor_write: Option<(u64, u64)>,
@@ -218,6 +221,7 @@ impl App {
             editor: None,
             edit_request: None,
             git: Default::default(),
+            hover: Default::default(),
             editor_request: 0,
             editor_poll: None,
             editor_write: None,
@@ -301,6 +305,8 @@ impl App {
                     | Data::Preferences(..)
                     | Data::Persistence(..)
                     | Data::CommitDone(..)
+                    | Data::GitDraftSaved(..)
+                    | Data::GitDraftFlush
                     | Data::EditorObserved(..)
                     | Data::EditorSaved(..)
                     | Data::EditorReloaded(..))
@@ -310,8 +316,8 @@ impl App {
         }
         match data {
             Ok(Data::Preferences(update)) => self.apply_preferences(update),
-            Ok(Data::Persistence(update)) => self.apply_persistence(update),
-            Ok(Data::Background(update)) => self.apply_background(update),
+            Ok(Data::Persistence(update)) => self.apply_persistence(*update),
+            Ok(Data::Background(update)) => self.apply_background(*update),
             Err(e) => self.status = format!("{e:#}"),
             Ok(Data::Business(text)) => {
                 self.status = text;
@@ -341,6 +347,10 @@ impl App {
             Ok(Data::EditorReloaded(session, request, text, result)) => {
                 self.editor_reloaded(session, request, text, result)
             }
+            Ok(Data::GitDraftSaved(root, revision, result)) => {
+                self.git_draft_saved(root, revision, result)
+            }
+            Ok(Data::GitDraftFlush) => {}
             Ok(data) if epoch != self.context.epoch && !matches!(&data, Data::CommitDone(..)) => {}
             Ok(Data::Code(generation, _)) if generation != self.generation => {}
             Ok(Data::Code(_, Err(error))) => {
@@ -377,7 +387,12 @@ impl App {
                     .unwrap_or(self.selection)
                     .min(count.saturating_sub(1));
                 for repo in &code.repositories {
-                    let _ = self.ensure_draft(&repo.root);
+                    if repo.draft_error.is_none() {
+                        self.git
+                            .drafts
+                            .entry(repo.root.clone())
+                            .or_insert_with(|| repo.draft.clone());
+                    }
                 }
                 self.code = Some(code);
                 if was_change {
@@ -528,7 +543,7 @@ impl App {
                             .is_some_and(|d| d.message.iter().collect::<String>() == message)
                         {
                             self.git.drafts.insert(root.clone(), Default::default());
-                            let _ = self.desk.save_git_draft(&root, &Default::default());
+                            self.mark_git_draft(root.clone());
                         }
                         self.apply(epoch, Ok(Data::Business(text)));
                     }
@@ -540,19 +555,13 @@ impl App {
             }
             Ok(Data::Suggested(request, root, baseline, result)) if request == self.git.request => {
                 match result {
-                    Ok(message)
-                        if self
-                            .git
-                            .drafts
-                            .get(&root)
-                            .is_some_and(|d| d.message == baseline) =>
-                    {
+                    Ok(message) if self.git.drafts.get(&root).is_some_and(|d| *d == baseline) => {
                         let draft = herdr_work_engine::CommitDraft {
                             message: message.chars().collect(),
                             cursor: message.chars().count(),
                         };
-                        let _ = self.desk.save_git_draft(&root, &draft);
-                        self.git.drafts.insert(root, draft);
+                        self.git.drafts.insert(root.clone(), draft);
+                        self.mark_git_draft(root);
                         self.status = "提交消息建议已生成".into();
                     }
                     Ok(_) => self.status = "提交消息已编辑，保留当前草稿".into(),

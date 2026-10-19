@@ -1331,6 +1331,8 @@ fn scm_repository_inputs_survive_refresh_and_failed_commit_without_crossing_root
         ratatui::layout::Rect::new(0, 0, 160, 32),
     )
     .unwrap();
+    app.flush_git_drafts().unwrap();
+    receive(&mut app);
     let draft = app.desk.git_draft(&nested).unwrap();
     assert_eq!(draft.message.iter().collect::<String>(), "中");
     assert_eq!(draft.cursor, 0);
@@ -1497,6 +1499,8 @@ fn failed_commit_keeps_the_edited_message_and_repository_draft() {
         app.git.drafts[&app.root].message.iter().collect::<String>(),
         "keep my 中文 message"
     );
+    app.flush_git_drafts().unwrap();
+    receive(&mut app);
     assert_eq!(
         app.desk.git_draft(&app.root).unwrap(),
         app.git.drafts[&app.root]
@@ -1688,6 +1692,296 @@ fn compact_scm_repository_input_click_matches_the_scrolled_rendered_row() {
         assert_eq!(app.git.editing, Some(nested.clone()));
         assert_eq!(app.git.active, Some(nested));
     }
+}
+
+#[test]
+fn clicking_readonly_content_exits_search_input_and_uses_preview_keys() {
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    let (_temp, mut app) = loaded_app();
+    app.open_preview(app.root.join("visible.txt"), None)
+        .unwrap();
+    receive(&mut app);
+    app.query_prompt(false);
+    receive(&mut app);
+    let area = ratatui::layout::Rect::new(0, 0, 160, 32);
+    let body = app.preview_body(app.panes(area).content);
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: body.x + 4,
+            row: body.y,
+            modifiers: KeyModifiers::NONE,
+        },
+        area,
+    )
+    .unwrap();
+    app.input_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE), area)
+        .unwrap();
+    assert!(app.prompt.is_none());
+    assert!(app.search_query.is_empty());
+    assert!(!app.preview_doc.as_ref().unwrap().wrap());
+    assert!(screen(&mut app).contains("fixture"));
+}
+
+#[test]
+fn commit_draft_edits_coalesce_in_the_worker_and_late_save_keeps_new_input() {
+    let (_temp, mut app) = loaded_app();
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| matches!(r.3, crate::scm::ScmTarget::Message(0)))
+        .unwrap();
+    app.activate_scm_row().unwrap();
+    app.paste_commit("first").unwrap();
+    assert!(
+        app.desk.git_draft(&app.root).unwrap().message.is_empty(),
+        "input events must not write drafts to disk"
+    );
+    let future = std::time::Instant::now() + Duration::from_secs(1);
+    app.tick_git_drafts(future).unwrap();
+    app.paste_commit("-new").unwrap();
+    receive(&mut app);
+    assert_eq!(
+        app.git.drafts[&app.root].message.iter().collect::<String>(),
+        "first-new"
+    );
+    app.flush_git_drafts().unwrap();
+    let saved = app.desk.git_draft(&app.root).unwrap();
+    assert_eq!(saved.message.iter().collect::<String>(), "first-new");
+    assert_eq!(saved.cursor, "first-new".chars().count());
+}
+
+#[test]
+fn scm_hover_button_uses_the_visible_file_and_is_disabled_when_too_narrow() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    app.switch_tab(Tab::Scm);
+    let area = ratatui::layout::Rect::new(0, 0, 160, 32);
+    let body = app
+        .sidebar_block(String::new())
+        .inner(app.panes(area).sidebar);
+    let index = app.scm_rows().iter().position(|r| r.0 == Some(0)).unwrap();
+    app.scm_cursor = index;
+    let x = body.right() - 4;
+    let y = body.y + index as u16;
+    let mouse = |kind, column, row| MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    app.mouse(mouse(MouseEventKind::Moved, x, y), area).unwrap();
+    assert!(
+        screen(&mut app).contains("↶"),
+        "hover actions must be drawn before they can be clicked"
+    );
+    app.mouse(mouse(MouseEventKind::Down(MouseButton::Left), x, y), area)
+        .unwrap();
+    receive(&mut app);
+    assert!(
+        app.desk
+            .code_snapshot(&app.root, &[], 2)
+            .unwrap()
+            .changes
+            .iter()
+            .any(|c| c.path == "visible.txt" && c.staged)
+    );
+    // A second file in a narrow sidebar must only open the row, never hit an invisible +.
+    std::fs::write(app.root.join("second.txt"), "new").unwrap();
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 3).unwrap());
+    app.preferences.sidebar_width = 12;
+    let body = app
+        .sidebar_block(String::new())
+        .inner(app.panes(area).sidebar);
+    let selected = app
+        .code
+        .as_ref()
+        .unwrap()
+        .changes
+        .iter()
+        .position(|c| c.path == "second.txt")
+        .unwrap();
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| r.0 == Some(selected))
+        .unwrap();
+    let y = body.y + app.scm_cursor as u16;
+    app.mouse(mouse(MouseEventKind::Moved, body.right() - 4, y), area)
+        .unwrap();
+    app.mouse(
+        mouse(MouseEventKind::Down(MouseButton::Left), body.right() - 4, y),
+        area,
+    )
+    .unwrap();
+    assert!(
+        !app.desk
+            .code_snapshot(&app.root, &[], 4)
+            .unwrap()
+            .changes
+            .iter()
+            .any(|c| c.path == "second.txt" && c.staged)
+    );
+}
+
+#[test]
+fn explorer_title_buttons_follow_visible_geometry_on_both_sides_and_hide_when_narrow() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    for dock_right in [false, true] {
+        let (_temp, mut app) = loaded_app();
+        let folder = app.root.join("folder");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("child.txt"), "child").unwrap();
+        app.expanded.push(folder.clone());
+        app.code = Some(app.desk.code_snapshot(&app.root, &app.expanded, 1).unwrap());
+        app.preferences.dock_right = dock_right;
+        let area = ratatui::layout::Rect::new(0, 0, 120, 24);
+        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        assert!(!(0..area.width).any(|x| terminal.backend().buffer()[(x, 0)].symbol() == "⊟"));
+        let sidebar = app.panes(area).sidebar;
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: sidebar.x + 3,
+                row: sidebar.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let x = (sidebar.x..sidebar.right())
+            .find(|x| terminal.backend().buffer()[(*x, 0)].symbol() == "⊟")
+            .expect("hover must render the actual collapse control");
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: x,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        assert!(app.expanded.is_empty());
+        assert!(app.overlay.is_none());
+        app.expanded.push(folder);
+        app.preferences.sidebar_width = 12;
+        let sidebar = app.panes(area).sidebar;
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: sidebar.x + 3,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        assert!(
+            !(sidebar.x..sidebar.right())
+                .any(|x| terminal.backend().buffer()[(x, 0)].symbol() == "⊟")
+        );
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: sidebar.x + 3,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        assert!(
+            !app.expanded.is_empty(),
+            "hidden title controls must not receive clicks"
+        );
+    }
+}
+
+#[test]
+fn refreshed_disk_draft_never_replaces_text_typed_while_the_worker_was_loading() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = app();
+    app.desk
+        .save_git_draft(
+            &app.root,
+            &herdr_work_engine::CommitDraft {
+                message: "旧稿".chars().collect(),
+                cursor: 1,
+            },
+        )
+        .unwrap();
+    app.refresh().unwrap();
+    receive(&mut app);
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|row| matches!(row.3, crate::scm::ScmTarget::Message(0)))
+        .unwrap();
+    app.activate_scm_row().unwrap();
+    assert_eq!(app.git.drafts[&app.root].cursor, 1);
+    app.refresh().unwrap();
+    let (epoch, result) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.edit_commit_key(KeyEvent::new(KeyCode::Char('新'), KeyModifiers::NONE))
+        .unwrap();
+    app.apply(epoch, result);
+    assert_eq!(
+        app.git.drafts[&app.root].message.iter().collect::<String>(),
+        "旧新稿"
+    );
+    assert_eq!(app.git.drafts[&app.root].cursor, 2);
+}
+
+#[test]
+fn exit_flush_waits_for_a_full_worker_queue_and_saves_the_last_draft() {
+    let (_temp, mut app) = loaded_app();
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|row| matches!(row.3, crate::scm::ScmTarget::Message(0)))
+        .unwrap();
+    app.activate_scm_row().unwrap();
+    app.paste_commit("last unsaved input").unwrap();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    app.job(move |_| {
+        started_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+        Ok(Data::GitDraftFlush)
+    })
+    .unwrap();
+    started_rx.recv().unwrap();
+    for _ in 0..32 {
+        app.job(|_| Ok(Data::GitDraftFlush)).unwrap();
+    }
+    app.tick_git_drafts(std::time::Instant::now() + Duration::from_secs(1))
+        .unwrap();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(20));
+        release_tx.send(()).unwrap();
+    });
+    app.flush_git_drafts().unwrap();
+    assert_eq!(
+        app.desk
+            .git_draft(&app.root)
+            .unwrap()
+            .message
+            .iter()
+            .collect::<String>(),
+        "last unsaved input"
+    );
 }
 
 #[test]

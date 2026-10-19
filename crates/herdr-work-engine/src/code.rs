@@ -51,6 +51,10 @@ pub struct RepositoryStatus {
     pub has_upstream: bool,
     #[serde(default)]
     pub write_error: Option<String>,
+    #[serde(default)]
+    pub draft: crate::CommitDraft,
+    #[serde(default)]
+    pub draft_error: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CodeSnapshot {
@@ -207,6 +211,10 @@ impl HerdrWork {
                     Ok(stamp) => (stamp, None),
                     Err(error) => (String::new(), Some(format!("{error:#}"))),
                 };
+                let (draft, draft_error) = match self.git_draft(repo.root()) {
+                    Ok(draft) => (draft, None),
+                    Err(error) => (crate::CommitDraft::default(), Some(format!("{error:#}"))),
+                };
                 repositories.push(RepositoryStatus {
                     root: repo.root().into(),
                     branch: status.branch.clone(),
@@ -214,6 +222,8 @@ impl HerdrWork {
                     behind: status.behind,
                     has_upstream: status.has_upstream,
                     write_error: write_error.clone(),
+                    draft,
+                    draft_error,
                 });
                 if decorate {
                     decorations.push(herdr_work_code::gitdeco::RepoStatus {

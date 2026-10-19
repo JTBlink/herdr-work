@@ -56,3 +56,14 @@ Sidebar 固定基线不变。`search::collect_quick_files/quick_matches` 经 Eng
 原 `viewer::load_show` 的 Git 参数构造抽至共享 `scm::show_args`，来源 viewer 和产品 Engine 均调用同一实现，保留 stat、patch、路径过滤、禁用外部 Diff 及颜色；产品绘制调用来源 `ansi::to_lines`。File History 从当前 SCM 文件及其仓库创建快照，详情继续使用该快照的文件目标。没有新增另一套搜索或 patch 算法。
 
 本地 macOS 验证覆盖真实临时 Git 仓库的按文件彩色 patch，以及 App 输入/渲染的实时筛选、防抖、过期查询合并、命中行预览/编辑、鼠标筛选和历史目标。完整 workspace 通过；终端 PTY、跨平台和发布验收由本轮集成任务继续执行。
+
+
+## 共享只读预览与产品文档（#34）
+
+从同一 Sidebar 基线 `viewer.rs` 原位移动 `Doc`、行布局、文本选择、ANSI/语法高亮、Markdown、图片与视频封面加载及有序复制队列到 `crates/herdr-work-code/src/preview.rs`。来源 viewer 直接导入该模块，并调用同一 `Doc::draw_body`；独立窗格控制、来源状态读取与终端生命周期仍仅在 reference-ui viewer 内。生产模块不导入这些生命周期接口。
+
+产品使用 Engine 路径边界校验后在 worker 加载共享文档；每个上下文最多一个在途文件预览和一个最新目标，同路径旧请求也不能覆盖新内容。自动刷新以读取前的修改时间/大小为基线；未变化的文件与图片跳过加载，变化后沿原 `apply_diff_refresh` 保留源行位置与换行，内容未变还保留选区。原只读文档用于完整 Git Show 的颜色、布局、换行和选择。
+
+机械抽取后增加必要适配：文本读取上限 1 MiB/5000 行，避免原先先整文件读取再截断；glow 与 ffmpeg 都跳过相对 PATH、当前目录及活动工作目录内的程序，输出和等待有界，失败回退到代码/文本或可见媒体提示。复制沿原 native/OSC52 策略与队列顺序，OSC52 只由唯一事件循环输出；自动复制开关来自 HerdrWork 的 ui.json，队列随产品界面关闭而停止。
+
+文档身份为文件路径，固定状态、源行位置和换行在产品内存中维护；临时预览可替换，固定文档可切换和关闭。共享 `ViewState` 仅含一基源行与换行，供后续产品状态恢复使用，不保存像素、选区或编辑缓冲。未运行、读取或控制独立插件。

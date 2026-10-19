@@ -5,7 +5,7 @@ use crate::{
     ui::{hover_style, icon_style as ui_icon_style, selection_style, status_color, truncate_to},
 };
 use ratatui::{
-    style::{Modifier, Style, Stylize},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::ListItem,
 };
