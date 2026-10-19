@@ -10,7 +10,7 @@ use herdr_work_code::{
     scm::Drawer,
     view_state::ScmState,
 };
-use herdr_work_engine::{DocumentState, DrawerState, WorkspaceUiState};
+use herdr_work_engine::{DocumentState, DrawerRoot, DrawerState, WorkspaceUiState};
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
@@ -137,7 +137,24 @@ impl App {
             .iter()
             .filter(|(kind, _)| self.drawer_open[kind.index()])
             .filter_map(|(kind, view)| {
-                self.relative_ui_path(&view.root).map(|root| DrawerState {
+                if !self
+                    .code
+                    .as_ref()?
+                    .repositories
+                    .iter()
+                    .any(|repo| repo.root == view.root)
+                {
+                    return None;
+                }
+                let root = self
+                    .relative_ui_path(&view.root)
+                    .map(DrawerRoot::Workspace)
+                    .or_else(|| {
+                        self.root
+                            .starts_with(&view.root)
+                            .then_some(DrawerRoot::Enclosing)
+                    })?;
+                Some(DrawerState {
                     kind: kind.title().into(),
                     root,
                     instance: view.instance.clone(),

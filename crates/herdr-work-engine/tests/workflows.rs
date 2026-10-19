@@ -1051,7 +1051,7 @@ fn saved_drawer_identity_rejects_a_replaced_nested_repository() {
     let view = desk.scm_drawer(&nested, Drawer::Branches, None).unwrap();
     let saved = DrawerState {
         kind: Drawer::Branches.title().into(),
-        root: "nested".into(),
+        root: herdr_work_engine::DrawerRoot::Workspace("nested".into()),
         instance: view.instance,
         file: None,
     };
