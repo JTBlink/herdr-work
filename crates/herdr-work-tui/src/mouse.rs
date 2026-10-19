@@ -10,6 +10,7 @@ use ratatui::layout::{Position, Rect};
 impl App {
     pub(crate) fn mouse(&mut self, event: MouseEvent, area: Rect) -> Result<()> {
         self.interaction.area = area;
+        self.interaction.pointer = Some(Position::new(event.column, event.row));
         if matches!(
             event.kind,
             MouseEventKind::Down(_) | MouseEventKind::ScrollDown | MouseEventKind::ScrollUp

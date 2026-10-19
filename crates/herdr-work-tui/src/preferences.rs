@@ -7,6 +7,7 @@ use herdr_work_engine::UiPreferences;
 pub(crate) enum Update {
     Saved(u64, UiPreferences, Result<UiPreferences>),
     Icons(IconTheme),
+    Flushed,
     Observed(UiPreferences, Result<UiPreferences>),
 }
 impl App {
@@ -20,11 +21,37 @@ impl App {
         let request = self.interaction.preference_request;
         let before = self.interaction.preference_base.clone();
         let after = self.preferences.clone();
+        let sent = after.clone();
         self.job(move |desk| {
             let result = desk.update_ui_preferences(&before, &after);
             Ok(Data::Preferences(Update::Saved(request, after, result)))
         })?;
         self.interaction.preference_pending = Some(request);
+        self.interaction.preference_sent = Some(sent);
+        Ok(())
+    }
+    /// A FIFO barrier prevents an earlier optimistic save from winning at exit.
+    pub(crate) fn flush_preferences(&mut self) -> Result<()> {
+        if self.interaction.preference_pending.is_none()
+            && self.preferences == self.interaction.preference_base
+        {
+            return Ok(());
+        }
+        let observed = self
+            .interaction
+            .preference_sent
+            .clone()
+            .unwrap_or_else(|| self.interaction.preference_base.clone());
+        let changed = self.preferences.clone();
+        let desk = self.desk.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.jobs.submit_on_shutdown(self.context.epoch, move || {
+            let result = desk.update_ui_preferences(&observed, &changed).map(|_| ());
+            let _ = tx.send(result);
+            Ok(Data::Preferences(Update::Flushed))
+        })?;
+        rx.recv()
+            .map_err(|_| anyhow::anyhow!("设置最终保存未收到确认"))??;
         Ok(())
     }
     pub(crate) fn tick_preferences(&mut self) -> Result<()> {
@@ -58,6 +85,7 @@ impl App {
     }
     pub(crate) fn apply_preferences(&mut self, update: Update) {
         match update {
+            Update::Flushed => {}
             Update::Observed(before, result) => {
                 self.interaction.preference_poll_pending = false;
                 if let Ok(latest) = result {
@@ -82,6 +110,7 @@ impl App {
                     return;
                 }
                 self.interaction.preference_pending = None;
+                self.interaction.preference_sent = None;
                 match result {
                     Ok(latest) => {
                         let before = self.preferences.clone();

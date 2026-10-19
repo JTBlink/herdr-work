@@ -209,6 +209,7 @@ pub fn run_with_initial(
     let saved = app.persist_workspace_on_exit();
     stop.store(true, Ordering::Relaxed);
     let _ = input.join();
+    let preferences_flush = app.flush_preferences();
     let draft_flush = app.flush_git_drafts();
-    result.and(saved).and(draft_flush)
+    result.and(saved).and(preferences_flush).and(draft_flush)
 }

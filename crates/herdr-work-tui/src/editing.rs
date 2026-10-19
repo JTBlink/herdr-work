@@ -273,6 +273,15 @@ impl App {
             }
             return Ok(false);
         }
+        if let Some(view) = match key.code {
+            KeyCode::F(9) => Some(herdr_work_engine::InitialView::Explorer),
+            KeyCode::F(10) => Some(herdr_work_engine::InitialView::Search),
+            KeyCode::F(11) => Some(herdr_work_engine::InitialView::Git),
+            _ => None,
+        } {
+            self.activate_initial_view(view);
+            return Ok(false);
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL)
             && matches!(key.code, KeyCode::Char('p' | 'P' | 'f' | 'F'))
         {
