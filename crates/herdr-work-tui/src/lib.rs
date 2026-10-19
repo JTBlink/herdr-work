@@ -20,11 +20,14 @@ use std::{
 
 mod actions;
 mod editing;
+mod footer;
 mod interaction;
 mod layout;
 mod loading;
 mod menus;
 mod mouse;
+mod persistence;
+mod preferences;
 mod preview;
 mod refresh;
 mod scm;
@@ -155,6 +158,8 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
             if now.duration_since(last_tick) >= Duration::from_millis(100) {
                 app.tick_search(now)?;
                 app.tick_preview();
+                app.tick_persistence(now)?;
+                app.tick_preferences()?;
                 app.tick_refresh(now)?;
                 if now.duration_since(last_editor_poll) >= Duration::from_secs(2) {
                     app.poll_editor()?;
@@ -165,7 +170,9 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
         }
         Ok(())
     })();
+    // Lifecycle persistence is completed before releasing the exclusive profile.
+    let saved = app.persist_workspace_on_exit();
     stop.store(true, Ordering::Relaxed);
     let _ = input.join();
-    result
+    result.and(saved)
 }

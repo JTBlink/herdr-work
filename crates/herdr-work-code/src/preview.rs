@@ -25,7 +25,7 @@ pub(crate) const MAX_LINES: usize = 5000;
 pub(crate) static LAST_BODY_WIDTH: std::sync::atomic::AtomicU16 =
     std::sync::atomic::AtomicU16::new(80);
 
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ViewState {
     pub line: usize,
     pub wrap: bool,

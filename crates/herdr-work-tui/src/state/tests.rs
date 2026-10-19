@@ -439,11 +439,14 @@ fn sidebar_preferences_persist_and_apply_to_the_original_tree() {
     std::fs::write(app.root.join(".hidden"), "hidden").unwrap();
     app.open_settings();
     app.key(KeyCode::Right).unwrap();
+    assert_eq!(app.preferences.sidebar_width, 36);
+    receive(&mut app);
     assert_eq!(app.desk.ui_preferences().unwrap().sidebar_width, 36);
     for _ in 0..4 {
         app.key(KeyCode::Down).unwrap();
     }
     app.key(KeyCode::Enter).unwrap();
+    receive(&mut app);
     receive(&mut app);
     assert!(!app.desk.ui_preferences().unwrap().show_hidden);
     assert!(
@@ -1090,6 +1093,7 @@ fn compact_long_unicode_document_keeps_one_divider_and_status_when_editing() {
     app.preview_path = Some(app.root.join(&file));
     app.text = "文档正文\n第二行\n".into();
     app.code.as_mut().unwrap().branch = "feature/layout".into();
+    app.code.as_mut().unwrap().repositories[0].branch = "feature/layout".into();
     let area = ratatui::layout::Rect::new(0, 0, 80, 24);
     for dock_right in [false, true] {
         app.preferences.dock_right = dock_right;
@@ -1770,4 +1774,215 @@ fn explorer_pages_use_the_visible_body_and_scm_left_selects_and_folds_parent() {
         row.0
             .is_some_and(|i| app.code.as_ref().unwrap().changes[i].path == "folder/child.txt")
     }));
+}
+
+#[test]
+fn workspace_restart_restores_tree_selection_scm_shape_and_pinned_document_views() {
+    use crossterm::event::KeyCode;
+    use herdr_work_code::preview::ViewState;
+    let (_temp, mut app) = loaded_app();
+    std::fs::create_dir(app.root.join("folder")).unwrap();
+    std::fs::write(app.root.join("folder/child.txt"), "child\n").unwrap();
+    std::fs::write(app.root.join("visible.txt"), "first\nsecond\nthird\n").unwrap();
+    app.refresh().unwrap();
+    receive(&mut app);
+    app.key(KeyCode::Home).unwrap();
+    app.key(KeyCode::Right).unwrap();
+    receive(&mut app);
+    app.key(KeyCode::Right).unwrap();
+    app.open_preview(app.root.join("folder/child.txt"), None)
+        .unwrap();
+    receive(&mut app);
+    app.preview_pinned = true;
+    app.open_preview(app.root.join("visible.txt"), None)
+        .unwrap();
+    receive(&mut app);
+    app.preview_doc
+        .as_mut()
+        .unwrap()
+        .restore_view_state(ViewState {
+            line: 2,
+            wrap: false,
+        });
+    app.git.tree = true;
+    app.git.section_collapsed.insert((app.root.clone(), true));
+    app.persist_workspace_on_exit().unwrap();
+    let mut restored = App::new(app.desk.clone(), app.root.clone(), Context::default()).unwrap();
+    restored.refresh().unwrap();
+    receive(&mut restored);
+    receive(&mut restored);
+    assert_eq!(
+        restored.code.as_ref().unwrap().files[restored.selection].name,
+        "child.txt"
+    );
+    assert!(
+        restored.git.tree
+            && restored
+                .git
+                .section_collapsed
+                .contains(&(restored.root.clone(), true))
+    );
+    assert_eq!(
+        restored.preview_path.as_ref(),
+        Some(&restored.root.join("visible.txt"))
+    );
+    assert_eq!(restored.preview_documents.len(), 1);
+    assert_eq!(restored.preview_doc.as_ref().unwrap().view_state().line, 2);
+    assert!(!restored.preview_doc.as_ref().unwrap().view_state().wrap);
+}
+
+#[test]
+fn pending_workspace_document_restore_does_not_replace_a_new_dirty_editor() {
+    let (_temp, mut app) = loaded_app();
+    app.open_preview(app.root.join("visible.txt"), None)
+        .unwrap();
+    receive(&mut app);
+    app.persist_workspace_on_exit().unwrap();
+    let mut restored = App::new(app.desk.clone(), app.root.clone(), Context::default()).unwrap();
+    restored.refresh().unwrap();
+    receive(&mut restored);
+    let (epoch, documents) = restored
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    let mut editor = restored
+        .desk
+        .edit_file(&restored.root, "visible.txt")
+        .unwrap();
+    editor.editor.insert_text("local ");
+    restored.editor = Some(editor);
+    restored.apply(epoch, documents);
+    assert!(restored.preview_path.is_none());
+    assert_eq!(
+        restored.editor.as_ref().unwrap().editor.text(),
+        "local fixture\n"
+    );
+    assert!(restored.editor.as_ref().unwrap().editor.dirty);
+}
+
+#[test]
+fn global_git_footer_uses_active_repository_on_both_docks_and_disables_hidden_hotspots() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    let second = app.root.join("other");
+    std::fs::create_dir(&second).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .arg(&second)
+            .status()
+            .unwrap()
+            .success()
+    );
+    for args in [
+        vec![
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "initial",
+        ],
+        vec!["config", "branch.master.remote", "."],
+        vec!["config", "branch.master.merge", "refs/heads/master"],
+    ] {
+        assert!(
+            Command::new("git")
+                .args(args)
+                .current_dir(&second)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    // Match the actual default branch rather than assuming user git configuration.
+    let branch = String::from_utf8(
+        Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(&second)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    for (key, value) in [
+        (format!("branch.{}.remote", branch.trim()), ".".into()),
+        (
+            format!("branch.{}.merge", branch.trim()),
+            format!("refs/heads/{}", branch.trim()),
+        ),
+    ] {
+        assert!(
+            Command::new("git")
+                .args(["config", &key, &value])
+                .current_dir(&second)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    app.refresh().unwrap();
+    receive(&mut app);
+    app.git.active = Some(second.clone());
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    for right in [false, true] {
+        app.preferences.dock_right = right;
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let zones = app.interaction.footer;
+        assert!(zones.branch.width > 0 && zones.sync.width > 0);
+        assert_eq!(zones.branch.y, 22);
+        let click = |rect: ratatui::layout::Rect| MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: rect.x,
+            row: rect.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.mouse(
+            click(zones.branch),
+            ratatui::layout::Rect::new(0, 0, 80, 24),
+        )
+        .unwrap();
+        receive(&mut app);
+        assert_eq!(app.git.picker.as_ref().unwrap().git.root(), second);
+        app.git.picker = None;
+        app.mouse(click(zones.sync), ratatui::layout::Rect::new(0, 0, 80, 24))
+            .unwrap();
+        receive(&mut app);
+        assert!(matches!(&app.prompt, Some(Prompt::WorkGit(plan)) if plan.root == second));
+        app.prompt = None;
+    }
+    app.preferences.show_git_footer = false;
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(app.interaction.footer.branch.width, 0);
+    assert_eq!(app.interaction.footer.sync.width, 0);
+}
+
+#[test]
+fn pending_settings_save_preserves_later_local_edits_and_unrelated_disk_fields() {
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = loaded_app();
+    let observed = app.preferences.clone();
+    let mut external = observed.clone();
+    external.dock_right = true;
+    app.desk
+        .update_ui_preferences(&observed, &external)
+        .unwrap();
+    app.open_settings();
+    app.key(KeyCode::Right).unwrap(); // one in-flight width save
+    for _ in 0..6 {
+        app.key(KeyCode::Down).unwrap();
+    }
+    app.key(KeyCode::Enter).unwrap(); // local hotkeys edit while pending
+    assert!(!app.preferences.show_hotkeys);
+    receive(&mut app);
+    assert!(app.preferences.dock_right);
+    assert!(!app.preferences.show_hotkeys);
+    receive(&mut app);
+    let saved = app.desk.ui_preferences().unwrap();
+    assert_eq!(saved.sidebar_width, 36);
+    assert!(saved.dock_right);
+    assert!(!saved.show_hotkeys);
 }

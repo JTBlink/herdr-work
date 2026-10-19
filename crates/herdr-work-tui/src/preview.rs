@@ -10,9 +10,9 @@ use std::{
 };
 
 pub(crate) struct PreviewDocument {
-    path: PathBuf,
-    doc: Doc,
-    target: Option<usize>,
+    pub(crate) path: PathBuf,
+    pub(crate) doc: Doc,
+    pub(crate) target: Option<usize>,
 }
 
 impl App {

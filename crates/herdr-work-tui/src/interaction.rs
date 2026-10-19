@@ -7,11 +7,51 @@ use ratatui::layout::Rect;
 
 pub(crate) struct Interaction {
     pub area: Rect,
+    pub footer: herdr_work_code::branch_ui::FooterZones,
+    pub footer_root: Option<std::path::PathBuf>,
+    pub preference_base: herdr_work_engine::UiPreferences,
+    pub preference_pending: Option<u64>,
+    pub preference_request: u64,
+    pub preference_poll_pending: bool,
+    pub last_preference_poll: std::time::Instant,
+    pub auto_icons: Option<herdr_work_code::icons::IconTheme>,
+    pub icon_probe_pending: bool,
+    pub workspace: herdr_work_engine::WorkspaceUiState,
+    pub restore: Option<herdr_work_engine::WorkspaceUiState>,
+    pub file_selection: Option<std::path::PathBuf>,
+    pub save_request: u64,
+    pub load_request: u64,
+    pub user_revision: u64,
+    pub save_pending: Option<u64>,
+    pub last_saved: Option<herdr_work_engine::WorkspaceUiState>,
+    pub last_save: std::time::Instant,
+    pub restoring_documents: bool,
+    pub pending_scm_key: Option<String>,
 }
 impl Default for Interaction {
     fn default() -> Self {
         Self {
             area: Rect::new(0, 0, 80, 24),
+            footer: Default::default(),
+            footer_root: None,
+            preference_base: Default::default(),
+            preference_pending: None,
+            preference_request: 0,
+            preference_poll_pending: false,
+            last_preference_poll: std::time::Instant::now(),
+            auto_icons: None,
+            icon_probe_pending: false,
+            workspace: Default::default(),
+            restore: None,
+            file_selection: None,
+            save_request: 0,
+            load_request: 0,
+            user_revision: 0,
+            save_pending: None,
+            last_saved: None,
+            last_save: std::time::Instant::now(),
+            restoring_documents: false,
+            pending_scm_key: None,
         }
     }
 }

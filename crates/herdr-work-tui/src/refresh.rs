@@ -34,6 +34,7 @@ impl App {
         let root = self.root.clone();
         let expanded = self.expanded.clone();
         let hidden = self.preferences.show_hidden;
+        let decorate = self.preferences.git_decorations;
         let preview = self.preview_path.clone().filter(|_| self.editor.is_none());
         let preview_request = self.preview_request;
         let preview_width = self.preview_width;
@@ -54,7 +55,8 @@ impl App {
             .filter(|_| self.drawer_show.is_none());
         let drawer_request = self.drawer_request;
         self.job(move |desk| {
-            let code = desk.code_snapshot_with_hidden(&root, &expanded, generation, hidden);
+            let code =
+                desk.code_snapshot_with_options(&root, &expanded, generation, hidden, decorate);
             let preview = preview.map(|path| {
                 let value = path
                     .strip_prefix(&root)

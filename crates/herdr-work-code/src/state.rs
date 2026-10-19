@@ -14,6 +14,8 @@
 //! separated panes are the same binary pinned to a starting view with
 //! `--view`.
 
+pub use crate::view_state::{ScmState, TreeState};
+
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
@@ -502,11 +504,6 @@ impl StateWriteLock {
 ///
 /// Running sidebars periodically adopt the latest state for their root, so
 /// tabs looking at the same project stay aligned.
-#[derive(Clone, Default, Debug, PartialEq, Eq)]
-pub struct TreeState {
-    pub expanded: Vec<PathBuf>,
-    pub selected: Option<PathBuf>,
-}
 
 fn tree_path() -> Option<PathBuf> {
     Some(state_dir()?.join("tree.json"))
@@ -610,21 +607,6 @@ pub fn save_tree_state(root: &Path, state: &TreeState) {
 /// are expanded (by title), the active repo's root, a stable id for the
 /// selected row, the FILE HISTORY target, the scroll offset, and commit
 /// drafts keyed by repository root.
-#[derive(Default)]
-pub struct ScmState {
-    pub drawers: Vec<String>,
-    pub active_root: Option<String>,
-    pub selected: Option<String>,
-    pub history_target: Option<String>,
-    pub scroll: usize,
-    pub drafts: std::collections::BTreeMap<String, String>,
-    /// Draft roots this pane previously observed and has since emptied.
-    /// Kept out of the JSON shape; it only scopes merge-on-write removals.
-    pub cleared_drafts: std::collections::BTreeSet<String>,
-    /// Tree-view folders the user collapsed, as JSON `(repo root, staged,
-    /// path)` triples. The tree/list MODE itself is global (`scm_tree_view`).
-    pub collapsed_dirs: Vec<String>,
-}
 
 fn scm_path() -> Option<PathBuf> {
     Some(state_dir()?.join("scm.json"))
