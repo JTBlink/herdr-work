@@ -31,6 +31,10 @@ Linux/Windows 编译、归档和隔离安装测试走 GitHub Actions。Windows �
 
 保留调研文档现有的元数据。引用上游源码时固定 commit 或 tag，明确区分已核实行为、技术提案与已批准决策。Rust 使用 rustfmt；按 core、engine、tui、CLI 边界放置逻辑。
 
+## TUI 组件与绘制规范
+
+本项目沿用 Ratatui + Crossterm，保持单 TUI、唯一终端与输入事件循环，实际复用 Sidebar/Reviewr 业务实现。TUI 开发或审查时读取 `$rust-dev` 技能的 `references/tui-development.md`；组件选型、绘制、输入、异步结果与交互验证规则统一维护于该参考，不在仓库重复维护组件清单。实际依赖以本仓库 Cargo 清单和锁文件为准。
+
 ## 验证要求
 
 工作台使用 Cargo 集成测试与 Python unittest 验证业务和归档边界。来源测试保留，不把未执行的测试记为通过。文档修改需核对链接、路径、事实依据及其与 README 的一致性。
