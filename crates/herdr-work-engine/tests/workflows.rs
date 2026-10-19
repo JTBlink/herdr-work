@@ -729,3 +729,36 @@ fn commit_confirmation_binds_the_branch_even_when_the_head_oid_is_identical() {
     );
     assert!(desk.prepare_commit(repo.path()).is_ok());
 }
+
+#[test]
+fn folder_stage_and_unstage_keep_both_sides_of_a_detected_rename_together() {
+    use herdr_work_engine::WorkGitAction as A;
+    let (repo, _home, desk) = fixture();
+    std::fs::write(repo.path().join("file.txt"), "before\n").unwrap();
+    std::fs::create_dir(repo.path().join("target")).unwrap();
+    std::fs::rename(
+        repo.path().join("file.txt"),
+        repo.path().join("target/file.txt"),
+    )
+    .unwrap();
+    git(repo.path(), &["add", "-N", "target/file.txt"]);
+    let plan = desk
+        .prepare_work_git(repo.path(), A::StageUnder("target".into()))
+        .unwrap();
+    desk.execute_work_git(&plan).unwrap();
+    let snapshot = desk.code_snapshot(repo.path(), &[], 1).unwrap();
+    assert_eq!(snapshot.changes.len(), 1);
+    assert!(snapshot.changes[0].staged);
+    assert_eq!(snapshot.changes[0].original.as_deref(), Some("file.txt"));
+    let plan = desk
+        .prepare_work_git(repo.path(), A::UnstageUnder("target".into()))
+        .unwrap();
+    desk.execute_work_git(&plan).unwrap();
+    assert!(
+        desk.code_snapshot(repo.path(), &[], 2)
+            .unwrap()
+            .changes
+            .iter()
+            .all(|c| !c.staged)
+    );
+}
