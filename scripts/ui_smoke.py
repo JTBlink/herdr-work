@@ -33,7 +33,7 @@ def ui_smoke(binary):
         file.write_text('original fixture\n')
         git('add', '.')
         git('commit', '-qm', 'fixture')
-        file.write_text('changed preview fixture\n')
+        file.write_text('changed preview fixture\n' + ''.join(f'line-{i:03d}\n' for i in range(1, 121)))
         master, slave = pty.openpty()
         def size(rows, columns):
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, columns, 0, 0))
@@ -77,7 +77,7 @@ def ui_smoke(binary):
             while expected not in text and time.monotonic() < deadline:
                 text = screen()
             if expected not in text:
-                raise AssertionError(f'UI did not render {expected!r}')
+                raise AssertionError(f'UI did not render {expected!r}; last frame: {text[-1600:]}')
             return text
         try:
             wait_for('Git修改：1')
@@ -86,16 +86,35 @@ def ui_smoke(binary):
             assert 'EXPLORER' in text and 'visible.txt' in text and 'Preview' in text, 'Default Explorer is missing'
             assert '暂无任务' not in text and text.count('Tasks') == 0, 'Tasks displaced the default sidebar'
             wait_for('changedpreviewfixture', b'\r')
+            # A worker must refresh the current document without a refresh key.
+            file.write_text(file.read_text().replace('changed preview fixture', 'externally refreshed preview'))
+            wait_for('externallyrefreshedpreview')
             wait_for('侧栏设置', b',')
             wait_for('EXPLORER', b'\x1b')
             wait_for('文件菜单', b'm')
             wait_for('EXPLORER', b'\x1b')
             wait_for('编辑·visible.txt', b'e')
+            # The editor's viewport follows wheel input rather than snapping back
+            # to its unchanged cursor on the next draw.
+            wait_for('line-060', b'\x1b[<65;90;15M' * 12)
             screen(b'\x01')  # Original editor: select all.
             screen(b'\x1b[200~changed preview fixture\neditor saved UTF-8\n\x1b[201~')
             wait_for('文件已保存', b'\x13')
             assert file.read_text() == 'changed preview fixture\neditor saved UTF-8\n', 'Built-in editor did not save the actual UTF-8 file'
-            wait_for('Preview', b'\x1b')
+            # A clean buffer reloads, but a dirty buffer requires an explicit
+            # conflict choice and never silently overwrites external changes.
+            file.write_text('clean external reload UTF-8\n')
+            wait_for('cleanexternalreloadUTF-8')
+            screen(b'\x01\x1b[200~unsaved buffer UTF-8\n\x1b[201~')
+            external = 'changed preview fixture\nexternal conflict UTF-8\n'
+            file.write_text(external)
+            wait_for('磁盘已改变，保留编辑内容')
+            wait_for('保存冲突', b'\x13')
+            wait_for('unsavedbufferUTF-8', b'\x1b')
+            assert file.read_text() == external, 'Canceling the conflict overwrote the external file'
+            wait_for('保存冲突', b'\x13')
+            wait_for('已重新加载磁盘文件', b'\x1b[B\r')
+            wait_for('visible.txt', b'\x1b')
             # Click the Git activity using the terminal's SGR mouse protocol.
             text = wait_for('SOURCECONTROL', b'\x1b[<0;4;9M\x1b[<0;4;9m')
             assert 'Changes(1)' in text, 'Git changes were not shown in the sidebar'
@@ -110,13 +129,12 @@ def ui_smoke(binary):
             assert not git('diff', '--cached', '--name-only').strip()
 
             wait_for('Newtask', b'1n')
-            wait_for('任务：1', b'UI smoke task\r')
-            assert 'UIsmoketask' in screen(), 'Created task not visible'
+            wait_for('UIsmoketask', b'UI smoke task\r')
             wait_for('EXPLORER', b'2')
             size(24, 80)
             os.killpg(process.pid, signal.SIGWINCH)
             text = drain(.3)
-            assert 'EXPLORER' in text and 'Preview' in text, 'Narrow split view is missing'
+            assert 'EXPLORER' in text and 'visible.txt' in text, 'Narrow split view is missing'
             os.write(master, b'q')
             drain(.4)
             restored = termios.tcgetattr(slave)
@@ -129,7 +147,7 @@ def ui_smoke(binary):
                 process.wait(timeout=5)
             os.close(master)
             os.close(slave)
-    print('UI loaded: default Explorer, settings/menu, original editor save, mouse navigation, preview, stage/unstage, real Diff, task creation, 80-column split and clean exit')
+    print('UI loaded: compact Explorer, passive preview refresh, settings/menu, editor wheel/save/reload/conflict, mouse navigation, stage/unstage, real Diff, task creation, 80-column split and clean exit')
 
 
 if __name__ == '__main__':
