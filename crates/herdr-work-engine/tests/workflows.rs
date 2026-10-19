@@ -521,3 +521,44 @@ fn readonly_preview_uses_source_highlight_and_bounds_large_text() {
     assert!(doc.plain_text().ends_with("… (truncated)"));
     assert_eq!(doc.lines().len(), 5001);
 }
+
+#[test]
+fn media_and_lossy_text_previews_refresh_only_after_metadata_changes() {
+    let (repo, _home, desk) = fixture();
+    std::fs::write(
+        repo.path().join("image.png"),
+        include_bytes!("fixtures/preview.png"),
+    )
+    .unwrap();
+    let image = desk
+        .preview_file(repo.path(), "image.png", None, 60)
+        .unwrap();
+    assert!(image.is_media());
+    assert_eq!(image.media_hint(), Some("图片预览"));
+    assert!(
+        desk.preview_file_if_changed(repo.path(), "image.png", image.stamp(), None, 60)
+            .unwrap()
+            .is_none()
+    );
+    std::fs::write(repo.path().join("image.png"), "invalid changed image").unwrap();
+    let changed = desk
+        .preview_file_if_changed(repo.path(), "image.png", image.stamp(), None, 60)
+        .unwrap()
+        .unwrap();
+    assert!(!changed.is_media());
+    assert!(!changed.plain_text().is_empty());
+    std::fs::write(repo.path().join("lossy.txt"), [b'a', 0xff, b'b']).unwrap();
+    assert_eq!(
+        desk.preview_file(repo.path(), "lossy.txt", None, 60)
+            .unwrap()
+            .plain_text(),
+        "a�b"
+    );
+    std::fs::write(repo.path().join("binary.bin"), [b'a', 0, b'b']).unwrap();
+    assert!(
+        desk.preview_file(repo.path(), "binary.bin", None, 60)
+            .unwrap()
+            .plain_text()
+            .contains("binary file")
+    );
+}

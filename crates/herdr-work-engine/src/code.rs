@@ -351,7 +351,7 @@ impl HerdrWork {
     ) -> Result<herdr_work_code::preview::Doc> {
         let root = root.canonicalize()?;
         let path = checked_path(&root, file)?;
-        Ok(herdr_work_code::preview::file(&path, line, width))
+        Ok(herdr_work_code::preview::file(&root, &path, line, width))
     }
     pub fn preview_file_if_changed(
         &self,
@@ -370,7 +370,9 @@ impl HerdrWork {
         if baseline.is_some() && baseline == stamp {
             return Ok(None);
         }
-        Ok(Some(herdr_work_code::preview::file(&path, line, width)))
+        Ok(Some(herdr_work_code::preview::file(
+            &root, &path, line, width,
+        )))
     }
     pub fn file(&self, root: &Path, file: &str) -> Result<String> {
         let root = root.canonicalize()?;

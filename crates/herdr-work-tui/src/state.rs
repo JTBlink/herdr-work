@@ -85,6 +85,8 @@ pub(crate) struct App {
     pub(crate) focus: Focus,
     pub(crate) preview_doc: Option<herdr_work_code::preview::Doc>,
     pub(crate) preview_request: u64,
+    pub(crate) preview_loading: Option<(u64, u64)>,
+    pub(crate) preview_pending: Option<(u64, PathBuf, Option<usize>)>,
     pub(crate) preview_width: u16,
     pub(crate) preview_pinned: bool,
     pub(crate) preview_documents: Vec<crate::preview::PreviewDocument>,
@@ -122,6 +124,7 @@ pub(crate) struct App {
     pub(crate) drawer_state: LoadState,
     pub(crate) drawer_scroll: u16,
     pub(crate) drawer_show: Option<String>,
+    pub(crate) drawer_doc: Option<herdr_work_code::preview::Doc>,
     pub(crate) search_runtime: crate::search::SearchRuntime,
     pub(crate) preview_target: Option<(PathBuf, usize)>,
     pub(crate) edit_line: Option<usize>,
@@ -154,6 +157,8 @@ impl App {
             focus: Focus::Sidebar,
             preview_doc: None,
             preview_request: 0,
+            preview_loading: None,
+            preview_pending: None,
             preview_width: 80,
             preview_pinned: false,
             preview_documents: vec![],
@@ -190,6 +195,7 @@ impl App {
             drawer_state: LoadState::Ready,
             drawer_scroll: 0,
             drawer_show: None,
+            drawer_doc: None,
             search_runtime: Default::default(),
             preview_target: None,
             edit_line: None,
@@ -359,18 +365,23 @@ impl App {
                     self.selection = 0;
                 }
             }
-            Ok(Data::Preview(request, path, result))
-                if request == self.preview_request && self.preview_path.as_ref() == Some(&path) =>
-            {
-                match result {
-                    Ok(doc) => self.apply_preview(path, doc, false),
-                    Err(error) => {
-                        self.preview_doc = None;
-                        self.text = format!("无法预览文件：{error:#}");
+            Ok(Data::Preview(request, path, result)) => {
+                if self.preview_loading == Some((epoch, request)) {
+                    self.preview_loading = None;
+                }
+                if request == self.preview_request && self.preview_path.as_ref() == Some(&path) {
+                    match result {
+                        Ok(doc) => self.apply_preview(path, doc, false),
+                        Err(error) => {
+                            self.preview_doc = None;
+                            self.text = format!("无法预览文件：{error:#}");
+                        }
                     }
                 }
+                if let Err(error) = self.dispatch_preview() {
+                    self.status = error.to_string();
+                }
             }
-            Ok(Data::Preview(..)) => {}
             Ok(Data::GitReady(plan)) => {
                 self.input.clear();
                 self.prompt = Some(Prompt::Git(plan));
@@ -427,8 +438,13 @@ impl App {
                 Err(error) => self.drawer_state = LoadState::Failed(error.to_string()),
             },
             Ok(Data::Show(request, result)) if request == self.drawer_request => {
-                self.drawer_show =
-                    Some(result.unwrap_or_else(|e| format!("无法显示 Git 对象：{e}")));
+                let text = result.unwrap_or_else(|e| format!("无法显示 Git 对象：{e}"));
+                self.drawer_doc = Some(herdr_work_code::preview::git_show(
+                    "Git Changes".into(),
+                    String::new(),
+                    &text,
+                ));
+                self.drawer_show = Some(text);
             }
             Ok(Data::Drawer(..) | Data::Show(..)) => {}
             Ok(Data::Editor(path, result)) if self.edit_request.as_ref() == Some(&path) => {

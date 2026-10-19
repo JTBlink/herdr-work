@@ -140,6 +140,7 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
             let now = Instant::now();
             if now.duration_since(last_tick) >= Duration::from_millis(100) {
                 app.tick_search(now)?;
+                app.tick_preview();
                 app.tick_refresh(now)?;
                 if now.duration_since(last_editor_poll) >= Duration::from_secs(2) {
                     app.poll_editor()?;
