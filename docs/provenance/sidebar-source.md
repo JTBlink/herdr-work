@@ -7,6 +7,8 @@
 原 `upstream/herdr-sidebar/plugins/herdr-sidebar` 已迁入 `crates/herdr-work-code`，包、库和内部命名使用 HerdrWork，自根 workspace、Cargo.lock、target 构建；原独立锁文件退出生产构建。原 MIT 许可证保留于该 crate 的 LICENSE，原说明、维护笔记与插件清单归档在本目录。移除原 fetch-or-build、redeploy 及来源仓库安装/发布脚本，防止手动执行时误下载或关闭独立 Sidebar 窗格；不构成本产品安装入口。
 
 
+完整功能差异见 [Sidebar 能力对齐盘点](sidebar-capability-audit.md)。下表记录本版实际接入，不代表来源全能力已经对齐。
+
 ## 实际代码复用
 
 | 能力 | 原实现与迁移方式 | HerdrWork 接入 |
