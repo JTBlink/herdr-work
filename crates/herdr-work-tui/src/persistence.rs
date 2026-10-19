@@ -23,8 +23,7 @@ pub(crate) enum Update {
     Drawers(
         PathBuf,
         u64,
-        u64,
-        Vec<Result<herdr_work_engine::DrawerView>>,
+        Vec<(Drawer, Result<herdr_work_engine::DrawerView>)>,
     ),
 }
 impl App {
@@ -325,16 +324,17 @@ impl App {
             let root = self.root.clone();
             let repository = self.selected_repository();
             let request = self.drawer_request;
-            let revision = self.interaction.user_revision;
+            if self.active_drawer.is_some() {
+                self.drawer_state = crate::loading::LoadState::Loading;
+            }
             let history = state.scm.history_target.clone();
             self.job(move |desk| {
                 Ok(Data::Persistence(Box::new(Update::Drawers(
                     root,
                     request,
-                    revision,
                     kinds
                         .into_iter()
-                        .map(|kind| desk.scm_drawer(&repository, kind, history.as_deref()))
+                        .map(|kind| (kind, desk.scm_drawer(&repository, kind, history.as_deref())))
                         .collect(),
                 ))))
             })?;
@@ -422,13 +422,23 @@ impl App {
                     Err(error) => self.status = error.to_string(),
                 }
             }
-            Update::Drawers(root, request, revision, views)
-                if root == self.root
-                    && request == self.drawer_request
-                    && revision == self.interaction.user_revision =>
+            Update::Drawers(root, request, views)
+                if root == self.root && request == self.drawer_request =>
             {
-                for view in views.into_iter().flatten() {
-                    self.drawers.insert(view.kind, view);
+                for (kind, result) in views {
+                    match result {
+                        Ok(view) => {
+                            self.drawers.insert(view.kind, view);
+                            if self.active_drawer == Some(kind) {
+                                self.drawer_state = crate::loading::LoadState::Ready;
+                            }
+                        }
+                        Err(error) if self.active_drawer == Some(kind) => {
+                            self.drawer_state =
+                                crate::loading::LoadState::Failed(format!("{error:#}"))
+                        }
+                        _ => {}
+                    }
                 }
                 self.restore_scm_selection();
             }

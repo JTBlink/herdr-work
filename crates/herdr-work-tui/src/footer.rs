@@ -49,7 +49,7 @@ impl App {
                     self.icon_theme(),
                     &status,
                     false,
-                    None,
+                    self.interaction.pointer.map(|point| (point.x, point.y)),
                 );
                 left = zones.sync.right();
                 self.interaction.footer = zones;

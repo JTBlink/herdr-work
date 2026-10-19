@@ -14,6 +14,10 @@ pub(crate) struct ActivationRuntime {
 impl App {
     pub(crate) fn activate_initial_view(&mut self, view: InitialView) {
         self.interaction.restore = None;
+        if self.interaction.restoring_documents {
+            self.preview_request = self.preview_request.wrapping_add(1);
+            self.interaction.restoring_documents = false;
+        }
         self.interaction.pending_scm_key = None;
         self.interaction.user_revision = self.interaction.user_revision.wrapping_add(1);
         match view {
