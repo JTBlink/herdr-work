@@ -12,20 +12,43 @@ use std::{
 pub(crate) struct PreviewDocument {
     path: PathBuf,
     doc: Doc,
+    target: Option<usize>,
 }
 
 impl App {
+    fn readonly_doc(&self) -> Option<&Doc> {
+        if self.tab == Tab::Scm {
+            self.drawer_doc.as_ref()
+        } else {
+            self.preview_doc.as_ref()
+        }
+    }
+    fn readonly_doc_mut(&mut self) -> Option<&mut Doc> {
+        if self.tab == Tab::Scm {
+            self.drawer_doc.as_mut()
+        } else {
+            self.preview_doc.as_mut()
+        }
+    }
     pub(crate) fn preview_body(&self, area: Rect) -> Rect {
         self.content_block(String::new()).inner(area)
     }
     pub(crate) fn open_preview(&mut self, path: PathBuf, line: Option<usize>) -> Result<()> {
         self.edit_request = None;
         self.preview_request = self.preview_request.wrapping_add(1);
+        self.preview_pending = None;
         if self.preview_path.as_ref() != Some(&path) {
             if let (Some(old), Some(doc)) = (self.preview_path.take(), self.preview_doc.take()) {
                 if self.preview_pinned {
-                    self.preview_documents
-                        .push(PreviewDocument { path: old, doc });
+                    self.preview_documents.push(PreviewDocument {
+                        target: self
+                            .preview_target
+                            .as_ref()
+                            .filter(|(p, _)| p == &old)
+                            .map(|(_, line)| *line),
+                        path: old,
+                        doc,
+                    });
                 }
             }
             self.preview_pinned = false;
@@ -35,7 +58,9 @@ impl App {
                 .position(|entry| entry.path == path)
             {
                 let mut saved = self.preview_documents.remove(index);
-                if let Some(line) = line {
+                let target = line.or(saved.target);
+                self.preview_target = target.map(|line| (path.clone(), line));
+                if let Some(line) = target {
                     saved.doc.goto_line(line);
                 }
                 self.preview_scroll = saved.doc.scroll().min(u16::MAX as usize) as u16;
@@ -50,9 +75,21 @@ impl App {
         self.preview_target = line.map(|line| (path.clone(), line));
         self.preview_scroll = line.unwrap_or(1).saturating_sub(1).min(u16::MAX as usize) as u16;
         self.text = "正在读取文件…".into();
+        self.preview_pending = Some((self.preview_request, path, line));
+        self.dispatch_preview()
+    }
+    pub(crate) fn dispatch_preview(&mut self) -> Result<()> {
+        if self
+            .preview_loading
+            .is_some_and(|(epoch, _)| epoch == self.context.epoch)
+        {
+            return Ok(());
+        }
+        let Some((request, path, line)) = self.preview_pending.take() else {
+            return Ok(());
+        };
         let root = self.root.clone();
         let file = path.strip_prefix(&root)?.to_string_lossy().into_owned();
-        let request = self.preview_request;
         let width = self.preview_width;
         self.job(move |desk| {
             Ok(Data::Preview(
@@ -60,7 +97,9 @@ impl App {
                 path,
                 desk.preview_file(&root, &file, line, width),
             ))
-        })
+        })?;
+        self.preview_loading = Some((self.context.epoch, request));
+        Ok(())
     }
     pub(crate) fn apply_preview(&mut self, path: PathBuf, mut doc: Doc, passive: bool) {
         if self.preview_path.as_ref() != Some(&path) {
@@ -83,10 +122,9 @@ impl App {
         }
     }
     pub(crate) fn preview_title(&self) -> String {
-        self.preview_documents
-            .iter()
-            .map(|entry| entry.doc.name().to_string())
-            .chain(self.preview_path.as_ref().map(|path| {
+        self.preview_path
+            .as_ref()
+            .map(|path| {
                 format!(
                     "[{}{}]",
                     path.file_name().unwrap_or_default().to_string_lossy(),
@@ -96,7 +134,13 @@ impl App {
                         " · preview"
                     }
                 )
-            }))
+            })
+            .into_iter()
+            .chain(
+                self.preview_documents
+                    .iter()
+                    .map(|entry| entry.doc.name().to_string()),
+            )
             .collect::<Vec<_>>()
             .join("  ")
     }
@@ -127,14 +171,15 @@ impl App {
     pub(crate) fn preview_key(&mut self, key: KeyEvent, area: Rect) -> bool {
         if self.editor.is_some()
             || self.focus != Focus::Content
-            || !matches!(self.tab, Tab::Files | Tab::Search)
+            || !matches!(self.tab, Tab::Files | Tab::Search | Tab::Scm)
         {
             return false;
         }
         let body = self.preview_body(self.panes(area).content);
         let shortcut = key.modifiers.contains(KeyModifiers::CONTROL)
             || key.modifiers.contains(KeyModifiers::SUPER);
-        let Some(doc) = &mut self.preview_doc else {
+        let scm = self.tab == Tab::Scm;
+        let Some(doc) = self.readonly_doc_mut() else {
             return false;
         };
         doc.prepare(body);
@@ -161,9 +206,13 @@ impl App {
             KeyCode::End => {
                 doc.set_scroll(doc.row_count().saturating_sub(usize::from(body.height)))
             }
-            KeyCode::Char('p') => self.preview_pinned = true,
-            KeyCode::Char('[') => self.switch_preview(false),
-            KeyCode::Char(']') => self.switch_preview(true),
+            KeyCode::Char('p') if !scm => self.preview_pinned = true,
+            KeyCode::Char('[') if !scm => self.switch_preview(false),
+            KeyCode::Char(']') if !scm => self.switch_preview(true),
+            KeyCode::Esc if scm => {
+                self.drawer_doc = None;
+                self.drawer_show = None;
+            }
             KeyCode::Esc => self.close_preview(),
             _ => return false,
         }
@@ -173,6 +222,7 @@ impl App {
         true
     }
     fn switch_preview(&mut self, forward: bool) {
+        self.preview_pending = None;
         if self.preview_documents.is_empty() {
             return;
         }
@@ -185,16 +235,25 @@ impl App {
         let saved = self.preview_documents.remove(index);
         if self.preview_pinned {
             if let (Some(path), Some(doc)) = (self.preview_path.take(), self.preview_doc.take()) {
-                self.preview_documents.push(PreviewDocument { path, doc });
+                self.preview_documents.push(PreviewDocument {
+                    target: self
+                        .preview_target
+                        .as_ref()
+                        .filter(|(p, _)| p == &path)
+                        .map(|(_, line)| *line),
+                    path,
+                    doc,
+                });
             }
         }
+        self.preview_target = saved.target.map(|line| (saved.path.clone(), line));
         self.preview_path = Some(saved.path);
         self.text = saved.doc.plain_text();
         self.preview_doc = Some(saved.doc);
         self.preview_pinned = true;
-        self.preview_target = None;
     }
     fn close_preview(&mut self) {
+        self.preview_pending = None;
         self.preview_request = self.preview_request.wrapping_add(1);
         self.preview_doc = None;
         self.preview_path = None;
@@ -219,7 +278,7 @@ impl App {
         self.preview_last_click = Some((path, now));
     }
     pub(crate) fn preview_mouse(&mut self, event: &MouseEvent, area: Rect) -> bool {
-        if self.editor.is_some() || !matches!(self.tab, Tab::Files | Tab::Search) {
+        if self.editor.is_some() || !matches!(self.tab, Tab::Files | Tab::Search | Tab::Scm) {
             return false;
         }
         let content = self.panes(area).content;
@@ -227,10 +286,10 @@ impl App {
             return false;
         }
         let body = self.preview_body(content);
-        let Some(doc) = &mut self.preview_doc else {
+        self.focus = Focus::Content;
+        let Some(doc) = self.readonly_doc_mut() else {
             return false;
         };
-        self.focus = Focus::Content;
         match event.kind {
             MouseEventKind::ScrollDown => doc.set_scroll(
                 doc.scroll()
@@ -250,7 +309,7 @@ impl App {
         true
     }
     fn copy_preview(&mut self, automatic: bool) {
-        let Some(text) = self.preview_doc.as_ref().and_then(Doc::selection_text) else {
+        let Some(text) = self.readonly_doc().and_then(Doc::selection_text) else {
             self.status = "请先选择预览文本".into();
             return;
         };
@@ -258,11 +317,15 @@ impl App {
             self.preview_copier = ReleaseCopier::product(self.preferences.copy_on_select);
         }
         if let Some(copier) = &self.preview_copier {
+            copier.set_copy_on_select(self.preferences.copy_on_select);
             copier.copy(text, automatic);
         }
     }
     /// Central tick drains ordered clipboard results; rendering never writes stdout.
     pub(crate) fn tick_preview(&mut self) {
+        if let Err(error) = self.dispatch_preview() {
+            self.status = error.to_string();
+        }
         if let Some(copier) = &self.preview_copier {
             while let Some(result) = copier.next_result() {
                 self.status = match result {
@@ -282,6 +345,8 @@ impl App {
         }
     }
     pub(crate) fn clear_previews(&mut self) {
+        self.preview_loading = None;
+        self.preview_pending = None;
         self.preview_request = self.preview_request.wrapping_add(1);
         self.preview_doc = None;
         self.preview_documents.clear();

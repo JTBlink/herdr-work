@@ -5,7 +5,7 @@ use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style, Stylize},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
@@ -110,7 +110,8 @@ impl Doc {
     /// The source line at the top of the body — the anchor a relayout
     /// scrolls back to.
     pub(crate) fn top_src(&self) -> usize {
-        self.rows.get(self.scroll).map_or(0, |r| r.src)
+        self.pending_src
+            .unwrap_or_else(|| self.rows.get(self.scroll).map_or(0, |r| r.src))
     }
 
     pub(crate) fn gutter(&self) -> usize {
@@ -446,6 +447,7 @@ pub(crate) fn apply_diff_refresh(doc: &mut Doc, mut refreshed: Doc) {
 
 /// `git show` with stat + patch, colored — what a click on a commit, stash,
 /// tag, or branch line renders. Immutable content: no refresh loop needed.
+#[cfg(any(feature = "reference-ui", test))]
 pub(crate) fn load_show(root: &Path, spec: &str, path: Option<&str>) -> Doc {
     let display_spec = spec.strip_prefix("refs/tags/").unwrap_or(spec);
     let args = crate::scm::show_args(spec, path);
@@ -494,26 +496,27 @@ pub(crate) fn load_show(root: &Path, spec: &str, path: Option<&str>) -> Doc {
 /// Pipes via stdin (`-`) to avoid treating filenames starting with `-` as
 /// flags. The first render uses the most recently drawn body width; the event
 /// loop schedules one background reload if the actual body width differs.
+#[cfg(any(feature = "reference-ui", test))]
 pub(crate) fn glow_markdown(text: &str, width: u16) -> Option<Vec<Line<'static>>> {
-    use std::io::Write as _;
-    let args = glow_args(width, crate::ui::is_light());
-    let mut child = std::process::Command::new("glow")
-        .args(args)
-        .env("CLICOLOR_FORCE", "1")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .ok()?;
-    if let Some(stdin) = child.stdin.take() {
-        let mut stdin = stdin;
-        let _ = stdin.write_all(text.as_bytes());
-    }
-    let output = child.wait_with_output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let rendered = String::from_utf8_lossy(&output.stdout);
+    glow_markdown_outside(text, width, None)
+}
+fn glow_markdown_outside(
+    text: &str,
+    width: u16,
+    root: Option<&Path>,
+) -> Option<Vec<Line<'static>>> {
+    let program = safe_program("glow", root)?;
+    let mut command = std::process::Command::new(program);
+    command
+        .args(glow_args(width, crate::ui::is_light()))
+        .env("CLICOLOR_FORCE", "1");
+    let output = capture_preview(
+        &mut command,
+        Some(text.as_bytes().to_vec()),
+        (MAX_BYTES * 4) as u64,
+    )
+    .ok()?;
+    let rendered = String::from_utf8_lossy(&output);
     if rendered.trim().is_empty() {
         return None;
     }
@@ -617,17 +620,21 @@ pub(crate) fn decode_image_file(target: &Path) -> Result<image::RgbaImage, Strin
         .map_err(|error| error.to_string())
 }
 
+#[cfg(any(feature = "reference-ui", test))]
 pub(crate) fn ffmpeg_in_path(path: &std::ffi::OsStr, cwd: Option<&Path>) -> Option<PathBuf> {
+    program_in_path(path, cwd, "ffmpeg")
+}
+fn program_in_path(path: &std::ffi::OsStr, cwd: Option<&Path>, name: &str) -> Option<PathBuf> {
     let executable = if cfg!(windows) {
-        "ffmpeg.exe"
+        format!("{name}.exe")
     } else {
-        "ffmpeg"
+        name.to_string()
     };
     std::env::split_paths(path)
         .filter(|directory| directory.is_absolute())
         .filter_map(|directory| directory.canonicalize().ok())
         .filter(|directory| !cwd.is_some_and(|cwd| directory.starts_with(cwd)))
-        .map(|directory| directory.join(executable))
+        .map(|directory| directory.join(&executable))
         .find(|candidate| {
             if !candidate.is_file() {
                 return false;
@@ -644,17 +651,103 @@ pub(crate) fn ffmpeg_in_path(path: &std::ffi::OsStr, cwd: Option<&Path>) -> Opti
         })
 }
 
+#[cfg(any(feature = "reference-ui", test))]
 pub(crate) fn ffmpeg_on_path() -> Option<PathBuf> {
+    safe_program("ffmpeg", None)
+}
+fn safe_program(name: &str, root: Option<&Path>) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     let cwd = std::env::current_dir()
         .ok()
         .and_then(|path| path.canonicalize().ok());
-    ffmpeg_in_path(&path, cwd.as_deref())
+    program_in_path(&path, root.or(cwd.as_deref()), name)
+        .filter(|program| !cwd.as_ref().is_some_and(|cwd| program.starts_with(cwd)))
 }
 
-pub(crate) fn decode_video_poster(target: &Path) -> Result<image::RgbaImage, String> {
-    let ffmpeg =
-        ffmpeg_on_path().ok_or_else(|| "video preview needs ffmpeg on PATH".to_string())?;
+/// The original poster worker's bounded pipes/deadline, also used for glow.
+/// Reader threads report through channels so inherited pipes cannot stall a join.
+fn capture_preview(
+    command: &mut std::process::Command,
+    input: Option<Vec<u8>>,
+    max: u64,
+) -> Result<Vec<u8>, String> {
+    use std::io::Write as _;
+    command
+        .stdin(if input.is_some() {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::null()
+        })
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        command.creation_flags(0x0800_0000);
+    }
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    if let (Some(mut stdin), Some(input)) = (child.stdin.take(), input) {
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(&input);
+        });
+    }
+    let stdout = child.stdout.take().ok_or("preview stdout unavailable")?;
+    let stderr = child.stderr.take().ok_or("preview stderr unavailable")?;
+    let (out_tx, out_rx) = std::sync::mpsc::channel();
+    let (err_tx, err_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stdout.take(max + 1).read_to_end(&mut bytes);
+        let _ = out_tx.send(bytes);
+    });
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stderr.take(16 * 1024).read_to_end(&mut bytes);
+        let _ = err_tx.send(bytes);
+    });
+    let deadline = Instant::now() + VIDEO_FRAME_TIMEOUT;
+    let mut output = None;
+    let mut errors = None;
+    let mut status = None;
+    loop {
+        if output.is_none() {
+            output = out_rx.try_recv().ok();
+        }
+        if errors.is_none() {
+            errors = err_rx.try_recv().ok();
+        }
+        if status.is_none() {
+            status = child.try_wait().map_err(|error| error.to_string())?;
+        }
+        if status.is_some() && output.is_some() && errors.is_some() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("preview tool timed out after 4 seconds".into());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = output.unwrap();
+    if output.len() as u64 > max {
+        return Err("preview output exceeded size limit".into());
+    }
+    if !status.unwrap().success() {
+        return Err(format!(
+            "preview tool failed: {}",
+            String::from_utf8_lossy(&errors.unwrap())
+                .lines()
+                .next()
+                .unwrap_or("unknown error")
+        ));
+    }
+    Ok(output)
+}
+
+fn decode_video_poster(target: &Path, root: Option<&Path>) -> Result<image::RgbaImage, String> {
+    let ffmpeg = safe_program("ffmpeg", root)
+        .ok_or_else(|| "video preview needs ffmpeg on PATH".to_string())?;
     let mut command = std::process::Command::new(ffmpeg);
     command.args([
         "-hide_banner",
@@ -677,85 +770,15 @@ pub(crate) fn decode_video_poster(target: &Path) -> Result<image::RgbaImage, Str
         "png",
         "pipe:1",
     ]);
-    command
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        command.creation_flags(0x0800_0000);
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("ffmpeg failed: {error}"))?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "ffmpeg stdout unavailable".to_string())?;
-    let mut stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "ffmpeg stderr unavailable".to_string())?;
-    let stdout_reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = (&mut stdout)
-            .take(MAX_VIDEO_FRAME_BYTES + 1)
-            .read_to_end(&mut bytes);
-        bytes
-    });
-    let stderr_reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = (&mut stderr).take(16 * 1024).read_to_end(&mut bytes);
-        bytes
-    });
-    let deadline = Instant::now() + VIDEO_FRAME_TIMEOUT;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(25));
-            }
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
-                return Err("video poster timed out after 4 seconds".into());
-            }
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
-                return Err(format!("ffmpeg status failed: {error}"));
-            }
-        }
-    };
-    let stdout = stdout_reader
-        .join()
-        .map_err(|_| "ffmpeg output reader failed".to_string())?;
-    let stderr = stderr_reader
-        .join()
-        .map_err(|_| "ffmpeg error reader failed".to_string())?;
-    if !status.success() {
-        let stderr = String::from_utf8_lossy(&stderr);
-        return Err(format!(
-            "ffmpeg could not read video: {}",
-            stderr.lines().next().unwrap_or("unknown error")
-        ));
-    }
-    if stdout.len() as u64 > MAX_VIDEO_FRAME_BYTES {
-        return Err("video poster frame exceeded 16 MiB".into());
-    }
+    let stdout = capture_preview(&mut command, None, MAX_VIDEO_FRAME_BYTES)?;
     image::load_from_memory_with_format(&stdout, image::ImageFormat::Png)
         .map(|image| image.to_rgba8())
         .map_err(|error| format!("could not decode video frame: {error}"))
 }
 
-pub(crate) fn load_media_file(target: &Path, name: String, video_poster: bool) -> Doc {
+fn load_media_file(target: &Path, name: String, video_poster: bool, root: Option<&Path>) -> Doc {
     let result = if video_poster {
-        decode_video_poster(target)
+        decode_video_poster(target, root)
     } else {
         decode_image_file(target)
     };
@@ -804,17 +827,31 @@ pub(crate) fn load_media_file(target: &Path, name: String, video_poster: bool) -
     }
 }
 
+#[cfg(any(feature = "reference-ui", test))]
 pub(crate) fn load_file(target: &Path, target_line: Option<usize>) -> Doc {
+    load_file_width(
+        target,
+        target_line,
+        LAST_BODY_WIDTH.load(std::sync::atomic::Ordering::Relaxed),
+        None,
+    )
+}
+fn load_file_width(
+    target: &Path,
+    target_line: Option<usize>,
+    width: u16,
+    root: Option<&Path>,
+) -> Doc {
     let name = target
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| target.display().to_string());
     let lower = name.to_lowercase();
     if is_image_file(target) {
-        return load_media_file(target, name, false);
+        return load_media_file(target, name, false, root);
     }
     if is_video_file(target) {
-        return load_media_file(target, name, true);
+        return load_media_file(target, name, true, root);
     }
     let is_markdown = lower.ends_with(".md") || lower.ends_with(".markdown");
     let (lines, numbered, glow_width) = match std::fs::File::open(target).and_then(|file| {
@@ -834,11 +871,9 @@ pub(crate) fn load_file(target: &Path, target_line: Option<usize>) -> Doc {
                 let truncated = bytes.len() > MAX_BYTES;
                 let text = String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_BYTES)]);
                 // Markdown: render via glow; fall back to syntax highlight on failure.
-                let requested_glow_width = LAST_BODY_WIDTH
-                    .load(std::sync::atomic::Ordering::Relaxed)
-                    .max(20);
+                let requested_glow_width = width.max(20);
                 let glow_rendered = (is_markdown && target_line.is_none())
-                    .then(|| glow_markdown(&text, requested_glow_width))
+                    .then(|| glow_markdown_outside(&text, requested_glow_width, root))
                     .flatten();
                 let fallback = || {
                     crate::syntax::highlight(&name, &text, MAX_LINES).unwrap_or_else(|| {
@@ -883,6 +918,7 @@ pub(crate) fn glow_needs_reload(doc: &Doc, body_width: u16) -> bool {
     doc.glow_width.is_some_and(|width| width != body_width)
 }
 
+#[cfg(any(feature = "reference-ui", test))]
 pub(crate) fn load_diff(root: &Path, rel: &str, kind: &str) -> Doc {
     let name = rel.rsplit('/').next().unwrap_or(rel).to_string();
     // Plain (uncolored) diff: crate::diffview parses it and renders the
@@ -973,6 +1009,15 @@ impl Doc {
             .collect::<Vec<_>>()
             .join("\n")
     }
+    pub fn media_hint(&self) -> Option<&'static str> {
+        self.media.as_ref().map(|media| {
+            if media.video_poster {
+                "视频封面"
+            } else {
+                "图片预览"
+            }
+        })
+    }
     pub fn is_media(&self) -> bool {
         self.media.is_some()
     }
@@ -1039,10 +1084,10 @@ impl Doc {
     }
 }
 /// Load on a worker; source line targets show Markdown source so anchors remain exact.
-pub fn file(target: &Path, target_line: Option<usize>, width: u16) -> Doc {
+pub fn file(root: &Path, target: &Path, target_line: Option<usize>, width: u16) -> Doc {
     LAST_BODY_WIDTH.store(width.max(20), std::sync::atomic::Ordering::Relaxed);
     let stamp = file_stamp(target);
-    let mut doc = load_file(target, target_line);
+    let mut doc = load_file_width(target, target_line, width, Some(root));
     doc.stamp = stamp;
     doc
 }
@@ -1130,6 +1175,8 @@ type CopyQueue = std::sync::Arc<(
 /// viewer's event loop. The helper itself is time-limited in `actions`.
 pub struct ReleaseCopier {
     pub(crate) queue: CopyQueue,
+    shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    automatic_setting: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     pub(crate) results: std::sync::mpsc::Receiver<ReleaseCopy>,
     /// Released by the event loop after it wrote an OSC 52 copy, so a later
     /// native copy cannot finish first and then be overwritten by it.
@@ -1144,6 +1191,8 @@ impl ReleaseCopier {
         let (outbox, results) = std::sync::mpsc::channel();
         let (written, osc52_done) = std::sync::mpsc::channel::<()>();
         let worker_queue = queue.clone();
+        let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_shutdown = shutdown.clone();
         std::thread::Builder::new()
             .name("preview-copy".into())
             .spawn(move || {
@@ -1152,6 +1201,9 @@ impl ReleaseCopier {
                         let (lock, ready) = &*worker_queue;
                         let Ok(mut pending) = lock.lock() else { return };
                         loop {
+                            if worker_shutdown.load(std::sync::atomic::Ordering::Relaxed) {
+                                return;
+                            }
                             if let Some(request) = pending.pop_front() {
                                 break request;
                             }
@@ -1180,6 +1232,8 @@ impl ReleaseCopier {
             })
             .ok()?;
         Some(Self {
+            shutdown,
+            automatic_setting: None,
             queue,
             results,
             written,
@@ -1206,7 +1260,18 @@ impl ReleaseCopier {
 
 impl ReleaseCopier {
     pub fn product(copy_on_select: bool) -> Option<Self> {
-        Self::start_with_enabled(move || copy_on_select)
+        let enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(copy_on_select));
+        let worker_enabled = enabled.clone();
+        let mut copier = Self::start_with_enabled(move || {
+            worker_enabled.load(std::sync::atomic::Ordering::Relaxed)
+        })?;
+        copier.automatic_setting = Some(enabled);
+        Some(copier)
+    }
+    pub fn set_copy_on_select(&self, enabled: bool) {
+        if let Some(setting) = &self.automatic_setting {
+            setting.store(enabled, std::sync::atomic::Ordering::Relaxed);
+        }
     }
     pub fn copy(&self, text: String, automatic: bool) {
         self.submit(CopyRequest { text, automatic });
@@ -1219,5 +1284,16 @@ impl ReleaseCopier {
     }
     pub fn cancel_automatic(&self) {
         self.drop_waiting_automatic();
+    }
+}
+
+impl Drop for ReleaseCopier {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.queue.0.lock() {
+            self.shutdown
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+            pending.clear();
+            self.queue.1.notify_all();
+        }
     }
 }

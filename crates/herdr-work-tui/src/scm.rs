@@ -23,6 +23,7 @@ impl App {
         self.drawer_state = LoadState::Loading;
         self.drawer_scroll = 0;
         self.drawer_show = None;
+        self.drawer_doc = None;
         let root = self
             .code
             .as_ref()
@@ -99,7 +100,7 @@ impl App {
             .unwrap_or_else(|| self.root.clone());
         self.job(move |d| Ok(Data::CommitReady(d.prepare_commit(&root)?)))
     }
-    pub(crate) fn draw_drawer(&self, f: &mut Frame, area: Rect) {
+    pub(crate) fn draw_drawer(&mut self, f: &mut Frame, area: Rect) {
         let Some(kind) = self.active_drawer else {
             return;
         };
@@ -111,6 +112,16 @@ impl App {
                 .map(|v| v.root.display().to_string())
                 .unwrap_or_default()
         );
+        if self.drawer_show.is_some() {
+            let block = self.content_block(title);
+            let body = block.inner(area);
+            f.render_widget(block, area);
+            if let Some(doc) = &mut self.drawer_doc {
+                doc.draw_body(f, body);
+                self.drawer_scroll = doc.scroll().min(u16::MAX as usize) as u16;
+            }
+            return;
+        }
         let text = if let Some(text) = &self.drawer_show {
             text.clone()
         } else {

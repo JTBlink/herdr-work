@@ -230,7 +230,7 @@ fn explorer_click_opens_file_and_content_scroll_keeps_tree_selection() {
         .iter()
         .map(|c| c.symbol())
         .collect::<String>();
-    assert!(text.contains("EXPLORER") && text.contains("Preview"));
+    assert!(text.contains("EXPLORER") && text.contains("visible.txt"));
     assert!(text.contains("second line"));
 }
 #[test]
@@ -1097,4 +1097,28 @@ fn periodic_refresh_coalesces_and_preserves_active_input() {
         app.jobs.results.try_recv().is_err(),
         "Passive refresh flooded the worker queue"
     );
+}
+
+#[test]
+fn repeated_preview_requests_coalesce_and_same_path_old_load_cannot_win() {
+    let (_temp, mut app) = loaded_app();
+    let path = app.root.join("visible.txt");
+    app.open_preview(path.clone(), None).unwrap();
+    for _ in 0..20 {
+        app.open_preview(path.clone(), Some(1)).unwrap();
+    }
+    let (epoch, old) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    assert!(
+        app.jobs.results.try_recv().is_err(),
+        "obsolete preview requests filled the worker queue"
+    );
+    std::fs::write(&path, "latest content").unwrap();
+    app.apply(epoch, old);
+    receive(&mut app);
+    assert_eq!(app.text, "latest content");
+    assert!(app.jobs.results.try_recv().is_err());
 }
