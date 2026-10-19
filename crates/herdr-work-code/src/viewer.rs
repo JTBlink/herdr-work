@@ -373,6 +373,7 @@ fn load(request: &Request) -> Doc {
             pending_src: None,
             selection: PreviewSelection::default(),
             stamp: None,
+            source_text: None,
         },
         Request::File { path, line } => {
             // Stat before reading: a write that lands during the read leaves
@@ -419,6 +420,7 @@ fn loading_doc(request: &Request) -> Doc {
         pending_src: None,
         selection: PreviewSelection::default(),
         stamp: None,
+        source_text: None,
     }
 }
 
@@ -1024,6 +1026,7 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         pending_src: None,
         selection: PreviewSelection::default(),
         stamp: None,
+        source_text: None,
     });
     let mut mode = ViewMode::Preview(doc);
     report_identity(
@@ -2704,6 +2707,7 @@ mod tests {
             pending_src: None,
             selection: PreviewSelection::default(),
             stamp: None,
+            source_text: None,
         }
     }
 
@@ -4153,6 +4157,7 @@ mod tests {
             pending_src: None,
             selection: PreviewSelection::default(),
             stamp: None,
+            source_text: None,
         };
         assert!(!doc.wrap, "glow output must not be generically re-wrapped");
         assert!(!doc.numbered, "glow formats its own layout, no gutter");

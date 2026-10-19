@@ -62,6 +62,7 @@ pub struct Doc {
     /// A file preview's modified-time/size stamp, taken on the load worker
     /// BEFORE the content was read: the baseline later polls compare against.
     pub(crate) stamp: Option<FileStamp>,
+    pub(crate) source_text: Option<String>,
 }
 
 pub(crate) struct MediaPreview {
@@ -444,6 +445,7 @@ pub(crate) fn apply_diff_refresh(doc: &mut Doc, mut refreshed: Doc) {
         && doc.lines == refreshed.lines
     {
         doc.stamp = refreshed.stamp;
+        doc.source_text = refreshed.source_text;
         return;
     }
     refreshed.wrap = doc.wrap;
@@ -491,6 +493,7 @@ pub(crate) fn load_show(root: &Path, spec: &str, path: Option<&str>) -> Doc {
         pending_src: None,
         selection: PreviewSelection::default(),
         stamp: None,
+        source_text: None,
     }
 }
 
@@ -826,6 +829,7 @@ fn load_media_file(target: &Path, name: String, video_poster: bool, root: Option
         pending_src: None,
         selection: PreviewSelection::default(),
         stamp: None,
+        source_text: None,
     }
 }
 
@@ -856,6 +860,7 @@ fn load_file_width(
         return load_media_file(target, name, true, root);
     }
     let is_markdown = lower.ends_with(".md") || lower.ends_with(".markdown");
+    let mut source_text = None;
     let (lines, numbered, glow_width) = match std::fs::File::open(target).and_then(|file| {
         let mut bytes = Vec::new();
         file.take((MAX_BYTES + 1) as u64).read_to_end(&mut bytes)?;
@@ -872,6 +877,14 @@ fn load_file_width(
             } else {
                 let truncated = bytes.len() > MAX_BYTES;
                 let text = String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_BYTES)]);
+                source_text = Some(if truncated || text.lines().count() > MAX_LINES {
+                    format!(
+                        "{}\n… (truncated)",
+                        text.lines().take(MAX_LINES).collect::<Vec<_>>().join("\n")
+                    )
+                } else {
+                    text.to_string()
+                });
                 // Markdown: render via glow; fall back to syntax highlight on failure.
                 let requested_glow_width = width.max(20);
                 let glow_rendered = (is_markdown && target_line.is_none())
@@ -912,6 +925,7 @@ fn load_file_width(
         pending_src: target_line.map(|line| line.saturating_sub(1)),
         selection: PreviewSelection::default(),
         stamp: None,
+        source_text,
     }
 }
 
@@ -983,6 +997,7 @@ pub(crate) fn load_diff(root: &Path, rel: &str, kind: &str) -> Doc {
         pending_src: None,
         selection: PreviewSelection::default(),
         stamp: None,
+        source_text: None,
     }
 }
 
@@ -1010,6 +1025,9 @@ impl Doc {
         &self.lines
     }
     pub fn plain_text(&self) -> String {
+        if let Some(text) = &self.source_text {
+            return text.clone();
+        }
         self.lines
             .iter()
             .map(|line| {
@@ -1119,6 +1137,7 @@ pub fn git_show(name: String, context: String, text: &str) -> Doc {
         pending_src: None,
         selection: PreviewSelection::default(),
         stamp: None,
+        source_text: None,
     }
 }
 /// What the copy worker reports back to the event loop.
