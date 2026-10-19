@@ -1685,3 +1685,34 @@ fn compact_scm_repository_input_click_matches_the_scrolled_rendered_row() {
         assert_eq!(app.git.active, Some(nested));
     }
 }
+
+#[test]
+fn clicking_readonly_content_exits_search_input_and_uses_preview_keys() {
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    let (_temp, mut app) = loaded_app();
+    app.open_preview(app.root.join("visible.txt"), None)
+        .unwrap();
+    receive(&mut app);
+    app.query_prompt(false);
+    receive(&mut app);
+    let area = ratatui::layout::Rect::new(0, 0, 160, 32);
+    let body = app.preview_body(app.panes(area).content);
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: body.x + 4,
+            row: body.y,
+            modifiers: KeyModifiers::NONE,
+        },
+        area,
+    )
+    .unwrap();
+    app.input_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE), area)
+        .unwrap();
+    assert!(app.prompt.is_none());
+    assert!(app.search_query.is_empty());
+    assert!(!app.preview_doc.as_ref().unwrap().wrap());
+    assert!(screen(&mut app).contains("fixture"));
+}

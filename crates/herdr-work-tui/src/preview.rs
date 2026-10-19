@@ -287,6 +287,15 @@ impl App {
         }
         let body = self.preview_body(content);
         self.focus = Focus::Content;
+        if matches!(event.kind, MouseEventKind::Down(_)) {
+            if self.search_prompt() {
+                self.prompt = None;
+                self.input.clear();
+            }
+            if self.tab == Tab::Scm {
+                self.git.editing = None;
+            }
+        }
         let Some(doc) = self.readonly_doc_mut() else {
             return false;
         };
