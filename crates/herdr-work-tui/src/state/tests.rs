@@ -998,22 +998,103 @@ fn readonly_preview_wrap_selection_and_pinned_documents_share_source_model() {
     let (_temp, mut app) = loaded_app();
     let source = format!("{}\nsecond line", "alpha界".repeat(30));
     std::fs::write(app.root.join("visible.txt"), &source).unwrap();
-    app.open_preview(app.root.join("visible.txt"), None).unwrap(); receive(&mut app);
+    app.open_preview(app.root.join("visible.txt"), None)
+        .unwrap();
+    receive(&mut app);
     app.focus = Focus::Content;
-    let area = ratatui::layout::Rect::new(0,0,90,32);
-    let mut terminal = Terminal::new(TestBackend::new(90,32)).unwrap();
+    let area = ratatui::layout::Rect::new(0, 0, 90, 32);
+    let mut terminal = Terminal::new(TestBackend::new(90, 32)).unwrap();
     terminal.draw(|f| app.draw(f)).unwrap();
     let wrapped = app.preview_doc.as_ref().unwrap().row_count();
-    app.input_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL), area).unwrap();
-    assert_eq!(app.preview_doc.as_ref().unwrap().selection_text().as_deref(), Some(source.as_str()));
-    app.input_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE), area).unwrap();
+    app.input_key(
+        KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL),
+        area,
+    )
+    .unwrap();
+    assert_eq!(
+        app.preview_doc
+            .as_ref()
+            .unwrap()
+            .selection_text()
+            .as_deref(),
+        Some(source.as_str())
+    );
+    app.input_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE), area)
+        .unwrap();
     terminal.draw(|f| app.draw(f)).unwrap();
     assert!(app.preview_doc.as_ref().unwrap().row_count() < wrapped);
-    app.input_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE), area).unwrap();
+    app.input_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE), area)
+        .unwrap();
     std::fs::write(app.root.join("second.txt"), "another document").unwrap();
-    app.open_preview(app.root.join("second.txt"), None).unwrap(); receive(&mut app);
-    app.input_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE), area).unwrap();
+    app.open_preview(app.root.join("second.txt"), None).unwrap();
+    receive(&mut app);
+    app.input_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE), area)
+        .unwrap();
     assert!(app.preview_path.as_ref().unwrap().ends_with("visible.txt"));
     assert!(!app.preview_doc.as_ref().unwrap().wrap());
     assert!(screen(&mut app).contains("visible.txt"));
+}
+
+#[test]
+fn passive_refresh_updates_external_changes_without_resetting_reader() {
+    let (_temp, mut app) = loaded_app();
+    let original = (0..100).map(|n| format!("old {n}\n")).collect::<String>();
+    std::fs::write(app.root.join("visible.txt"), original).unwrap();
+    app.key(crossterm::event::KeyCode::Enter).unwrap();
+    receive(&mut app);
+    app.focus = Focus::Content;
+    screen(&mut app);
+    for _ in 0..8 {
+        app.input_key(
+            crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Down,
+                crossterm::event::KeyModifiers::NONE,
+            ),
+            ratatui::layout::Rect::new(0, 0, 160, 32),
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        app.root.join("visible.txt"),
+        "external change\n".repeat(100),
+    )
+    .unwrap();
+    std::fs::write(app.root.join("new-agent-file.txt"), "new file\n").unwrap();
+    app.tick_refresh(std::time::Instant::now() + Duration::from_secs(3))
+        .unwrap();
+    receive(&mut app);
+    assert!(app.text.starts_with("external change"));
+    assert_eq!(app.preview_scroll, 8);
+    assert!(app.focus == Focus::Content);
+    assert_eq!(
+        app.code.as_ref().unwrap().files[app.selection].name,
+        "visible.txt"
+    );
+    assert!(
+        app.code
+            .as_ref()
+            .unwrap()
+            .files
+            .iter()
+            .any(|f| f.name == "new-agent-file.txt")
+    );
+}
+
+#[test]
+fn periodic_refresh_coalesces_and_preserves_active_input() {
+    let (_temp, mut app) = loaded_app();
+    app.prompt = Some(Prompt::Search(false));
+    app.input = "保留输入".into();
+    let start = std::time::Instant::now();
+    for n in 1..10 {
+        app.tick_refresh(start + Duration::from_secs(n * 3))
+            .unwrap();
+    }
+    receive(&mut app);
+    assert_eq!(app.input, "保留输入");
+    assert!(app.prompt.is_some());
+    assert!(
+        app.jobs.results.try_recv().is_err(),
+        "Passive refresh flooded the worker queue"
+    );
 }
