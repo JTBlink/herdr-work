@@ -101,11 +101,11 @@ impl App {
             self.status = "已聚焦 HerdrWork；请先结束当前编辑或弹窗，再选择活动入口".into();
             return;
         }
-        if activation.root != self.root {
-            if let Err(error) = self.change_folder(activation.root) {
-                self.status = error.to_string();
-                return;
-            }
+        if activation.root != self.root
+            && let Err(error) = self.change_folder(activation.root)
+        {
+            self.status = error.to_string();
+            return;
         }
         self.activate_initial_view(activation.view);
     }
