@@ -1,4 +1,4 @@
-# HerdrWork 首版验收
+# HerdrWork 验收
 
 任务实时状态以 [GitHub Issues](https://github.com/JTBlink/herdr-work/issues) 为准。以下是实现入口与可复现标准，不将手动场景写成已完成的自动验收。
 
@@ -17,8 +17,8 @@
 | #9 | engine/code.rs | 原 Sidebar commit，提交前 HEAD/index 再校验，持久化操作结果与显式核对 |
 | #10 | engine/tasks.rs、Projects CLI/keeper 补丁 | 原 add/delegate/stop/reopen；实际 launcher 在全新子进程中保持 managed/home/data/config/reports 隔离及原 Agent caller/report 语义；独立 keeper；UI 退出、暂停自动调度和停止 Agent 为不同操作 |
 | #11 | engine/lib.rs、review.rs、tasks.rs | 恢复执行选择/草稿，Sending 转 Unknown，不自动重试；reconcile 保存显式核对证据 |
-| #12 | engine/migration.rs | 只读预览、源/复制 SHA、备份、持久化导入 intent、中断恢复及拒绝覆盖新数据的回滚测试 |
-| #13 | scripts/package.py、install.py、smoke.py | macOS 真实归档、许可、manifest、SHA、安装运行、升级回滚与卸载后保留数据；旧 `workdesk` 升级为 `herdr-work`、回滚恢复原命令名且不覆盖非本项目命令 |
+| #12 | 首版历史能力，后续已按新项目策略移除 | 不再提供旧插件资料导入，历史实现和验收见已关闭 Issue；新要求见内部模块任务 M01 |
+| #13 | scripts/package.py、install.py、smoke.py | macOS 真实归档、许可、manifest、SHA、安装运行、当前名称的重装/回滚与卸载后保留数据；只认当前收据，不接管无主程序 |
 | #14 | .github/workflows/ci.yml、build.yml、release.yml | 三平台原生编译/测试/打包/安装；全部成功后 draft 上传附件，最后发布 |
 
 ## 本机已验证命令
@@ -43,10 +43,14 @@ python3 scripts/smoke.py --archives dist
 
 ## UI 启动与中文帮助回归
 
-`cargo test --workspace --locked` 包含中文主帮助、嵌套帮助、help/-h 入口，以及真实异步代码加载后的界面渲染检查。空任务须有创建/导入引导，任务列表只能出现一次；任务后端失败须显示错误且文件可用；失败重试和过期错误不得覆盖新结果。
+`cargo test --workspace --locked` 包含中文主帮助、嵌套帮助、help/-h 入口，以及真实异步代码加载后的界面渲染检查。默认须展示 Explorer 与文件预览，Tasks 通过导航进入且有创建引导，任务列表只能出现一次；任务后端失败须显示错误且文件可用；失败重试和过期错误不得覆盖新结果。
 
-macOS/Linux 的归档安装 smoke 调用 `scripts/ui_smoke.py`，在私有 PTY 与临时 Git 仓库中等待真实加载完成，检查文件预览和 Git 差异，通过键盘实际创建任务并确认列表更新，再缩窄至 80 列、退出并检查终端标志恢复。Windows 通过 Rust 状态/渲染测试；尚未声明 Windows 原生 PTY 交互验收。
+macOS/Linux 的归档安装 smoke 调用 `scripts/ui_smoke.py`，在私有 PTY 与临时 Git 仓库中等待真实加载完成，检查默认 Explorer、鼠标导航、文件预览、实际暂存/取消暂存和 Git 差异，通过键盘创建任务并确认列表更新，再缩窄至 80 列、退出并检查终端标志恢复。Windows 通过 Rust 状态/渲染测试；尚未声明 Windows 原生 PTY 交互验收。
 
 ## HerdrWork 名称验收
 
-`doctor` 必须报告 `product: HerdrWork`、默认 `~/.herdr-work` 和 `herdr-work-projects` 后端。覆盖新旧环境变量优先级、旧资料一次性校验复制、活跃旧目录拒绝迁移、已有新资料不覆盖、hook 在 UI 持锁时解析目录。安装器覆盖旧收据升级、新收据、兼容旧后台入口和回滚恢复旧文件名。历史 CHANGELOG、旧资料来源和必要兼容别名保留真实旧名。
+`doctor` 必须报告 `product: HerdrWork`、默认 `~/.herdr-work` 和 `herdr-work-projects` 后端。只读取 --home / HERDR_WORK_HOME / 默认目录；负向检查旧环境、旧目录、旧托管/暂停标记和旧命令没有行为，旧数据不自动复制。hook 在 UI 持锁时仍可解析当前目录。安装器只认当前产品、文件名和收据，保留安装失败恢复和当前名称回滚；旧文件不被接管或自动删除。历史 CHANGELOG 保留真实发布事实。
+
+## 后续模块迁移
+
+[内部模块架构](architecture/herdr-work-internal-modules.md)与[任务索引](plans/internal-modules/README.md)定义九个产品模块及十一成员过渡布局。当前源码尚未迁移，不能将本次两项修复记为 workspace 整合完成。

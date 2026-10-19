@@ -2,8 +2,12 @@
 
 ## 结构与边界
 
-HerdrWork 是 Rust 终端工作台。自有 workspace 仅包含 `crates/herdr-work-core`（契约）、`crates/herdr-work-engine`（编排与持久化）、`crates/herdr-work-tui`（唯一终端与输入）、`crates/herdr-work`（CLI）。
+HerdrWork 是 Rust 终端工作台。当前发布基线的根 workspace 包含 `crates/herdr-work-core`（契约）、`crates/herdr-work-engine`（编排与持久化）、`crates/herdr-work-tui`（唯一终端与输入）、`crates/herdr-work`（CLI）。
 
+
+必须实际复用和迁移来源业务逻辑、测试与资源，保留许可证、版权和来源记录，不能用重写同名功能替代复用。采用先机械迁移、后整理模块接口的步骤，移除不再使用的原插件安装、更新及重复界面。当前补丁记录仍在 `docs/upstream/source-map.md`，任务完成后转入 `docs/provenance/`。参考副本 `reference-plugins/` 不参与构建或 Git。
+
+新项目只支持当前 HerdrWork 名称、配置和资料目录，不读取旧环境变量，不迁移旧目录，不保留旧命令/收据/锁/标记或旧插件数据导入。普通安装所有权、失败恢复、当前名称的安装回滚及审查状态恢复仍需保留；不自动删除用户旧文件。
 
 GitHub 仓库仍为 `JTBlink/herdr-work`，产品、自有类型与 crate 统一为 HerdrWork/herdr-work，主命令为 `herdr-work`；上游名称保持原样。
 
