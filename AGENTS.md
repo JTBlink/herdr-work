@@ -29,6 +29,9 @@ Linux/Windows 编译、归档和隔离安装测试走 GitHub Actions。Windows �
 
 保留调研文档现有的元数据。引用上游源码时固定 commit 或 tag，明确区分已核实行为、技术提案与已批准决策。Rust 使用 rustfmt；按 core、engine、tui、CLI 边界放置逻辑。
 
+## TUI 组件与绘制规范
+
+
 ## 验证要求
 
 工作台使用 Cargo 集成测试与 Python unittest 验证业务和归档边界。来源测试保留，不把未执行的测试记为通过。文档修改需核对链接、路径、事实依据及其与 README 的一致性。
