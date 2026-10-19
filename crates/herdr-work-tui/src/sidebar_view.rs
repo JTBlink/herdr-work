@@ -17,8 +17,13 @@ use ratatui::{
 impl App {
     pub(crate) fn sidebar_block(&self, title: String) -> Block<'static> {
         Block::default()
-            .borders(Borders::ALL)
+            .borders(if self.preferences.dock_right {
+                Borders::LEFT
+            } else {
+                Borders::RIGHT
+            })
             .title(title)
+            .title_style(Style::default().fg(palette().header_accent))
             .border_style(Style::default().fg(if self.focus == Focus::Sidebar {
                 palette().accent_focus
             } else {
@@ -38,15 +43,15 @@ impl App {
             return;
         }
         let scm = matches!(self.tab, Tab::Scm | Tab::Review);
-        let branch = self.code.as_ref().map(|c| c.branch.as_str()).unwrap_or("");
         let title = if scm {
-            format!("SOURCE CONTROL · {branch}")
+            "SOURCE CONTROL".into()
         } else {
             "EXPLORER".into()
         };
         let block = self
             .sidebar_block(title)
             .title_top(Line::from(" ⋯ ").alignment(ratatui::layout::Alignment::Right));
+        let body = block.inner(area);
         let code = match (&self.code_state, &self.code) {
             (LoadState::Ready, Some(code)) => code,
             (LoadState::Failed(error), _) => {
@@ -67,14 +72,14 @@ impl App {
             let row = self.scm_cursor.min(rows.len().saturating_sub(1));
             let items = rows
                 .into_iter()
-                .skip(offset(row, area.height))
+                .skip(offset(row, body.height))
                 .enumerate()
                 .map(|(position, (_index, text, status, target))| {
                     let style = if matches!(target, ScmTarget::Commit(_)) {
                         Style::default()
                             .bg(palette().button_bg)
                             .fg(palette().button_fg)
-                    } else if position + offset(row, area.height) == row {
+                    } else if position + offset(row, body.height) == row {
                         selection_style(self.focus == Focus::Sidebar)
                     } else if matches!(
                         target,
@@ -91,17 +96,11 @@ impl App {
                 .collect::<Vec<_>>();
             f.render_widget(List::new(items).block(block), area);
         } else {
-            let root_name = self
-                .root
-                .file_name()
-                .map(|p| p.to_string_lossy())
-                .unwrap_or_default();
-            let block = block.title_bottom(format!("{root_name} · {branch}"));
             let items = code
                 .files
                 .iter()
                 .enumerate()
-                .skip(offset(self.selection, area.height))
+                .skip(offset(self.selection, body.height))
                 .map(|(i, row)| {
                     let status = if self.preferences.git_decorations {
                         row.status
@@ -120,7 +119,7 @@ impl App {
                         &row,
                         self.icon_theme(),
                         status,
-                        area.width.saturating_sub(2),
+                        body.width,
                     ));
                     if i == self.selection {
                         item.style(selection_style(self.focus == Focus::Sidebar))

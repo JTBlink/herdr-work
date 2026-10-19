@@ -3,19 +3,18 @@ use crate::{loading::LoadState, state::*};
 use ratatui::{
     Frame,
     layout::Rect,
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{List, ListItem, Paragraph, Wrap},
 };
 
 impl App {
     pub(crate) fn draw_tasks(&self, f: &mut Frame, area: Rect) {
+        let block = self.sidebar_block("Tasks".into());
+        let body = block.inner(area);
         let rows = self
             .tasks
             .iter()
             .enumerate()
-            .skip(
-                self.task
-                    .saturating_sub(area.height.saturating_sub(4) as usize / 2),
-            )
+            .skip(crate::layout::task_offset(self.task, body.height))
             .map(|(i, t)| {
                 ListItem::new(format!(
                     "{}{} [{}]\n  {}",
@@ -26,9 +25,6 @@ impl App {
                 ))
             })
             .collect::<Vec<_>>();
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title("Tasks · Enter select · n new · d delegate · x stop");
         if self.tasks.is_empty() {
             let message = match &self.tasks_state {
                 LoadState::Loading => "正在加载任务…",
@@ -104,7 +100,7 @@ impl App {
         f.render_widget(
             Paragraph::new(text)
                 .wrap(Wrap { trim: false })
-                .block(Block::default().borders(Borders::ALL).title("Task details")),
+                .block(self.content_block("Task details".into())),
             area,
         );
     }
