@@ -10,6 +10,14 @@ use ratatui::layout::{Position, Rect};
 impl App {
     pub(crate) fn mouse(&mut self, event: MouseEvent, area: Rect) -> Result<()> {
         self.interaction.area = area;
+        if matches!(
+            event.kind,
+            MouseEventKind::Down(_) | MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+        ) {
+            self.interaction.user_revision = self.interaction.user_revision.wrapping_add(1);
+            self.interaction.restore = None;
+            self.interaction.pending_scm_key = None;
+        }
         if let Some(picker) = self.git.picker.as_mut() {
             let action = picker.mouse(event);
             return self.picker_action(action);
@@ -18,6 +26,9 @@ impl App {
             return self.overlay_mouse(event, area);
         }
         if self.prompt.is_some() && !self.search_prompt() {
+            return Ok(());
+        }
+        if self.footer_mouse(&event)? {
             return Ok(());
         }
         if self.preview_mouse(&event, area) {

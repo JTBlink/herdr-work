@@ -44,3 +44,5 @@ pub mod wrap;
 pub mod appearance;
 
 pub mod file_view;
+
+pub mod view_state;

@@ -7,6 +7,8 @@ use herdr_work_engine::{CodeSnapshot, DiffView, HerdrWork, JobQueue};
 use std::path::PathBuf;
 
 pub(crate) enum Data {
+    Preferences(crate::preferences::Update),
+    Persistence(crate::persistence::Update),
     Background(crate::refresh::BackgroundRefresh),
     Tasks(Result<Vec<Task>>),
     Code(u64, Result<CodeSnapshot>),
@@ -154,15 +156,36 @@ impl App {
     pub(crate) fn new(desk: HerdrWork, root: PathBuf, context: Context) -> Result<Self> {
         let root = root.canonicalize()?;
         let preferences = desk.ui_preferences()?;
+        let workspace = desk.workspace_ui_state(&root)?;
+        let expanded = workspace
+            .tree
+            .expanded
+            .iter()
+            .map(|path| root.join(path))
+            .collect();
+        let file_selection = workspace.tree.selected.as_ref().map(|path| root.join(path));
+        let tab = match workspace.activity.as_str() {
+            "git" => Tab::Scm,
+            "search" => Tab::Search,
+            "tasks" => Tab::Tasks,
+            "review" => Tab::Review,
+            _ => Tab::Files,
+        };
         Ok(Self {
             background_pending: None,
             last_background: std::time::Instant::now(),
             desk,
-            interaction: Default::default(),
+            interaction: crate::interaction::Interaction {
+                preference_base: preferences.clone(),
+                file_selection,
+                restore: (!workspace.activity.is_empty()).then(|| workspace.clone()),
+                workspace,
+                ..Default::default()
+            },
             context,
             tasks: vec![],
             task: 0,
-            tab: Tab::Files,
+            tab,
             selection: 0,
             scm_selection: 0,
             focus: Focus::Sidebar,
@@ -185,7 +208,7 @@ impl App {
             status: String::new(),
             tasks_state: LoadState::Loading,
             code_state: LoadState::Loading,
-            expanded: vec![],
+            expanded,
             generation: 0,
             prompt: None,
             input: String::new(),
@@ -242,10 +265,11 @@ impl App {
         let root = self.root.clone();
         let expanded = self.expanded.clone();
         let show_hidden = self.preferences.show_hidden;
+        let decorate = self.preferences.git_decorations;
         self.job(move |d| {
             Ok(Data::Code(
                 generation,
-                d.code_snapshot_with_hidden(&root, &expanded, generation, show_hidden),
+                d.code_snapshot_with_options(&root, &expanded, generation, show_hidden, decorate),
             ))
         })?;
         self.code_state = LoadState::Loading;
@@ -274,6 +298,8 @@ impl App {
             && !matches!(
                 &data,
                 Ok(Data::Tasks(_)
+                    | Data::Preferences(..)
+                    | Data::Persistence(..)
                     | Data::CommitDone(..)
                     | Data::EditorObserved(..)
                     | Data::EditorSaved(..)
@@ -283,6 +309,8 @@ impl App {
             return;
         }
         match data {
+            Ok(Data::Preferences(update)) => self.apply_preferences(update),
+            Ok(Data::Persistence(update)) => self.apply_persistence(update),
             Ok(Data::Background(update)) => self.apply_background(update),
             Err(e) => self.status = format!("{e:#}"),
             Ok(Data::Business(text)) => {
@@ -388,6 +416,9 @@ impl App {
                             _ => previous == r.3,
                         })
                         .unwrap_or(self.scm_cursor.min(self.scm_rows().len().saturating_sub(1)));
+                }
+                if let Err(error) = self.restore_workspace_after_code() {
+                    self.status = error.to_string();
                 }
             }
             Ok(Data::CommitReady(request, result))
@@ -657,6 +688,7 @@ impl App {
             .first()
             .cloned()
             .context("Task has no execution; delegate it first")?;
+        self.queue_workspace_save()?;
         self.root = e.worktree.clone();
         self.context.select(e);
         self.desk.save_context(&self.context)?;
@@ -679,6 +711,7 @@ impl App {
         self.selection = 0;
         self.tab = Tab::Files;
         self.focus = Focus::Sidebar;
+        self.load_workspace_after_change()?;
         self.refresh()
     }
     pub(crate) fn change_folder(&mut self, root: PathBuf) -> Result<()> {
@@ -690,6 +723,7 @@ impl App {
             execution: None,
         };
         self.desk.save_context(&context)?;
+        self.queue_workspace_save()?;
         self.context = context;
         self.root = root;
         self.code = None;
@@ -710,6 +744,7 @@ impl App {
         self.drawer_open = [false; 8];
         self.overlay = None;
         self.switch_tab(Tab::Files);
+        self.load_workspace_after_change()?;
         self.refresh()
     }
     pub(crate) fn open_diff(&self, root: PathBuf, path: String, scope: String) -> Result<()> {

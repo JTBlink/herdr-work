@@ -165,6 +165,16 @@ impl HerdrWork {
         generation: u64,
         show_hidden: bool,
     ) -> Result<CodeSnapshot> {
+        self.code_snapshot_with_options(root, expanded, generation, show_hidden, true)
+    }
+    pub fn code_snapshot_with_options(
+        &self,
+        root: &Path,
+        expanded: &[PathBuf],
+        generation: u64,
+        show_hidden: bool,
+        decorate: bool,
+    ) -> Result<CodeSnapshot> {
         bounded_git(|| {
             let root = root.canonicalize()?;
             let mut tree = Tree::new(root.clone());
@@ -206,11 +216,13 @@ impl HerdrWork {
                     has_upstream: status.has_upstream,
                     write_error: write_error.clone(),
                 });
-                decorations.push(herdr_work_code::gitdeco::RepoStatus {
-                    root: repo.root().into(),
-                    status: status.clone(),
-                    ignored: repo.ignored().unwrap_or_default(),
-                });
+                if decorate {
+                    decorations.push(herdr_work_code::gitdeco::RepoStatus {
+                        root: repo.root().into(),
+                        status: status.clone(),
+                        ignored: repo.ignored().unwrap_or_default(),
+                    });
+                }
                 let instance = Self::worktree_identity(repo.root())?;
                 let repository = crate::work_git::repository_identity(&repo)?;
                 let expected_index = herdr_reviewr::git::staged_fingerprint(repo.root())?;
@@ -242,9 +254,11 @@ impl HerdrWork {
                     }
                 }
             }
-            let decorations = herdr_work_code::gitdeco::Decorations::build(&decorations);
-            for row in &mut files {
-                row.status = decorations.letter(&row.path, row.directory);
+            if decorate {
+                let decorations = herdr_work_code::gitdeco::Decorations::build(&decorations);
+                for row in &mut files {
+                    row.status = decorations.letter(&row.path, row.directory);
+                }
             }
             Ok(CodeSnapshot {
                 root,

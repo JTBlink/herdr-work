@@ -10,6 +10,7 @@ mod scm;
 mod search;
 mod storage;
 mod tasks;
+mod ui_state;
 mod work_git;
 
 pub use code::{CodeSnapshot, CommitPlan, DiffView, FileRow, GitChange, RepositoryStatus};
@@ -21,6 +22,7 @@ pub use review::SendOutcome;
 pub use scm::{DrawerView, GitPlan};
 pub use search::{QuickIndex, SearchRow, SearchView};
 pub use storage::fingerprint;
+pub use ui_state::{DocumentState, WorkspaceUiState};
 pub use work_git::{CommitDraft, WorkGitAction, WorkGitOutcome, WorkGitPlan};
 
 use anyhow::Result;
