@@ -225,7 +225,17 @@ impl App {
             })
     }
     pub(crate) fn apply(&mut self, epoch: u64, data: Result<Data>) {
-        if epoch != self.context.epoch && !matches!(&data, Ok(Data::Tasks(_))) {
+        // Editor results belong to their guarded session, which can outlive an
+        // unrelated Agent binding epoch. Their handlers reject closed/new sessions.
+        if epoch != self.context.epoch
+            && !matches!(
+                &data,
+                Ok(Data::Tasks(_)
+                    | Data::EditorObserved(..)
+                    | Data::EditorSaved(..)
+                    | Data::EditorReloaded(..))
+            )
+        {
             return;
         }
         match data {
@@ -248,6 +258,15 @@ impl App {
                     .and_then(|id| tasks.iter().position(|t| t.id == id))
                     .unwrap_or(self.task.min(tasks.len().saturating_sub(1)));
                 self.tasks = tasks;
+            }
+            Ok(Data::EditorObserved(session, request, result)) => {
+                self.editor_observed(session, request, result)
+            }
+            Ok(Data::EditorSaved(session, request, result)) => {
+                self.editor_saved(session, request, result)
+            }
+            Ok(Data::EditorReloaded(session, request, text, result)) => {
+                self.editor_reloaded(session, request, text, result)
             }
             Ok(_) if epoch != self.context.epoch => {}
             Ok(Data::Code(generation, _)) if generation != self.generation => {}
@@ -379,15 +398,6 @@ impl App {
                     Some(result.unwrap_or_else(|e| format!("无法显示 Git 对象：{e}")));
             }
             Ok(Data::Drawer(..) | Data::Show(..)) => {}
-            Ok(Data::EditorObserved(session, request, result)) => {
-                self.editor_observed(session, request, result)
-            }
-            Ok(Data::EditorSaved(session, request, result)) => {
-                self.editor_saved(session, request, result)
-            }
-            Ok(Data::EditorReloaded(session, request, text, result)) => {
-                self.editor_reloaded(session, request, text, result)
-            }
             Ok(Data::Editor(path, result)) if self.edit_request.as_ref() == Some(&path) => {
                 self.edit_request = None;
                 match result {

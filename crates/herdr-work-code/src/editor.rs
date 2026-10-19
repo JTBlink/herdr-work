@@ -843,15 +843,15 @@ impl Editor {
     }
 
     fn replace_from_disk(&mut self, mut fresh: Self) {
-        let clamp = |position: TextPos| {
-            let line = position.line.min(fresh.lines.len().saturating_sub(1));
+        fn clamp(lines: &[String], position: TextPos) -> TextPos {
+            let line = position.line.min(lines.len().saturating_sub(1));
             TextPos {
                 line,
-                col: position.col.min(char_len(&fresh.lines[line])),
+                col: position.col.min(char_len(&lines[line])),
             }
-        };
-        fresh.cursor = clamp(self.cursor);
-        fresh.anchor = self.anchor.map(clamp);
+        }
+        fresh.cursor = clamp(&fresh.lines, self.cursor);
+        fresh.anchor = self.anchor.map(|position| clamp(&fresh.lines, position));
         fresh.scroll = self.scroll;
         fresh.follow_cursor = self.follow_cursor;
         *self = fresh;
