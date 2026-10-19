@@ -7,7 +7,7 @@
 原 `upstream/herdr-sidebar/plugins/herdr-sidebar` 已迁入 `crates/herdr-work-code`，包、库和内部命名使用 HerdrWork，自根 workspace、Cargo.lock、target 构建；原独立锁文件退出生产构建。原 MIT 许可证保留于该 crate 的 LICENSE，原说明、维护笔记与插件清单归档在本目录。移除原 fetch-or-build、redeploy 及来源仓库安装/发布脚本，防止手动执行时误下载或关闭独立 Sidebar 窗格；不构成本产品安装入口。
 
 
-完整功能差异见 [Sidebar 能力对齐盘点](sidebar-capability-audit.md)。下表记录本版实际接入，不代表来源全能力已经对齐。
+默认 Sidebar 直接托管原 `explorer_app::App`、`scm_app::App`；下表中的工作台适配继续用于显式 `ui --standalone`。此前的 [能力盘点](sidebar-capability-audit.md) 记录迁移阶段差异，不能代替当前默认入口的验证。
 
 ## 实际代码复用
 
@@ -27,11 +27,15 @@
 | 只读文档 | 原 viewer 的 Doc、加载、布局、选择和复制队列移动至共享 preview，来源 viewer 同用 | 高亮/行号/换行/选择复制、Markdown、图片、可选视频封面、固定文档；无来源窗格生命周期依赖 |
 | 撤销/重做 | 在共享 Editor 内补充有界历史；64 步且历史文本最多 16 MiB，键盘及粘贴共同使用 | Ctrl+Z、Ctrl+Y/Ctrl+Shift+Z；保存后撤销仍正确标识 dirty |
 | 外观和工作区状态 | 原 appearance、TreeState/ScmState 纯 DTO、FooterZones 和树导航 | 产品 ui.json 字段合并保存；按目录实例恢复树、SCM/抽屉和固定文档；关闭装饰跳过可选扫描；唯一底栏显示活动仓库 |
-| 自有宿主活动 | 原活动映射抽至纯 activity，生产不调用来源 ensure/launch | 自有 activate 在 UI 锁前验证 profile/实例/前台程序；宿主分配 TTY 或聚焦自有窗格，保留编辑和弹窗 |
+| 自有宿主活动 | 原活动映射抽至纯 activity，生产复用 launch 运行时与停靠计算，排除 ensure 生命周期 | 自有 activate 在 UI 锁前验证 profile/实例/前台程序；宿主分配 TTY 或聚焦自有窗格，保留编辑和弹窗 |
 
 Git 确认指纹包含相关 tracked/untracked 内容，预算为 256 MiB。超预算或内容无法核对时，Explorer/SCM 仍返回路径和状态，并通过 `write_error` 明确标识只读安全快照；该快照不能授权暂存，修改计划仍必须取得完整指纹。
 
-HerdrWork 保持唯一终端和事件循环。源插件的自动拆分窗格、接管/更新、旧配置读取、宿主 viewer 生命周期等模块通过 `reference-ui` 特性隔离，**生产构建不启用此特性**。该特性只供保留来源界面的显式测试；不是独立 Sidebar 的安装或升级入口。源码内不保留第二套搜索或 Git 算法。
+HerdrWork 保持唯一终端和事件循环。生产 `sidebar-ui` 特性直接编译原文件树、搜索、SCM、viewer、takeover、launch 与恢复逻辑，`sidebar_component` 仅路由原 Exit 转换，`source_sidebar` 承接唯一输入循环和宿主活动。`reference-ui` 仅用于验证保留来源二进制及其安装生命周期；生产不启用该特性，不包含原插件安装、升级和统一卸载入口。
+
+产品配置显式绑定 `<HerdrWork profile>/sidebar`，忽略独立插件资料路径，viewer/editor 子进程调用本产品隐藏入口。viewer 使用产品专属 metadata 与 profile 指纹，恢复记录按自有 socket/session 隔离。原 `LaunchLock` 机械移至 `pane_lock`，原根目录记忆机械移至 `root_memory`；参考入口继续调用同一实现。
+
+默认 viewer 沿用来源 Replace/takeover：原 pane 移入停车标签页，原进程保留；viewer 在 Sidebar 旁占据实际空间，关闭时按原恢复日志恢复 pane 与分栏。后台定期使用来源恢复函数处理退出和中断后的记录。没有以 overlay 替代 takeover。
 
 ## 专属任务 worker
 
@@ -40,7 +44,7 @@ HerdrWork 保持唯一终端和事件循环。源插件的自动拆分窗格、�
 
 ## 验证边界
 
-- 根 workspace 测试包含 Code 336 项原库测试、编辑器/搜索/面板/菜单/设置交互、文件与 Git 状态保护和专属 worker 的两种资料路径隔离；Code 原库中的 3 项测试沿用原有 ignored 标记。
+- 根 workspace 测试包含 Code 原库测试、编辑器/搜索/面板/菜单/设置交互、文件与 Git 状态保护和专属 worker 的两种资料路径隔离；Code 原库中的 3 项测试沿用原有 ignored 标记。
 - 保留来源界面通过 `cargo test -p herdr-work-code --features reference-ui --bin herdr-work-code-browser --locked` 单独验证；不能把仅核心库通过等同于原界面测试通过。
 - macOS 私有 PTY 实际验证实时搜索第80行、Quick Open、预览自动刷新、菜单/设置、120行编辑滚轮/保存、clean 重载和 dirty 保存冲突、真实 stage/unstage/Diff、创建任务、80列和终端恢复；自有活动另以私有 socket/PTY 验证。Windows 运行 Rust 渲染和业务检查，不声称验证过原生 Unix PTY 或 Unix 任务执行。
 - 安装可选 glow/ffmpeg 后，来源 glow 测试和 Engine 的 Markdown/真实临时视频封面 opt-in 测试已实际通过；普通 CI 无需这些可选工具，不把涉及用户实际 Herdr 窗格的 takeover ignored 测试当作已执行。
@@ -51,3 +55,27 @@ HerdrWork 保持唯一终端和事件循环。源插件的自动拆分窗格、�
 ![Explorer fixture](../verification/ui-explorer.png)
 
 ![Source Control fixture](../verification/ui-source-control.png)
+
+## 搜索控件复用
+
+从固定 Sidebar 源码 `081ed133f3faa377438b51ce435fe8a87c439593` 的 `explorer_app.rs::draw_content_search` 提取布局、`search_input_line`、`search_toolbar_icons` 和边框绘制至 `crates/herdr-work-code/src/search_widgets.rs`。来源界面与工作台均直接调用；空输入隐藏占位文字、输入末尾省略、块状光标及原有来源测试保留。
+
+工作台沿用原标题工具栏、三列选项间距、输入框缩进与过滤条件边框，不再使用另设的灰底输入条。适配点：搜索结果与异步任务继续由工作台单一事件循环处理；工作台新增 VS Code 风格的替换行，通过 `SearchLayout::vscode` 适配同一布局；保留原参考界面的布局入口。窄小区域统一裁剪，空间不足时隐藏工具栏或内嵌选项，键盘入口继续可用。
+
+## VS Code 风格工作台适配
+
+文件行、状态装饰与滚动条继续调用 Sidebar 的 `file_view` / `ui` 实现。原 `draw_header` 的大写标题片段移动到 `file_view::workspace_name_span` 供参考界面调用；工作台使用同模块的根目录标题适配，保留目录名大小写并支持根节点折叠。活动按钮统一固定尺寸和图标占位，数量角标由图标矩形计算，显示与鼠标命中共用几何。
+
+搜索结果的 `highlighted_search_context`、`truncate_path_tail` 从同一固定来源机械提取到 `search_widgets`，原测试与参考调用保留。工作台按文件分组显示，原内容搜索匹配范围贯通 Engine 至 TUI。替换是新增用例，匹配范围复用原搜索算法，捕获组由现有 regex 依赖展开；Engine 生成固定文件快照并预检，执行通过原 EditorSession / Editor 保存，保留 BOM、换行及磁盘变化检查。执行中途失败会报告已保存文件数，不声明跨文件原子回滚。
+
+Sidebar `launch.rs` 的纯布局类型、`open_plan`、`resize_plan`、`preferred_resize_plan`、`layout_width` 与 `repair_step` 机械移动至生产共享模块 `dock.rs`，原入口重导出，来源测试保留。HerdrWork 的活动入口只为当前原终端创建本产品侧栏，沿用 split → swap → resize 的原停靠顺序；不调用独立插件的 ensure、配置、接管或更新。默认侧栏使用来源约 32 列宽度，窄终端沿用来源 15%–50% 的宽度界限。`ui --standalone` 保留完整工作台，宿主内普通 `ui` 在获得数据锁前转交活动入口，避免重复实例报锁错误。
+
+## 默认入口验证
+
+默认 Sidebar 与直接创建原 App 的绘制缓冲在 32×24、48×32、80×24 下逐格比较，覆盖文件、搜索和 SCM。另以隔离 Herdr session 检查实际宿主创建与 takeover；不会以 fake socket 测试代替真实布局验收。验证只使用临时仓库、专属 profile 和测试 pane，不操作用户已有会话。
+
+本轮在 macOS Apple Silicon 验证通过：根 workspace 测试、保留来源界面测试、默认组件三种尺寸逐格对照、Python 安装测试、原生构建与归档隔离安装 smoke、完整工作台 PTY smoke。独立 Herdr session 的三块工作 pane 测试实际验证停车期间进程身份不变、第二个文件复用 viewer、关闭后 pane ID/方向/比例/矩形精确恢复，宿主直接关闭 viewer 后后台恢复同样通过；另从第二个安装前缀调用活动入口验证聚焦同一实例。Linux/Windows 本轮原生交互未执行。
+
+可复现的宿主验收入口为 `scripts/sidebar_smoke.py --socket <isolated-session-socket> --binary bin/herdr-work --output <new-fixture-directory>`；先在隔离 session 链接本仓库插件，入口拒绝继承的用户 socket，创建并最终关闭自己的测试 workspace。可选 `--activation-binary <second-installation>` 验证跨安装前缀聚焦。不得传入用户会话。
+
+![默认 Sidebar 三个活动的临时仓库绘制 fixture](../verification/ui-default-sidebar.png)

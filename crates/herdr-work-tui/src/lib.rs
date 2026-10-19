@@ -37,6 +37,7 @@ mod scm;
 mod scm_layout;
 mod search;
 mod sidebar_view;
+mod source_sidebar;
 mod state;
 mod task_view;
 mod timers;
@@ -65,6 +66,18 @@ pub fn run_with_initial(
     root: PathBuf,
     initial: Option<InitialView>,
 ) -> Result<()> {
+    run_with_mode(desk, root, initial, false)
+}
+
+pub fn run_with_mode(
+    desk: HerdrWork,
+    root: PathBuf,
+    initial: Option<InitialView>,
+    sidebar: bool,
+) -> Result<()> {
+    if sidebar {
+        return source_sidebar::run(desk, root, initial);
+    }
     let root = root.canonicalize()?;
     let mut context = desk.load_context()?;
     let root = if initial.is_some() {
@@ -85,6 +98,7 @@ pub fn run_with_initial(
             .unwrap_or(root)
     };
     let mut app = App::new(desk, root, context)?;
+    app.sidebar_mode = sidebar;
     if let Some(view) = initial {
         app.activate_initial_view(view);
     }

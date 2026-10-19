@@ -245,6 +245,17 @@ impl Editor {
         self.lines.join("\n")
     }
 
+    /// Replace the whole document through the existing undo and encoding path.
+    pub fn replace_text(&mut self, text: &str) {
+        self.anchor = Some(TextPos::default());
+        let line = self.lines.len().saturating_sub(1);
+        self.cursor = TextPos {
+            line,
+            col: char_len(&self.lines[line]),
+        };
+        self.insert_text(text);
+    }
+
     pub fn rows(&self, width: usize) -> Vec<VisualRow> {
         wrapped_rows(&self.lines, width)
     }

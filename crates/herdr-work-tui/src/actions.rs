@@ -58,11 +58,36 @@ impl App {
             }
             return Ok(false);
         }
+        if self.tab == Tab::Files
+            && self.focus == Focus::Sidebar
+            && self.file_root_collapsed
+            && self.prompt.is_none()
+        {
+            if matches!(key, KeyCode::Enter | KeyCode::Right) {
+                self.file_root_collapsed = false;
+                return Ok(false);
+            }
+            if matches!(
+                key,
+                KeyCode::Left
+                    | KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::Home
+                    | KeyCode::End
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+            ) {
+                return Ok(false);
+            }
+        }
         if self.search_prompt() {
             match key {
                 KeyCode::Esc | KeyCode::Down => {
                     self.prompt = None;
                     self.input.clear();
+                }
+                KeyCode::Enter if matches!(self.prompt, Some(Prompt::SearchReplace)) => {
+                    self.prepare_search_replacement(false)?;
                 }
                 KeyCode::Enter => {
                     self.prompt = None;
@@ -76,20 +101,30 @@ impl App {
                     }
                 }
                 KeyCode::Tab | KeyCode::BackTab => {
-                    self.prompt = match self.prompt {
-                        Some(Prompt::Search(_)) if !self.search_quick => {
+                    let backwards = key == KeyCode::BackTab;
+                    self.prompt = match (&self.prompt, backwards) {
+                        (Some(Prompt::Search(_)), false)
+                            if !self.search_quick && self.search_replace_visible =>
+                        {
+                            Some(Prompt::SearchReplace)
+                        }
+                        (Some(Prompt::Search(_) | Prompt::SearchReplace), false)
+                            if !self.search_quick && self.search_filters_visible() =>
+                        {
                             Some(Prompt::SearchInclude)
                         }
-                        Some(Prompt::SearchInclude) => Some(Prompt::SearchExclude),
+                        (Some(Prompt::SearchInclude), false) => Some(Prompt::SearchExclude),
+                        (Some(Prompt::SearchReplace), true) => Some(Prompt::Search(false)),
+                        (Some(Prompt::SearchInclude), true) if self.search_replace_visible => {
+                            Some(Prompt::SearchReplace)
+                        }
+                        (Some(Prompt::SearchInclude), true) => Some(Prompt::Search(false)),
+                        (Some(Prompt::SearchExclude), true) => Some(Prompt::SearchInclude),
                         _ => None,
                     };
-                    if matches!(
-                        self.prompt,
-                        Some(Prompt::SearchInclude | Prompt::SearchExclude)
-                    ) {
-                        self.search_details = true;
-                    }
                     self.input = match self.prompt {
+                        Some(Prompt::Search(_)) => self.search_query.clone(),
+                        Some(Prompt::SearchReplace) => self.search_replacement.clone(),
                         Some(Prompt::SearchInclude) => self.search_include.clone(),
                         Some(Prompt::SearchExclude) => self.search_exclude.clone(),
                         _ => String::new(),
@@ -497,6 +532,9 @@ impl App {
     }
     fn submit_prompt_inner(&mut self) -> Result<()> {
         match self.prompt.as_ref() {
+            Some(Prompt::ReplaceConfirm(_)) => {
+                anyhow::ensure!(self.input == "REPLACE", "请输入 REPLACE 确认替换")
+            }
             Some(Prompt::Git(_)) => {
                 anyhow::ensure!(self.input == "APPLY", "请输入 APPLY 确认 Git 操作")
             }
@@ -519,6 +557,16 @@ impl App {
         let input = std::mem::take(&mut self.input);
         let prompt = self.prompt.take().unwrap();
         match prompt {
+            Prompt::SearchReplace => self.search_replacement = input,
+            Prompt::ReplaceConfirm(plan) => {
+                anyhow::ensure!(!self.search_replace_pending, "替换正在执行");
+                let request = self.search_replace_request;
+                let root = plan.root.clone();
+                self.job(move |d| {
+                    Ok(Data::ReplaceDone(request, root, d.apply_replacement(&plan)))
+                })?;
+                self.search_replace_pending = true;
+            }
             Prompt::Resolve(name) => {
                 anyhow::ensure!(!input.trim().is_empty(), "请输入实际核对证据");
                 self.job(move |d| {

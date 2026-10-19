@@ -9,6 +9,7 @@ license = "MIT"
 [features]
 default = []
 reference-ui = []
+sidebar-ui = []
 
 [lib]
 name = "herdr_work_code"

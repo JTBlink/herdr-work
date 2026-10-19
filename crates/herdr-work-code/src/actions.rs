@@ -477,20 +477,20 @@ pub fn open_external(path: &Path) -> io::Result<()> {
         .map(|_| ())
 }
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 const EDITOR_COMMAND_ENV: &str = "HERDR_WORK_CODE_EDITOR";
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 const EDITOR_FILE_ENV: &str = "HERDR_WORK_CODE_EDITOR_FILE";
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 const EDITOR_FILE_TOKEN_ENV: &str = "HERDR_WORK_CODE_EDITOR_FILE_TOKEN";
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 const EDITOR_METADATA_SOURCE: &str = "herdr-work-code-editor";
-#[cfg(any(feature = "reference-ui", test))]
-const EDITOR_PATH_TOKEN: &str = "hs-editor-path";
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
+const EDITOR_PATH_TOKEN: &str = "herdr-work-editor-path";
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 const EDITOR_HEARTBEAT_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub fn configured_editor() -> Option<String> {
     crate::state::load_editor_command().or_else(|| {
         [EDITOR_COMMAND_ENV, "VISUAL", "EDITOR"]
@@ -504,7 +504,7 @@ pub fn configured_editor() -> Option<String> {
     })
 }
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 fn editor_argv(command: &str, file: &Path) -> io::Result<Vec<String>> {
     let mut argv = split_editor_command(command)?;
     if argv.is_empty() {
@@ -527,7 +527,7 @@ fn editor_argv(command: &str, file: &Path) -> io::Result<Vec<String>> {
     Ok(argv)
 }
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 fn split_editor_command(command: &str) -> io::Result<Vec<String>> {
     let mut argv = Vec::new();
     let mut current = String::new();
@@ -587,7 +587,7 @@ fn split_editor_command(command: &str) -> io::Result<Vec<String>> {
     Ok(argv)
 }
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub fn run_configured_editor() -> io::Result<()> {
     let command = std::env::var(EDITOR_COMMAND_ENV)
         .map_err(|_| io::Error::new(io::ErrorKind::NotFound, "custom editor is not configured"))?;
@@ -632,7 +632,7 @@ pub fn run_configured_editor() -> io::Result<()> {
     }
 }
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub fn open_in_editor_tab(my_pane_id: &str, root: &Path, file: &Path) -> io::Result<()> {
     let command = configured_editor().ok_or_else(|| {
         io::Error::new(
@@ -704,7 +704,7 @@ pub fn open_in_editor_tab(my_pane_id: &str, root: &Path, file: &Path) -> io::Res
         "pane.send_input",
         serde_json::json!({
             "pane_id": pane_id,
-            "text": format!("{} --run-custom-editor", crate::state::EXECUTABLE_NAME),
+            "text": crate::state::custom_editor_command(),
             "keys": ["Enter"],
         }),
     ) {
@@ -715,7 +715,7 @@ pub fn open_in_editor_tab(my_pane_id: &str, root: &Path, file: &Path) -> io::Res
     Ok(())
 }
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 fn editor_file_token(file: &Path) -> String {
     let path = file.canonicalize().unwrap_or_else(|_| file.to_path_buf());
     let key = path.display().to_string();
@@ -724,7 +724,7 @@ fn editor_file_token(file: &Path) -> String {
     crate::viewer::document_token(&key)
 }
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 fn editor_tab_for_file(
     panes_json: &str,
     workspace_id: &str,
@@ -769,7 +769,7 @@ fn editor_tab_for_file(
     })
 }
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 fn report_editor_identity(pane_id: &str, file_token: Option<&str>) -> io::Result<()> {
     let heartbeat = file_token.map(|_| crate::state::unix_now().to_string());
     crate::ipc::call_text(
@@ -786,7 +786,7 @@ fn report_editor_identity(pane_id: &str, file_token: Option<&str>) -> io::Result
     Ok(())
 }
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 fn tab_create_ids(response: &str) -> Option<(String, String)> {
     let value: serde_json::Value =
         serde_json::from_str(response.trim_start_matches('\u{feff}')).ok()?;

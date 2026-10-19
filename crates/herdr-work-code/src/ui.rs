@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use crate::appearance::ColorTheme;
 use crate::icons::IconTheme;
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 use crate::state::View;
 
 /// Keycap chip colors for the footer hints — a subtle "keyboard key" look
@@ -694,7 +694,7 @@ pub fn truncate_to(s: String, max: usize) -> String {
 /// Pane ids in the same tab as `my_pane_id` that belong to the `other` view
 /// (matched by its standalone label or its metadata token), from a
 /// `pane.list` response.
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub fn sibling_panes_of(pane_list_json: &str, my_pane_id: &str, other: View) -> Vec<String> {
     #[derive(serde::Deserialize)]
     struct Msg {
@@ -733,6 +733,37 @@ pub fn sibling_panes_of(pane_list_json: &str, my_pane_id: &str, other: View) -> 
         })
         .filter_map(|p| p.pane_id.clone())
         .collect()
+}
+
+/// Count badge anchored to the original Sidebar icon's lower-right cell.
+/// It overlays the breathing row and never changes chip or glyph geometry.
+pub fn draw_activity_badge(
+    frame: &mut ratatui::Frame,
+    bounds: (u16, u16),
+    middle_y: u16,
+    count: usize,
+) {
+    if count == 0 || bounds.1 <= bounds.0 || middle_y + 1 >= frame.area().bottom() {
+        return;
+    }
+    let text = if count > 99 {
+        "99+".to_owned()
+    } else {
+        count.to_string()
+    };
+    let x = bounds.0.saturating_add(2);
+    let width = (text.len() as u16).min(frame.area().right().saturating_sub(x));
+    if width == 0 {
+        return;
+    }
+    frame.render_widget(
+        ratatui::widgets::Paragraph::new(text).style(
+            Style::default()
+                .fg(palette().button_fg)
+                .bg(palette().button_bg),
+        ),
+        ratatui::layout::Rect::new(x, middle_y + 1, width, 1),
+    );
 }
 
 #[cfg(test)]

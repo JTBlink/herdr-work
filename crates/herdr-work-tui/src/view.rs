@@ -44,6 +44,8 @@ impl App {
                 Prompt::Stop(_) => "Type STOP to stop execution",
                 Prompt::Search(true) => "快速打开文件",
                 Prompt::Search(false) => "搜索文本",
+                Prompt::SearchReplace => "替换",
+                Prompt::ReplaceConfirm(_) => "替换预览：输入 REPLACE 确认，Esc 取消",
                 Prompt::SearchInclude => "包含文件（逗号分隔 glob）",
                 Prompt::SearchExclude => "排除文件（逗号分隔 glob）",
                 Prompt::File(plan) => match plan.action {
@@ -67,6 +69,7 @@ impl App {
                 Prompt::Resolve(_) => "核对后输入实际证据（仅保存核对，不重试）",
             };
             let details = match prompt {
+                Prompt::ReplaceConfirm(plan) => Some(plan.description()),
                 Prompt::Git(plan) => Some(format!(
                     "工作目录：{}\ngit {}",
                     plan.root.display(),
@@ -87,6 +90,8 @@ impl App {
             };
             let height = if matches!(prompt, Prompt::Resolve(_)) {
                 13
+            } else if matches!(prompt, Prompt::ReplaceConfirm(_)) {
+                18
             } else if details.is_some() {
                 8
             } else {

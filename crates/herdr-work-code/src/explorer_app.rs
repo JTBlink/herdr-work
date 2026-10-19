@@ -2,7 +2,7 @@
 //! nested indentation, per-file-type icons, and a VS Code-like hide/show command
 //! (`b`) when the user wants the columns back.
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reference-ui"))]
 use herdr_work_code::ui::status_color;
 use std::collections::HashMap;
 
@@ -13,12 +13,11 @@ use crossterm::event::{
 };
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
-#[cfg(test)]
+#[cfg(all(test, feature = "reference-ui"))]
 use ratatui::style::Modifier;
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, List, ListItem, Paragraph};
-use unicode_width::UnicodeWidthChar;
+use ratatui::widgets::{Clear, List, ListItem, Paragraph};
 
 use herdr_work_code::actions::{self, MenuAction, MenuEntry};
 use herdr_work_code::branch_ui::{BranchPicker, FooterZones, PickerAction, draw_git_footer};
@@ -28,16 +27,20 @@ use herdr_work_code::gitdeco::{Decorations, RepoStatus};
 use herdr_work_code::icons::IconTheme;
 use herdr_work_code::ipc;
 use herdr_work_code::search::*;
+use herdr_work_code::search_widgets::{
+    SearchLayout, draw_field, highlighted_search_context, search_input_line, search_toolbar_icons,
+    truncate_path_tail,
+};
 use herdr_work_code::state::{self as sidebar, View};
 use herdr_work_code::tree::{Row, Tree};
 use herdr_work_code::ui::{
     TitleAction, activity_button_style, activity_icons, chrome_button_style, draw_activity_caps,
     draw_scrollbar, gear_icon, hits, hits_activity_button, hits_collapse_button, input_tail,
     keep_visible_scroll, palette, selection_style, set_color_theme, sibling_panes_of,
-    title_action_icon, title_action_spans, title_actions_visible, title_actions_width, truncate_to,
+    title_action_spans, title_actions_visible, title_actions_width, truncate_to,
     wrap_footer_message, wrap_hints,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "reference-ui"))]
 use regex::{Regex, RegexBuilder};
 
 use herdr_work_code::state::Exit;
@@ -74,6 +77,9 @@ struct PaneCtl {
 
 impl PaneCtl {
     fn from_env() -> Option<Self> {
+        if cfg!(test) {
+            return None;
+        }
         let pane_id = std::env::var("HERDR_PANE_ID")
             .ok()
             .filter(|id| !id.is_empty())?;
@@ -271,7 +277,9 @@ struct ContentSearchResult {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Setting {
     Version,
+    #[cfg(feature = "reference-ui")]
     Update,
+    #[cfg(feature = "reference-ui")]
     UnifiedSidebar,
     DockRight,
     SidebarWidth,
@@ -427,6 +435,19 @@ struct SearchZones {
 }
 
 impl App {
+    pub fn host_request_busy(&self) -> bool {
+        !matches!(
+            &self.overlay,
+            None | Some(Overlay::ContentSearch {
+                focus: SearchFocus::Results,
+                ..
+            })
+        )
+    }
+    pub fn host_notice(&mut self, message: String) {
+        self.notice = Some(message);
+    }
+
     pub fn new(
         root: PathBuf,
         cwd_follower: std::rc::Rc<std::cell::RefCell<herdr_work_code::launch::CwdFollower>>,
@@ -441,10 +462,7 @@ impl App {
             .selected
             .and_then(|want| rows.iter().position(|r| r.path == want));
         let theme = IconTheme::resolve(
-            std::env::var("HERDR_WORK_CODE_ICONS")
-                .or_else(|_| std::env::var("HERDR_AA_FILETREE_ICONS"))
-                .ok()
-                .as_deref(),
+            std::env::var("HERDR_WORK_CODE_ICONS").ok().as_deref(),
             sidebar::load_state().icons,
         );
         let pane_ctl = PaneCtl::from_env();
@@ -892,6 +910,7 @@ impl App {
     /// close the other panel's standalone pane in this tab. Off: split the
     /// other view back out into its own pane. Deliberately silent — the
     /// layout change is its own feedback.
+    #[cfg(feature = "reference-ui")]
     fn set_unified(&mut self, on: bool) {
         if on == self.merged() || self.other_exe.is_none() {
             return;
@@ -935,6 +954,7 @@ impl App {
     }
 
     /// Close the other panel's standalone pane in our tab, if one is open.
+    #[cfg(feature = "reference-ui")]
     fn close_other_standalone_pane(&self) -> std::io::Result<bool> {
         let Some(ctl) = &self.pane_ctl else {
             return Ok(false);
@@ -954,6 +974,7 @@ impl App {
     }
 
     /// Open the other view in a fresh pane beside this one (detach).
+    #[cfg(feature = "reference-ui")]
     fn spawn_other_pane(&self) {
         let (Some(ctl), Some(_)) = (&self.pane_ctl, &self.other_exe) else {
             return;
@@ -1945,6 +1966,7 @@ impl App {
     // ---- Settings modal ----
 
     fn open_settings(&mut self) {
+        #[cfg(feature = "reference-ui")]
         herdr_work_code::updates::check();
         self.suspend_search_for_modal();
         self.overlay = Some(Overlay::Settings {
@@ -2397,15 +2419,18 @@ impl App {
 
     /// The modal's rows for the current state.
     fn settings_rows(&self) -> Vec<SettingRow> {
+        #[cfg(feature = "reference-ui")]
         let update = herdr_work_code::updates::row();
         vec![
             (
                 Setting::Version,
                 "Sidebar version",
-                herdr_work_code::updates::VERSION.into(),
+                env!("CARGO_PKG_VERSION").into(),
                 false,
             ),
+            #[cfg(feature = "reference-ui")]
             (Setting::Update, update.0, update.1, update.2),
+            #[cfg(feature = "reference-ui")]
             (
                 Setting::UnifiedSidebar,
                 "Unified sidebar",
@@ -2571,6 +2596,7 @@ impl App {
         }
         match setting {
             Setting::Version => {}
+            #[cfg(feature = "reference-ui")]
             Setting::Update => {
                 self.notice = Some(
                     herdr_work_code::updates::activate()
@@ -2578,6 +2604,7 @@ impl App {
                         .unwrap_or_else(|error| error),
                 );
             }
+            #[cfg(feature = "reference-ui")]
             Setting::UnifiedSidebar => {
                 // The pane layout changes underneath the modal; close it.
                 self.overlay = None;
@@ -3358,11 +3385,7 @@ impl App {
         };
         // The name yields to the buttons and gear in narrow panes.
         let avail = usize::from(area.width.saturating_sub(gear_w + actions_w));
-        let root_label = truncate_to(format!(" {}", self.tree.root_name().to_uppercase()), avail);
-        let name = Span::styled(
-            root_label,
-            Style::default().bold().fg(palette().header_accent),
-        );
+        let name = workspace_name_span(&self.tree.root_name(), avail);
         let pad = usize::from(area.width)
             .saturating_sub(name.width() + usize::from(actions_w) + usize::from(gear_w));
         let mut spans = vec![name, Span::raw(" ".repeat(pad))];
@@ -3554,6 +3577,12 @@ impl App {
         line.push(Span::raw(" ".repeat(pad)));
         line.push(gear);
         frame.render_widget(Paragraph::new(Line::from(line)), area);
+        herdr_work_code::ui::draw_activity_badge(
+            frame,
+            bounds[5],
+            area.y,
+            self.deco.changed_file_count(),
+        );
     }
 
     /// Render the context-menu popup near its anchor, clamped inside the pane,
@@ -3739,14 +3768,15 @@ impl App {
             return;
         }
 
+        let layout = SearchLayout::new(area, details_expanded, true);
         let title = Rect::new(area.x, area.y, area.width, 1);
-        let toolbar_width = 9.min(area.width);
-        let toolbar_x = area.x + area.width.saturating_sub(toolbar_width);
+        let toolbar_width = layout.toolbar.iter().map(|r| r.width).sum();
+        let toolbar_x = layout.toolbar[0].x;
         let (refresh_icon, clear_icon, details_icon) = search_toolbar_icons(self.theme);
         frame.render_widget(Paragraph::new(" Search").bold(), title);
-        self.search_zones.refresh = Rect::new(toolbar_x, title.y, 3.min(toolbar_width), 1);
-        self.search_zones.clear = Rect::new(toolbar_x.saturating_add(3), title.y, 3, 1);
-        self.search_zones.details = Rect::new(toolbar_x.saturating_add(6), title.y, 3, 1);
+        self.search_zones.refresh = layout.toolbar[0];
+        self.search_zones.clear = layout.toolbar[1];
+        self.search_zones.details = layout.toolbar[2];
         let hovered = |rect: Rect| {
             self.mouse_pos.is_some_and(|(x, y)| {
                 x >= rect.x && x < rect.right() && y >= rect.y && y < rect.bottom()
@@ -3771,32 +3801,11 @@ impl App {
             Rect::new(toolbar_x, title.y, toolbar_width, 1),
         );
 
-        let query_y = area.y.saturating_add(2);
-        let query_box = Rect::new(
-            area.x.saturating_add(2),
-            query_y,
-            area.width.saturating_sub(3),
-            3,
-        );
-        let option_width = query_box.width.min(9);
-        let option_x = query_box.x
-            + query_box
-                .width
-                .saturating_sub(option_width.saturating_add(1));
-        let query_border = if focus == SearchFocus::Query {
-            Style::default().fg(palette().accent_focus)
-        } else {
-            Style::default().dim()
-        };
-        frame.render_widget(Block::bordered().border_style(query_border), query_box);
-        let query_inner = Rect::new(
-            query_box.x.saturating_add(1),
-            query_box.y.saturating_add(1),
-            query_box
-                .width
-                .saturating_sub(option_width.saturating_add(2)),
-            1,
-        );
+        let query_box = layout.query_box;
+        let option_width = layout.options.iter().map(|r| r.width).sum();
+        let option_x = layout.options[0].x;
+        draw_field(frame, query_box, focus == SearchFocus::Query);
+        let query_inner = layout.query;
         self.search_zones.query = query_inner;
         frame.render_widget(
             Paragraph::new(search_input_line(
@@ -3821,34 +3830,16 @@ impl App {
             Span::styled("ab ", option_style(options.whole_word)),
             Span::styled(".* ", option_style(options.regex)),
         ];
-        let mut option_cursor = options_area.x;
-        let mut option_bounds = Vec::new();
-        for span in &option_spans {
-            let width = span.width() as u16;
-            option_bounds.push(Rect::new(option_cursor, options_area.y, width, 1));
-            option_cursor = option_cursor.saturating_add(width);
-        }
-        self.search_zones.match_case = option_bounds[0];
-        self.search_zones.whole_word = option_bounds[1];
-        self.search_zones.regex = option_bounds[2];
+        self.search_zones.match_case = layout.options[0];
+        self.search_zones.whole_word = layout.options[1];
+        self.search_zones.regex = layout.options[2];
         frame.render_widget(
             Paragraph::new(Line::from(option_spans.to_vec())),
             options_area,
         );
 
-        let replace_y = query_box.y.saturating_add(query_box.height);
-        let replace_box = Rect::new(
-            area.x.saturating_add(2),
-            replace_y,
-            area.width.saturating_sub(3),
-            3,
-        );
-        let replace_border = if focus == SearchFocus::Replace {
-            Style::default().fg(palette().accent_focus)
-        } else {
-            Style::default().dim()
-        };
-        frame.render_widget(Block::bordered().border_style(replace_border), replace_box);
+        let replace_box = layout.replace_box;
+        draw_field(frame, replace_box, focus == SearchFocus::Replace);
         let replace_inner = Rect::new(
             replace_box.x.saturating_add(1),
             replace_box.y.saturating_add(1),
@@ -3865,39 +3856,14 @@ impl App {
             )),
             replace_inner,
         );
-        let mut results_y = replace_box
-            .y
-            .saturating_add(replace_box.height)
-            .saturating_add(1);
+        let mut results_y = layout.body.y;
 
         if details_expanded {
-            let include_label = Rect::new(
-                area.x.saturating_add(2),
-                results_y,
-                area.width.saturating_sub(3),
-                1,
-            );
+            let include_label = layout.include_label;
             frame.render_widget(Paragraph::new("files to include").dim(), include_label);
-            let include_box = Rect::new(
-                area.x.saturating_add(2),
-                results_y.saturating_add(1),
-                area.width.saturating_sub(3),
-                3,
-            );
-            frame.render_widget(
-                Block::bordered().border_style(if focus == SearchFocus::Include {
-                    Style::default().fg(palette().accent_focus)
-                } else {
-                    Style::default().dim()
-                }),
-                include_box,
-            );
-            let include_inner = Rect::new(
-                include_box.x.saturating_add(1),
-                include_box.y.saturating_add(1),
-                include_box.width.saturating_sub(2),
-                1,
-            );
+            let include_box = layout.include_box;
+            draw_field(frame, include_box, focus == SearchFocus::Include);
+            let include_inner = layout.include;
             self.search_zones.include = include_inner;
             frame.render_widget(
                 Paragraph::new(search_input_line(
@@ -3909,34 +3875,11 @@ impl App {
                 include_inner,
             );
 
-            let exclude_label_y = include_box.y.saturating_add(include_box.height);
-            let exclude_label = Rect::new(
-                area.x.saturating_add(2),
-                exclude_label_y,
-                area.width.saturating_sub(3),
-                1,
-            );
+            let exclude_label = layout.exclude_label;
             frame.render_widget(Paragraph::new("files to exclude").dim(), exclude_label);
-            let exclude_box = Rect::new(
-                area.x.saturating_add(2),
-                exclude_label_y.saturating_add(1),
-                area.width.saturating_sub(3),
-                3,
-            );
-            frame.render_widget(
-                Block::bordered().border_style(if focus == SearchFocus::Exclude {
-                    Style::default().fg(palette().accent_focus)
-                } else {
-                    Style::default().dim()
-                }),
-                exclude_box,
-            );
-            let exclude_inner = Rect::new(
-                exclude_box.x.saturating_add(1),
-                exclude_box.y.saturating_add(1),
-                exclude_box.width.saturating_sub(2),
-                1,
-            );
+            let exclude_box = layout.exclude_box;
+            draw_field(frame, exclude_box, focus == SearchFocus::Exclude);
+            let exclude_inner = layout.exclude;
             self.search_zones.exclude = exclude_inner;
             frame.render_widget(
                 Paragraph::new(search_input_line(
@@ -4078,107 +4021,6 @@ impl App {
     }
 }
 
-fn search_input_line(value: &str, placeholder: &str, focused: bool, width: u16) -> Line<'static> {
-    let available = usize::from(width).saturating_sub(usize::from(focused));
-    let mut spans = if value.is_empty() && !focused {
-        vec![Span::styled(
-            truncate_to(placeholder.to_string(), available),
-            Style::default().dim(),
-        )]
-    } else if value.is_empty() {
-        Vec::new()
-    } else {
-        vec![Span::raw(input_tail(value, available))]
-    };
-    if focused {
-        spans.push(Span::raw("█"));
-    }
-    Line::from(spans)
-}
-
-fn search_toolbar_icons(theme: IconTheme) -> (&'static str, &'static str, &'static str) {
-    match theme {
-        IconTheme::Material => (
-            title_action_icon(theme, TitleAction::Refresh),
-            "\u{eabf}",
-            "\u{ea7c}",
-        ),
-        IconTheme::Emoji => (title_action_icon(theme, TitleAction::Refresh), "×", "⋯"),
-    }
-}
-
-fn highlighted_search_context(
-    context: &str,
-    matches: &[(usize, usize)],
-    max_width: usize,
-    match_style: Style,
-) -> Vec<Span<'static>> {
-    let context_width = Span::raw(context).width();
-    let (visible_end, truncated) = if context_width <= max_width {
-        (context.len(), false)
-    } else if max_width < 2 {
-        (0, false)
-    } else {
-        let mut width = 0;
-        let mut end = 0;
-        for (index, character) in context.char_indices() {
-            let character_width = character.width().unwrap_or(0);
-            if width + character_width + 1 > max_width {
-                break;
-            }
-            width += character_width;
-            end = index + character.len_utf8();
-        }
-        (end, true)
-    };
-    let mut spans = Vec::new();
-    let mut cursor = 0;
-    for &(start, end) in matches {
-        if start >= visible_end {
-            break;
-        }
-        let start = start.max(cursor);
-        let end = end.min(visible_end);
-        if start >= end {
-            continue;
-        }
-        if start > cursor {
-            spans.push(Span::raw(context[cursor..start].to_string()));
-        }
-        spans.push(Span::styled(context[start..end].to_string(), match_style));
-        cursor = end;
-    }
-    if cursor < visible_end {
-        spans.push(Span::raw(context[cursor..visible_end].to_string()));
-    }
-    if truncated {
-        spans.push(Span::raw("…"));
-    }
-    spans
-}
-
-fn truncate_path_tail(label: &str, max: usize) -> String {
-    let width = Span::raw(label).width();
-    if width <= max {
-        return label.to_string();
-    }
-    if max == 0 {
-        return String::new();
-    }
-    let mut used = 1;
-    let mut reversed = Vec::new();
-    for ch in label.chars().rev() {
-        let char_width = ch.width().unwrap_or(0);
-        if used + char_width > max {
-            break;
-        }
-        used += char_width;
-        reversed.push(ch);
-    }
-    let tail = reversed.into_iter().rev().collect::<String>();
-    format!("…{tail}")
-}
-
 fn pane_focused_in(pane_list_json: &str, pane_id: &str) -> bool {
     let Ok(value) =
         serde_json::from_str::<serde_json::Value>(pane_list_json.trim_start_matches('\u{feff}'))
@@ -4314,7 +4156,7 @@ fn rebuild_tree_rows(
     *scroll = (*scroll).min(rows.len() - 1);
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reference-ui"))]
 fn content_line_matches(
     line: &str,
     query: &str,
@@ -4327,7 +4169,7 @@ fn content_line_matches(
     !literal_match_ranges(line, query, options).is_empty()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reference-ui"))]
 mod tests {
     use super::*;
 

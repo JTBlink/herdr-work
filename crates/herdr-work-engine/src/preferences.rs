@@ -40,7 +40,7 @@ impl UiPreferences {
         value.validate()?;
         Ok(value)
     }
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         ensure!(
             self.sidebar_width
                 == herdr_work_code::appearance::clamp_sidebar_width(self.sidebar_width),

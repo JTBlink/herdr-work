@@ -1,0 +1,109 @@
+//! Default Sidebar: drive the migrated source apps with one terminal and
+//! one input loop. Host requests remain typed background jobs.
+use anyhow::Result;
+use crossterm::{
+    event::{self, EnableMouseCapture, Event},
+    execute,
+};
+use herdr_work_engine::{ActivationRequest, HerdrWork, InitialView, JobQueue};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
+
+enum HostResult {
+    Report(Result<()>),
+    Activation(Result<Option<ActivationRequest>>),
+    Recovery(Result<(), String>),
+}
+
+pub(crate) fn run(desk: HerdrWork, root: PathBuf, initial: Option<InitialView>) -> Result<()> {
+    herdr_work_code::state::configure_product_profile(desk.root())?;
+    herdr_work_code::ui::set_color_theme(herdr_work_code::state::load_state().color_theme);
+    let registration = desk.ui_registration();
+    let jobs = JobQueue::default();
+    if let Some(registration) = registration.clone() {
+        let desk = desk.clone();
+        jobs.submit(0, move || {
+            Ok(HostResult::Report(desk.report_ui(&registration)))
+        })?;
+    }
+    let mut sidebar = herdr_work_code::sidebar_component::Sidebar::new(root, initial);
+    let mut terminal = ratatui::init();
+    let _guard = crate::TerminalGuard;
+    execute!(std::io::stdout(), EnableMouseCapture)?;
+    let mut last_poll = Instant::now();
+    let mut last_recovery = Instant::now() - Duration::from_secs(3);
+    let mut pending = false;
+    let mut seen = None;
+    loop {
+        while let Ok((_, result)) = jobs.results.try_recv() {
+            match result {
+                Ok(HostResult::Report(Err(error))) => {
+                    sidebar.notice(format!("宿主身份登记失败：{error:#}"))
+                }
+                Ok(HostResult::Report(Ok(()))) => {}
+                Ok(HostResult::Activation(result)) => {
+                    pending = false;
+                    match result {
+                        Ok(Some(request)) => {
+                            seen = Some(request.nonce);
+                            sidebar.activate(&request.root, request.view);
+                        }
+                        Err(error) => sidebar.notice(format!("活动读取失败：{error:#}")),
+                        _ => {}
+                    }
+                }
+                Ok(HostResult::Recovery(Err(error))) => {
+                    sidebar.notice(format!("布局恢复未完成：{error}"))
+                }
+                Ok(HostResult::Recovery(Ok(()))) => {}
+                Err(error) => sidebar.notice(error.to_string()),
+            }
+        }
+        terminal.draw(|frame| sidebar.draw(frame))?;
+        if event::poll(Duration::from_millis(100))? {
+            let event = event::read()?;
+            if matches!(event, Event::Key(_) | Event::Mouse(_) | Event::Resize(..))
+                && sidebar.event(event)
+            {
+                break;
+            }
+        }
+        sidebar.tick();
+        if registration.is_some()
+            && last_recovery.elapsed() >= Duration::from_secs(2)
+            && let Ok(tab) = std::env::var("HERDR_TAB_ID")
+            && jobs
+                .submit(0, move || {
+                    Ok(HostResult::Recovery(
+                        herdr_work_code::takeover::recover_owned_session(&tab),
+                    ))
+                })
+                .is_ok()
+        {
+            last_recovery = Instant::now();
+        }
+
+        if !pending
+            && last_poll.elapsed() >= Duration::from_millis(500)
+            && let Some(registration) = registration.clone()
+        {
+            let desk = desk.clone();
+            let seen = seen.clone();
+            if jobs
+                .submit(0, move || {
+                    Ok(HostResult::Activation(
+                        desk.pending_activation(&registration, seen.as_deref()),
+                    ))
+                })
+                .is_ok()
+            {
+                pending = true;
+                last_poll = Instant::now();
+            }
+        }
+    }
+    sidebar.flush();
+    Ok(())
+}

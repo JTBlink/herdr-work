@@ -45,7 +45,8 @@ fn capture_fixture(app: &mut App, name: &str) {
     };
     let original = app.root.clone();
     app.root = "/example/herdr-work".into();
-    let mut terminal = Terminal::new(TestBackend::new(120, 32)).unwrap();
+    let width = if app.sidebar_mode { 38 } else { 120 };
+    let mut terminal = Terminal::new(TestBackend::new(width, 32)).unwrap();
     terminal.draw(|f| app.draw(f)).unwrap();
     app.root = original;
     let cells=terminal.backend().buffer().content.iter().map(|c|serde_json::json!({"text":c.symbol(),"fg":format!("{:?}",c.fg),"bg":format!("{:?}",c.bg)})).collect::<Vec<_>>();
@@ -53,7 +54,7 @@ fn capture_fixture(app: &mut App, name: &str) {
     std::fs::write(
         std::path::Path::new(&directory).join(format!("{name}.json")),
         serde_json::to_vec(
-            &serde_json::json!({"width":120,"height":32,"cells":cells,"fixture":true}),
+            &serde_json::json!({"width":width,"height":32,"cells":cells,"fixture":true}),
         )
         .unwrap(),
     )
@@ -204,7 +205,7 @@ fn polished_rail_keeps_icons_badges_hover_and_clicks_in_their_visible_slots() {
                     .collect::<String>()
             };
             assert!(rail_row(1).contains(activity_icon(app.icon_theme(), ActivityIcon::Files)));
-            assert!(rail_row(6).contains("99+"));
+            assert!(rail_row(8).contains("99+"));
             assert!(
                 rail_row(7).contains(activity_icon(app.icon_theme(), ActivityIcon::SourceControl))
             );
@@ -449,7 +450,7 @@ fn default_activity_exposes_explorer_files_and_preview() {
     let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     let rendered = screen(&mut app);
-    assert!(rendered.contains("EXPLORER"));
+    assert!(rendered.contains("repo"));
     assert!(rendered.contains("visible.txt"));
     assert!(rendered.contains("Preview"));
     assert!(
@@ -513,7 +514,7 @@ fn explorer_click_opens_file_and_content_scroll_keeps_tree_selection() {
         .iter()
         .map(|c| c.symbol())
         .collect::<String>();
-    assert!(text.contains("EXPLORER") && text.contains("visible.txt"));
+    assert!(text.contains("repo") && text.contains("visible.txt"));
     assert!(text.contains("second line"));
 }
 #[test]
@@ -1165,7 +1166,7 @@ fn search_mouse_filter_and_include_field_remain_live() {
     click(&mut app, layout.options[0]);
     assert!(app.search_options.match_case);
     assert!(matches!(app.prompt, Some(Prompt::Search(false))));
-    click(&mut app, layout.details);
+    click(&mut app, layout.toolbar[2]);
     assert!(app.search_filters_visible());
     let layout = app.search_layout(sidebar);
     click(&mut app, layout.include);
@@ -1175,6 +1176,29 @@ fn search_mouse_filter_and_include_field_remain_live() {
     assert_eq!(app.search_include, "*.txt");
     app.key(KeyCode::Tab).unwrap();
     assert!(matches!(app.prompt, Some(Prompt::SearchExclude)));
+    let expanded = app.search_layout(sidebar);
+    let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
+    terminal.draw(|f| app.draw(f)).unwrap();
+    for rect in [
+        expanded.query_box,
+        expanded.include_box,
+        expanded.exclude_box,
+    ] {
+        assert_eq!(terminal.backend().buffer()[(rect.x, rect.y)].symbol(), "┌");
+        assert_eq!(
+            terminal.backend().buffer()[(rect.x, rect.bottom() - 1)].symbol(),
+            "└"
+        );
+    }
+    // Title buttons must consume clicks before the generic sidebar title menu.
+    click(&mut app, expanded.toolbar[2]);
+    assert!(!app.search_filters_visible());
+    assert_eq!(app.search_include, "*.txt");
+    assert!(app.overlay.is_none());
+    assert!(matches!(app.prompt, Some(Prompt::Search(false))));
+    click(&mut app, expanded.toolbar[1]);
+    assert!(app.search_query.is_empty() && app.search_include.is_empty());
+    assert!(app.overlay.is_none());
 }
 
 #[test]
@@ -1229,7 +1253,7 @@ fn compact_top_aligns_titles_and_uses_one_row_of_footer_without_hotkeys() {
                 .map(|x| terminal.backend().buffer()[(x, y)].symbol())
                 .collect::<String>()
         };
-        assert!(row(0).contains("EXPLORER") && row(0).contains("Preview"));
+        assert!(row(0).contains("repo") && row(0).contains("Preview"));
         assert!(
             !row(0).contains("HerdrWork")
                 && !row(0).contains(&app.root.to_string_lossy().to_string())
@@ -1358,6 +1382,7 @@ fn compact_quick_open_uses_only_its_query_row_and_clicks_the_first_result() {
     app.search_quick = true;
     app.search_state = LoadState::Ready;
     app.search_rows = vec![herdr_work_engine::SearchRow {
+        matches: vec![],
         path: app.root.join("visible.txt"),
         label: "visible.txt".into(),
         line: 1,
@@ -3174,9 +3199,303 @@ fn search_sidebar_keeps_inline_options_and_clipped_unicode_input() {
     app.preferences.dock_right = false;
     capture_fixture(&mut app, "search-inline-options");
     app.key(KeyCode::Tab).unwrap();
+    assert!(matches!(app.prompt, Some(Prompt::SearchReplace)));
+    app.key(KeyCode::BackTab).unwrap();
+    assert!(matches!(app.prompt, Some(Prompt::Search(false))));
+    assert!(!app.search_filters_visible());
+    app.search_details = true;
+    app.key(KeyCode::Tab).unwrap();
+    app.key(KeyCode::Tab).unwrap();
     assert!(app.search_filters_visible());
     assert!(matches!(app.prompt, Some(Prompt::SearchInclude)));
     app.key(KeyCode::Esc).unwrap();
     assert!(app.search_filters_visible());
     capture_fixture(&mut app, "search-expanded-filters");
+}
+
+#[test]
+fn explorer_reuses_workspace_header_and_overflow_scrollbar() {
+    let (_temp, mut app) = loaded_app();
+    for index in 0..40 {
+        std::fs::write(app.root.join(format!("extra-{index:02}.txt")), "fixture").unwrap();
+    }
+    app.refresh().unwrap();
+    receive(&mut app);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        let area = ratatui::layout::Rect::new(0, 0, 100, 24);
+        let sidebar = app.panes(area).sidebar;
+        let body = app.sidebar_block(String::new()).inner(sidebar);
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let title = (body.x..body.right())
+            .map(|x| terminal.backend().buffer()[(x, sidebar.y)].symbol())
+            .collect::<String>();
+        assert!(title.contains("repo"), "{title}");
+        assert!(!title.contains("EXPLORER"));
+        assert!(
+            (body.y..body.bottom())
+                .any(|y| terminal.backend().buffer()[(body.right() - 1, y)].symbol() == "┃")
+        );
+    }
+    capture_fixture(&mut app, "explorer-sidebar-reference");
+}
+
+#[test]
+fn vscode_search_replacement_confirms_snapshot_and_keyboard_edits_unicode() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = loaded_app();
+    app.query_prompt(false);
+    app.input = "fixture".into();
+    app.search_input_changed().unwrap();
+    app.tick_search(std::time::Instant::now() + Duration::from_secs(1))
+        .unwrap();
+    receive(&mut app);
+    if !matches!(app.search_state, LoadState::Ready) {
+        app.tick_search(std::time::Instant::now() + Duration::from_secs(1))
+            .unwrap();
+        receive(&mut app);
+    }
+    app.prompt = Some(Prompt::SearchReplace);
+    app.input.clear();
+    app.search_cursor = usize::MAX;
+    let area = ratatui::layout::Rect::new(0, 0, 120, 32);
+    for (code, modifiers) in [
+        (KeyCode::Char('中'), KeyModifiers::NONE),
+        (KeyCode::Char('文'), KeyModifiers::NONE),
+        (KeyCode::Left, KeyModifiers::NONE),
+        (KeyCode::Char('间'), KeyModifiers::NONE),
+    ] {
+        assert!(!app.input_event(Event::Key(KeyEvent::new(code, modifiers)), area));
+    }
+    assert_eq!(app.search_replacement, "中间文");
+    app.input_event(
+        Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)),
+        area,
+    );
+    app.input_event(Event::Paste("changed".into()), area);
+    assert_eq!(app.search_replacement, "changed");
+    app.prepare_search_replacement(true).unwrap();
+    receive(&mut app);
+    assert!(matches!(app.prompt, Some(Prompt::ReplaceConfirm(_))));
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("visible.txt")).unwrap(),
+        "fixture\n"
+    );
+    assert!(app.submit_prompt().is_err());
+    assert!(matches!(app.prompt, Some(Prompt::ReplaceConfirm(_))));
+    app.input = "REPLACE".into();
+    app.submit_prompt().unwrap();
+    receive(&mut app);
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("visible.txt")).unwrap(),
+        "changed\n"
+    );
+    assert!(!app.search_replace_pending);
+    capture_fixture(&mut app, "vscode-search-replace");
+}
+
+#[test]
+fn replacement_preview_cannot_replace_a_new_prompt_or_changed_input() {
+    let (_temp, mut app) = loaded_app();
+    app.query_prompt(false);
+    receive(&mut app);
+    app.search_query = "fixture".into();
+    app.search_state = LoadState::Ready;
+    app.search_replacement = "changed".into();
+    app.prepare_search_replacement(true).unwrap();
+    app.prompt = Some(Prompt::NewTask);
+    app.input = "new task draft".into();
+    receive(&mut app);
+    assert!(matches!(app.prompt, Some(Prompt::NewTask)));
+    assert_eq!(app.input, "new task draft");
+    assert!(!app.search_replace_pending);
+    app.prompt = Some(Prompt::SearchReplace);
+    app.search_state = LoadState::Ready;
+    app.prepare_search_replacement(true).unwrap();
+    app.input = "new replacement".into();
+    app.search_input_changed().unwrap();
+    receive(&mut app);
+    assert!(matches!(app.prompt, Some(Prompt::SearchReplace)));
+    assert_eq!(app.input, "new replacement");
+    assert!(!app.search_replace_pending);
+}
+
+#[test]
+fn vscode_folder_root_toggles_without_losing_selection() {
+    use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    let area = ratatui::layout::Rect::new(0, 0, 120, 32);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        let sidebar = app.panes(area).sidebar;
+        let selected = app.selection;
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: sidebar.x + 2,
+                row: sidebar.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        assert!(app.file_root_collapsed);
+        assert!(!screen(&mut app).contains("visible.txt"));
+        app.key(KeyCode::Down).unwrap();
+        assert_eq!(app.selection, selected);
+        app.key(KeyCode::Right).unwrap();
+        assert!(!app.file_root_collapsed);
+        assert!(screen(&mut app).contains("visible.txt"));
+    }
+    app.preferences.dock_right = false;
+    for (directory, file) in [("src", "main.rs"), ("docs", "guide.md")] {
+        std::fs::create_dir(app.root.join(directory)).unwrap();
+        std::fs::write(app.root.join(directory).join(file), "fixture\n").unwrap();
+        app.expanded.push(app.root.join(directory));
+    }
+    app.refresh().unwrap();
+    receive(&mut app);
+    capture_fixture(&mut app, "vscode-explorer");
+}
+
+#[test]
+fn activity_icons_keep_two_cell_slots_and_badges_touch_the_lower_right() {
+    use crate::layout::{activity_badge, activity_button, activity_glyph};
+    let (_temp, mut app) = loaded_app();
+    let change = app.code.as_ref().unwrap().changes[0].clone();
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        for (width, height) in [(80, 24), (120, 32), (50, 20)] {
+            let area = ratatui::layout::Rect::new(0, 0, width, height);
+            let button = activity_button(app.panes(area).activity, 2);
+            let glyph = activity_glyph(button);
+            assert_eq!((glyph.width, glyph.height), (2, 1));
+            assert_eq!((button.width, button.height), (6, 3));
+            for theme in ["material", "emoji"] {
+                app.preferences.icon_theme = theme.into();
+                for count in [1, 15, 120] {
+                    app.code.as_mut().unwrap().changes = vec![change.clone(); count];
+                    let label = if count > 99 {
+                        "99+".into()
+                    } else {
+                        count.to_string()
+                    };
+                    let badge = activity_badge(button, label.len() as u16, dock_right);
+                    assert_eq!(badge.y, glyph.bottom());
+                    assert!(badge.x <= glyph.right() && badge.right() >= glyph.right());
+                    assert!(badge.right() <= button.right() - u16::from(dock_right));
+                    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                    terminal.draw(|f| app.draw(f)).unwrap();
+                    let rendered = (badge.x..badge.right())
+                        .map(|x| terminal.backend().buffer()[(x, badge.y)].symbol())
+                        .collect::<String>();
+                    assert_eq!(rendered, label);
+                }
+            }
+        }
+    }
+    app.preferences.dock_right = false;
+    app.preferences.icon_theme = "material".into();
+    app.code.as_mut().unwrap().changes.truncate(15);
+    app.switch_tab(Tab::Scm);
+    capture_fixture(&mut app, "vscode-git-badge");
+}
+
+#[test]
+fn vscode_search_groups_hits_and_keeps_file_folding_and_replace_targets_live() {
+    use ratatui::layout::Position;
+    let (_temp, mut app) = loaded_app();
+    app.query_prompt(false);
+    receive(&mut app);
+    app.search_query = "fixture".into();
+    app.input = app.search_query.clone();
+    app.search_replacement = "replacement".into();
+    app.search().unwrap();
+    receive(&mut app);
+    let area = ratatui::layout::Rect::new(0, 0, 120, 32);
+    let layout = app.search_layout(app.panes(area).sidebar);
+    capture_fixture(&mut app, "vscode-search");
+    app.prompt = None;
+    app.search_result_click(layout.body, Position::new(layout.body.x + 2, layout.body.y))
+        .unwrap();
+    assert!(
+        app.search_collapsed_files
+            .contains(&app.root.join("visible.txt"))
+    );
+    app.search_result_click(layout.body, Position::new(layout.body.x + 2, layout.body.y))
+        .unwrap();
+    assert!(app.search_collapsed_files.is_empty());
+    app.search_result_click(
+        layout.body,
+        Position::new(layout.body.right() - 2, layout.body.y + 1),
+    )
+    .unwrap();
+    receive(&mut app);
+    assert!(matches!(app.prompt, Some(Prompt::ReplaceConfirm(_))));
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("visible.txt")).unwrap(),
+        "fixture\n"
+    );
+}
+
+#[test]
+fn sidebar_mode_keeps_fixed_top_icons_and_one_narrow_pane() {
+    use crate::layout::{ACTIVITIES, activity_button, settings_button};
+    use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    app.sidebar_mode = true;
+    for width in [38, 48, 80] {
+        app.interaction.pointer = None;
+        app.hover = Default::default();
+        let area = ratatui::layout::Rect::new(0, 0, width, 32);
+        let panes = app.panes(area);
+        assert_eq!(panes.activity, ratatui::layout::Rect::new(0, 0, width, 3));
+        assert_eq!(panes.sidebar.y, 3);
+        assert_eq!(panes.sidebar.width, width);
+        assert!(panes.content.is_empty());
+        for (index, _) in ACTIVITIES.iter().enumerate() {
+            let button = activity_button(panes.activity, index);
+            assert_eq!((button.width, button.height), (6, 3));
+            assert!(button.right() <= settings_button(panes.activity).x);
+        }
+        let mut terminal = Terminal::new(TestBackend::new(width, 32)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let root = (0..width)
+            .map(|x| terminal.backend().buffer()[(x, 3)].symbol())
+            .collect::<String>();
+        assert!(root.contains("▾ repo"), "{root}");
+        let search = activity_button(panes.activity, 1);
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: search.x + 2,
+                row: search.y + 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        assert!(app.tab == Tab::Search);
+        app.key(KeyCode::Char('2')).unwrap();
+    }
+    for (directory, file) in [("src", "main.rs"), ("docs", "guide.md")] {
+        std::fs::create_dir(app.root.join(directory)).unwrap();
+        std::fs::write(app.root.join(directory).join(file), "fixture\n").unwrap();
+        app.expanded.push(app.root.join(directory));
+    }
+    app.refresh().unwrap();
+    receive(&mut app);
+    capture_fixture(&mut app, "sidebar-default-explorer");
+    app.query_prompt(false);
+    receive(&mut app);
+    app.search_query = "fixture".into();
+    app.input = app.search_query.clone();
+    app.search_replacement = "replacement".into();
+    app.search().unwrap();
+    receive(&mut app);
+    capture_fixture(&mut app, "sidebar-default-search");
+    app.prompt = None;
+    app.switch_tab(Tab::Scm);
+    capture_fixture(&mut app, "sidebar-default-git");
 }

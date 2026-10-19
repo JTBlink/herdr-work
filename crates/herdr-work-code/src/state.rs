@@ -31,6 +31,41 @@ pub use crate::appearance::{
 /// prepends this binary's directory to PATH, so PowerShell, cmd, sh, bash,
 /// nushell, and pwsh all resolve the same bare executable name.
 pub const EXECUTABLE_NAME: &str = "herdr-work-code";
+pub fn viewer_command() -> String {
+    if product_profile().is_some() {
+        product_command("sidebar-viewer")
+    } else {
+        format!("{EXECUTABLE_NAME} --preview")
+    }
+}
+pub fn custom_editor_command() -> String {
+    if product_profile().is_some() {
+        product_command("sidebar-editor")
+    } else {
+        format!("{EXECUTABLE_NAME} --run-custom-editor")
+    }
+}
+
+// A login shell may replace PATH after pane creation. Always launch the same
+// product executable that owns this sidebar, rather than another installation.
+fn product_command(command: &str) -> String {
+    let binary = std::env::current_exe().expect("running product executable");
+    let path = binary.to_string_lossy();
+    #[cfg(unix)]
+    {
+        let quoted = format!("'{}'", path.replace('\'', "'\"'\"'"));
+        let nu = std::env::var_os("SHELL").is_some_and(|shell| {
+            Path::new(&shell)
+                .file_stem()
+                .is_some_and(|name| name == "nu")
+        });
+        format!("{}{quoted} {command}", if nu { "^" } else { "" })
+    }
+    #[cfg(windows)]
+    {
+        format!("& '{}' {command}", path.replace('\'', "''"))
+    }
+}
 
 /// Desired working directory for a directly spawned plugin pane. Herdr 0.8.2
 /// resolves relative pane commands against the requested cwd, so launchers
@@ -342,7 +377,41 @@ pub fn save_editor_command(command: &str) -> bool {
     std::fs::write(path, command).is_ok()
 }
 
+static PRODUCT_PROFILE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+pub fn product_profile() -> Option<&'static Path> {
+    PRODUCT_PROFILE.get().map(PathBuf::as_path)
+}
+pub fn configure_product_profile(profile: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(profile)?;
+    let profile = profile.canonicalize()?;
+    if let Some(existing) = PRODUCT_PROFILE.get() {
+        if existing != &profile {
+            return Err(std::io::Error::other(
+                "Sidebar profile is already configured",
+            ));
+        }
+        return Ok(());
+    }
+    PRODUCT_PROFILE
+        .set(profile)
+        .map_err(|_| std::io::Error::other("Sidebar profile was configured concurrently"))?;
+    if !state_path().is_some_and(|p| p.exists()) {
+        save_state(State {
+            preview_placement: PreviewPlacement::Replace,
+            font_prompt_done: true,
+            ..State::default()
+        });
+    }
+    Ok(())
+}
+
 pub(crate) fn state_dir() -> Option<PathBuf> {
+    if let Some(profile) = product_profile() {
+        return Some(profile.join("sidebar"));
+    }
+    if !cfg!(feature = "reference-ui") {
+        return None;
+    }
     if let Some(dir) = std::env::var_os("HERDR_PLUGIN_STATE_DIR")
         && !dir.is_empty()
     {
@@ -365,8 +434,13 @@ pub fn spawn_env() -> serde_json::Value {
     let mut env = serde_json::Map::new();
     if let Some(dir) = state_dir() {
         env.insert(
-            "HERDR_PLUGIN_STATE_DIR".into(),
-            serde_json::Value::String(dir.display().to_string()),
+            if product_profile().is_some() {
+                "HERDR_WORK_HOME"
+            } else {
+                "HERDR_PLUGIN_STATE_DIR"
+            }
+            .into(),
+            serde_json::Value::String(product_profile().unwrap_or(&dir).display().to_string()),
         );
     }
     if let Some(path) = launch_path() {
@@ -406,7 +480,10 @@ pub fn load_state() -> State {
         return parse_state(&json);
     }
     // One-time migration from the legacy config-dir file.
-    if let Some(json) = legacy_state_path().and_then(|p| std::fs::read_to_string(p).ok()) {
+    if product_profile().is_none()
+        && cfg!(feature = "reference-ui")
+        && let Some(json) = legacy_state_path().and_then(|p| std::fs::read_to_string(p).ok())
+    {
         let state = parse_state(&json);
         save_state(state);
         return state;

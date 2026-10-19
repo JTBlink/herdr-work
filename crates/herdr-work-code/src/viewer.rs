@@ -71,7 +71,10 @@ fn legacy_scratch_dir() -> PathBuf {
 ///   does not resolve `..`), so without this check that "file" would
 ///   resolve outside `scratch_dir()` entirely.
 fn control_path_ok(path: &Path) -> bool {
-    control_path_ok_in(path, &scratch_dir()) || control_path_ok_in(path, &legacy_scratch_dir())
+    control_path_ok_in(path, &scratch_dir())
+        || (crate::state::product_profile().is_none()
+            && cfg!(feature = "reference-ui")
+            && control_path_ok_in(path, &legacy_scratch_dir()))
 }
 
 fn control_path_ok_in(path: &Path, expected_dir: &Path) -> bool {
@@ -175,7 +178,15 @@ fn control_token(control: &Path) -> String {
 }
 
 fn control_from_token(token: &str) -> PathBuf {
-    control_from_token_in(token, &scratch_dir(), &legacy_scratch_dir())
+    control_from_token_in(
+        token,
+        &scratch_dir(),
+        &if crate::state::product_profile().is_some() || !cfg!(feature = "reference-ui") {
+            scratch_dir()
+        } else {
+            legacy_scratch_dir()
+        },
+    )
 }
 
 fn control_from_token_in(token: &str, current_dir: &Path, legacy_dir: &Path) -> PathBuf {
@@ -203,7 +214,7 @@ pub(crate) fn document_token(doc_key: &str) -> String {
 }
 
 /// Identity of the document a preview shows, stamped into the preview
-/// pane's `hs-preview-path` token. A file, a diff OF that file, and a
+/// pane's `herdr-work-preview-path` token. A file, a diff OF that file, and a
 /// `git show` touching it are three different documents with three tabs.
 pub fn doc_key_for_file(path: &Path) -> String {
     path.display().to_string()
@@ -928,7 +939,9 @@ fn pin_own_tab(doc_key: &str) {
 fn sweep_orphan_controls(pane_list_json: &str) {
     let previews = previews_in(pane_list_json);
     sweep_orphan_controls_in(&scratch_dir(), &previews);
-    sweep_orphan_controls_in(&legacy_scratch_dir(), &previews);
+    if crate::state::product_profile().is_none() && cfg!(feature = "reference-ui") {
+        sweep_orphan_controls_in(&legacy_scratch_dir(), &previews);
+    }
 }
 
 fn sweep_orphan_controls_in(dir: &Path, previews: &[PreviewPane]) {
@@ -1004,10 +1017,7 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         ));
     }
     let theme = IconTheme::resolve(
-        std::env::var("HERDR_WORK_CODE_ICONS")
-            .or_else(|_| std::env::var("HERDR_AA_FILETREE_ICONS"))
-            .ok()
-            .as_deref(),
+        std::env::var("HERDR_WORK_CODE_ICONS").ok().as_deref(),
         crate::state::load_state().icons,
     );
     let mut current = read_control(control);
@@ -1871,7 +1881,7 @@ pub fn open_in_pane(
 
 /// Where a preview request landed. Handed back so a double click can pin
 /// exactly the tab its first click used — searching by document key would
-/// race the viewer, which only stamps `hs-preview-path` once it has started.
+/// race the viewer, which only stamps `herdr-work-preview-path` once it has started.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PreviewTarget {
     pub pane_id: String,
@@ -2139,15 +2149,15 @@ fn viewer_pane_in_tab(pane_list_json: &str, my_pane_id: &str) -> Option<(String,
     Some((id, stale))
 }
 
-pub const TOKEN_PATH: &str = "hs-preview-path";
-pub const TOKEN_PINNED: &str = "hs-preview-pinned";
-pub const TOKEN_CONTROL: &str = "hs-preview-control";
-pub const TOKEN_DEDICATED: &str = "hs-preview-dedicated";
-pub const TOKEN_ORIGIN_TAB: &str = "hs-preview-origin-tab";
+pub const TOKEN_PATH: &str = "herdr-work-preview-path";
+pub const TOKEN_PINNED: &str = "herdr-work-preview-pinned";
+pub const TOKEN_CONTROL: &str = "herdr-work-preview-control";
+pub const TOKEN_DEDICATED: &str = "herdr-work-preview-dedicated";
+pub const TOKEN_ORIGIN_TAB: &str = "herdr-work-preview-origin-tab";
 /// This viewer shares the sidebar's tab instead of owning one
 /// (`PreviewPlacement::Pane`). Routing needs it on the PANE so flipping the
 /// setting cannot hand a tab-mode click an inline pane, or the reverse.
-pub const TOKEN_INLINE: &str = "hs-preview-inline";
+pub const TOKEN_INLINE: &str = "herdr-work-preview-inline";
 
 /// A live preview pane and the document it is showing. State lives on the
 /// pane, so it cannot outlive what it describes.
@@ -2203,7 +2213,18 @@ pub(crate) fn previews_in(pane_list_json: &str) -> Vec<PreviewPane> {
                 .label
                 .as_deref()
                 .is_some_and(crate::launch::is_preview_label);
+            if let Some(profile) = crate::state::product_profile()
+                && p.tokens
+                    .get("herdr-work-preview-profile")
+                    .and_then(|v| v.as_str())
+                    != Some(document_token(&profile.to_string_lossy()).as_str())
+            {
+                return None;
+            }
             let raw_doc_token = p.tokens.get(TOKEN_PATH).and_then(|value| value.as_str());
+            if crate::state::product_profile().is_some() && raw_doc_token.is_none() {
+                return None;
+            }
             if raw_doc_token.is_none() && !preview_label {
                 return None;
             }
@@ -2500,6 +2521,10 @@ fn register_viewer_pane(
         TOKEN_PATH: document_token(doc_key),
         TOKEN_CONTROL: control_token(control),
     });
+    if let Some(profile) = crate::state::product_profile() {
+        tokens["herdr-work-preview-profile"] =
+            serde_json::json!(document_token(&profile.to_string_lossy()));
+    }
     if inline {
         tokens[TOKEN_INLINE] = serde_json::Value::String("1".into());
     }
@@ -2524,7 +2549,7 @@ fn register_viewer_pane(
 }
 
 fn start_viewer_pane(pane_id: &str) -> bool {
-    let command = format!("{} --preview", crate::state::EXECUTABLE_NAME);
+    let command = crate::state::viewer_command();
     ipc::call_text(
         "pane.send_input",
         serde_json::json!({ "pane_id": pane_id, "text": command, "keys": ["Enter"] }),
@@ -3272,19 +3297,19 @@ mod tests {
     const PREVIEWS: &str = r#"{"result":{"panes":[
         {"pane_id":"w4:p1","tab_id":"w4:t1","tokens":{"herdr-work-code-explorer":"1"}},
         {"pane_id":"w4:p2","tab_id":"w4:t2",
-          "tokens":{"herdr-work-code-preview":"9999999999","hs-preview-path":"/r/a.rs","hs-preview-pinned":"1","hs-preview-dedicated":"1","hs-preview-origin-tab":"w4:t1","hs-preview-control":"C:/state/a preview.ctl"}},
+          "tokens":{"herdr-work-code-preview":"9999999999","herdr-work-preview-path":"/r/a.rs","herdr-work-preview-pinned":"1","herdr-work-preview-dedicated":"1","herdr-work-preview-origin-tab":"w4:t1","herdr-work-preview-control":"C:/state/a preview.ctl"}},
         {"pane_id":"w4:p3","tab_id":"w4:t3",
-          "tokens":{"herdr-work-code-preview":"9999999999","hs-preview-path":"/r/b.rs"}}
+          "tokens":{"herdr-work-code-preview":"9999999999","herdr-work-preview-path":"/r/b.rs"}}
     ]}}"#;
 
     #[test]
     fn a_pinned_tab_is_no_longer_reusable() {
         let before = r#"{"result":{"panes":[
-            {"pane_id":"w4:p3","tab_id":"w4:t3","tokens":{"herdr-work-code-preview":"9999999999","hs-preview-path":"/r/b.rs"}}
+            {"pane_id":"w4:p3","tab_id":"w4:t3","tokens":{"herdr-work-code-preview":"9999999999","herdr-work-preview-path":"/r/b.rs"}}
         ]}}"#;
         let after = r#"{"result":{"panes":[
             {"pane_id":"w4:p3","tab_id":"w4:t3",
-             "tokens":{"herdr-work-code-preview":"9999999999","hs-preview-path":"/r/b.rs","hs-preview-pinned":"1"}}
+             "tokens":{"herdr-work-code-preview":"9999999999","herdr-work-preview-path":"/r/b.rs","herdr-work-preview-pinned":"1"}}
         ]}}"#;
         assert!(reusable_preview(&previews_in(before), false).is_some());
         assert!(
@@ -3369,9 +3394,9 @@ mod tests {
     fn the_ephemeral_tab_is_not_shared_between_workspaces() {
         let json = r#"{"result":{"panes":[
             {"pane_id":"wB:pE","tab_id":"wB:t3","workspace_id":"wB",
-             "tokens":{"herdr-work-code-preview":"9999999999","hs-preview-path":"/learnings/a.md"}},
+             "tokens":{"herdr-work-code-preview":"9999999999","herdr-work-preview-path":"/learnings/a.md"}},
             {"pane_id":"wH:p9","tab_id":"wH:t4","workspace_id":"wH",
-             "tokens":{"herdr-work-code-preview":"9999999999","hs-preview-path":"/tremor/b.rs","hs-preview-pinned":"1"}}
+             "tokens":{"herdr-work-code-preview":"9999999999","herdr-work-preview-path":"/tremor/b.rs","herdr-work-preview-pinned":"1"}}
         ]}}"#;
         let all = previews_in(json);
         assert_eq!(all.len(), 2);
@@ -3439,7 +3464,7 @@ mod tests {
 
         let all_pinned = r#"{"result":{"panes":[
             {"pane_id":"w4:p2","tab_id":"w4:t2",
-             "tokens":{"herdr-work-code-preview":"9999999999","hs-preview-path":"/r/a.rs","hs-preview-pinned":"1"}}
+             "tokens":{"herdr-work-code-preview":"9999999999","herdr-work-preview-path":"/r/a.rs","herdr-work-preview-pinned":"1"}}
         ]}}"#;
         assert!(
             reusable_preview(&previews_in(all_pinned), false).is_none(),
@@ -3645,8 +3670,8 @@ mod tests {
     fn inline_previews_are_reusable_regardless_of_pin_state() {
         let pinned = r#"{"result":{"panes":[
             {"pane_id":"w4:p2","tab_id":"w4:t1","workspace_id":"w4",
-             "tokens":{"herdr-work-code-preview":"9999999999","hs-preview-path":"/r/a.rs",
-                       "hs-preview-pinned":"1","hs-preview-inline":"1"}}
+             "tokens":{"herdr-work-code-preview":"9999999999","herdr-work-preview-path":"/r/a.rs",
+                       "herdr-work-preview-pinned":"1","herdr-work-preview-inline":"1"}}
         ]}}"#;
         let previews = previews_in(pinned);
         assert!(previews[0].inline);
@@ -3715,7 +3740,7 @@ mod tests {
     fn stale_preview_heartbeats_are_neither_matched_nor_reused() {
         let stale = r#"{"result":{"panes":[{
             "pane_id":"w4:p3","tab_id":"w4:t3","workspace_id":"w4",
-            "tokens":{"herdr-work-code-preview":"1","hs-preview-path":"/r/b.rs"}
+            "tokens":{"herdr-work-code-preview":"1","herdr-work-preview-path":"/r/b.rs"}
         }]}}"#;
         let previews = previews_in(stale);
         assert!(previews[0].stale);
@@ -3742,7 +3767,7 @@ mod tests {
     fn document_metadata_without_a_heartbeat_is_stale() {
         let missing_heartbeat = r#"{"result":{"panes":[{
             "pane_id":"w4:p3","tab_id":"w4:t3","workspace_id":"w4",
-            "label":"b.rs · preview","tokens":{"hs-preview-path":"/r/b.rs"}
+            "label":"b.rs · preview","tokens":{"herdr-work-preview-path":"/r/b.rs"}
         }]}}"#;
         let previews = previews_in(missing_heartbeat);
         assert_eq!(previews.len(), 1);
@@ -4185,7 +4210,7 @@ mod tests {
         let json = r#"{"result":{"panes":[
             {"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","label":"Sidebar"},
             {"pane_id":"w1:p2","tab_id":"w1:t1","workspace_id":"w1",
-             "tokens":{"herdr-work-code-preview":"100","hs-preview-path":"0123456789abcdef","hs-preview-inline":"1"}},
+             "tokens":{"herdr-work-code-preview":"100","herdr-work-preview-path":"0123456789abcdef","herdr-work-preview-inline":"1"}},
             {"pane_id":"w1:p3","tab_id":"w1:t2","workspace_id":"w1","label":"notes.md · preview"}
         ]}}"#;
         let previews = previews_in(json);

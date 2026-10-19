@@ -455,7 +455,7 @@ pub(crate) fn apply_diff_refresh(doc: &mut Doc, mut refreshed: Doc) {
 
 /// `git show` with stat + patch, colored — what a click on a commit, stash,
 /// tag, or branch line renders. Immutable content: no refresh loop needed.
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub(crate) fn load_show(root: &Path, spec: &str, path: Option<&str>) -> Doc {
     let display_spec = spec.strip_prefix("refs/tags/").unwrap_or(spec);
     let args = crate::scm::show_args(spec, path);
@@ -833,7 +833,7 @@ fn load_media_file(target: &Path, name: String, video_poster: bool, root: Option
     }
 }
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub(crate) fn load_file(target: &Path, target_line: Option<usize>) -> Doc {
     load_file_width(
         target,
@@ -934,7 +934,7 @@ pub(crate) fn glow_needs_reload(doc: &Doc, body_width: u16) -> bool {
     doc.glow_width.is_some_and(|width| width != body_width)
 }
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub(crate) fn load_diff(root: &Path, rel: &str, kind: &str) -> Doc {
     let name = rel.rsplit('/').next().unwrap_or(rel).to_string();
     // Plain (uncolored) diff: crate::diffview parses it and renders the

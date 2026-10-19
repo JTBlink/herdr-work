@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::{ensure::LaunchLock, ipc, rundir, snooze};
+use crate::{ipc, pane_lock::LaunchLock, rundir, snooze};
 
 const PARKING_LABEL: &str = "Working panes (temporary preview)";
 /// A parking tab that still holds panes after its journal is gone. The label
@@ -642,6 +642,15 @@ pub fn recover(tab: &str) -> Result<(), String> {
 }
 
 /// Hook-driven recovery; the caller already holds the launcher lock.
+pub fn recover_owned_session(tab: &str) -> Result<(), String> {
+    let Some(_lock) = LaunchLock::acquire(false) else {
+        return Ok(());
+    };
+    let panes = ipc::call_text("pane.list", json!({})).map_err(|e| e.to_string())?;
+    recover_locked(tab, &panes);
+    Ok(())
+}
+
 pub(crate) fn recover_locked(tab: &str, panes_json: &str) {
     let mut env = RealEnv;
     sweep_with(&mut env, panes_json);
@@ -699,6 +708,52 @@ fn sweep_with(env: &mut impl Env, panes_json: &str) {
     }
 }
 
+// Independent plugins are outside the product's takeover ownership.
+fn independent_plugin_name(name: &str) -> bool {
+    let name = name.trim_end_matches(".exe");
+    name.starts_with("herdr-sidebar")
+        || name.starts_with("herdr-aa-")
+        || name.starts_with("hs-preview-")
+        || name.starts_with("herdr-projects")
+}
+fn protect_independent_plugins(env: &mut impl Env, owner: &str, tab: &str) -> Result<(), String> {
+    let list = env.call("pane.list", json!({}))?;
+    for pane in list["panes"].as_array().ok_or("missing pane list")? {
+        let Some(id) = pane["pane_id"].as_str() else {
+            continue;
+        };
+        if id == owner || pane["tab_id"].as_str() != Some(tab) {
+            continue;
+        }
+        let marked = pane["plugin_id"]
+            .as_str()
+            .is_some_and(independent_plugin_name)
+            || pane["tokens"]
+                .as_object()
+                .is_some_and(|tokens| tokens.keys().any(|key| independent_plugin_name(key)));
+        let info = env.call("pane.process_info", json!({"pane_id": id}))?;
+        let running = info["process_info"]["foreground_processes"]
+            .as_array()
+            .is_some_and(|processes| {
+                processes.iter().any(|process| {
+                    [process["argv0"].as_str(), process["argv"][0].as_str()]
+                        .into_iter()
+                        .flatten()
+                        .any(|path| {
+                            Path::new(path)
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .is_some_and(independent_plugin_name)
+                        })
+                })
+            });
+        if marked || running {
+            return Err("independent plugin pane present; takeover was not started".into());
+        }
+    }
+    Ok(())
+}
+
 pub fn open(
     owner: &str,
     cwd: &Path,
@@ -709,6 +764,9 @@ pub fn open(
     width: u16,
 ) -> Result<crate::viewer::PreviewTarget, String> {
     let _lock = LaunchLock::acquire(true).ok_or("could not lock the sidebar layout")?;
+    if crate::state::product_profile().is_some() {
+        protect_independent_plugins(&mut RealEnv, owner, tab)?;
+    }
     open_with(&mut RealEnv, owner, cwd, tab, |_| {
         crate::viewer::spawn_inline_pane(owner, cwd, doc, payload, tab, dock_right, width)
     })
@@ -840,6 +898,26 @@ mod tests {
             ]
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn independent_plugin_identity_does_not_match_internal_modules() {
+        for name in [
+            "herdr-sidebar-explorer",
+            "herdr-projects",
+            "hs-preview-inline",
+        ] {
+            assert!(independent_plugin_name(name));
+        }
+        for name in [
+            "herdr-work",
+            "herdr-work-projects",
+            "herdr-work-preview-inline",
+            "python3",
+            "codex",
+        ] {
+            assert!(!independent_plugin_name(name));
+        }
     }
 
     #[test]
@@ -1254,7 +1332,7 @@ mod tests {
         .unwrap();
         fake.tokens.insert(
             target.pane_id.clone(),
-            json!({"herdr-work-code-preview": "1", "hs-preview-inline": "1"}),
+            json!({"herdr-work-code-preview": "1", "herdr-work-preview-inline": "1"}),
         );
         fake.mutations.clear();
         (fake, original)
@@ -1308,7 +1386,7 @@ mod tests {
         let viewer = plan.viewer.clone().unwrap();
         fake.tokens.insert(
             viewer.clone(),
-            json!({"herdr-work-code-preview": "0", "hs-preview-inline": "1"}),
+            json!({"herdr-work-code-preview": "0", "herdr-work-preview-inline": "1"}),
         );
         fake.now = 10_000;
         assert_eq!(
@@ -1360,8 +1438,8 @@ mod tests {
         let viewer = plan.viewer.clone().unwrap();
         fake.tokens.insert(
             viewer.clone(),
-            json!({"herdr-work-code-preview": "100", "hs-preview-inline": "1",
-                   "hs-preview-path": "0123456789abcdef"}),
+            json!({"herdr-work-code-preview": "100", "herdr-work-preview-inline": "1",
+                   "herdr-work-preview-path": "0123456789abcdef"}),
         );
         let list = json!({ "result": fake.call("pane.list", json!({})).unwrap() }).to_string();
         let previews = crate::viewer::previews_in(&list);
@@ -1736,7 +1814,7 @@ mod tests {
                     list["panes"].as_array().is_some_and(|panes| {
                         panes.iter().any(|pane| {
                             pane["pane_id"] == takeover.pane_id
-                                && pane["tokens"]["hs-preview-path"] == expected
+                                && pane["tokens"]["herdr-work-preview-path"] == expected
                         })
                     })
                 });
@@ -1854,7 +1932,7 @@ mod tests {
                 let list = env.call("pane.list", json!({}))?;
                 ready = list["panes"].as_array().unwrap().iter().any(|pane| {
                     pane["pane_id"] == target.pane_id
-                        && pane["tokens"]["hs-preview-path"] == expected
+                        && pane["tokens"]["herdr-work-preview-path"] == expected
                 });
                 if ready {
                     break;
