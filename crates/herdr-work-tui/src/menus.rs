@@ -217,18 +217,23 @@ impl App {
                         ]);
                     }
                 }
-                if row
-                    && self.scm_rows().get(self.scm_cursor).is_some_and(|r| {
-                        matches!(
-                            r.3,
-                            crate::scm::ScmTarget::Directory(..)
-                                | crate::scm::ScmTarget::Section(..)
-                                | crate::scm::ScmTarget::Repository(_)
-                        )
-                    })
-                {
-                    rows.push((Command::Key(KeyCode::Char('s')), "暂存此目录/分组"));
-                    rows.push((Command::Key(KeyCode::Char('u')), "取消暂存此目录/分组"));
+                if row && let Some(entry) = self.scm_rows().get(self.scm_cursor) {
+                    match entry.3 {
+                        crate::scm::ScmTarget::Directory(_, staged, _)
+                        | crate::scm::ScmTarget::Section(_, staged) => rows.push((
+                            Command::Key(KeyCode::Char(if staged { 'u' } else { 's' })),
+                            if staged {
+                                "取消暂存此目录/分组"
+                            } else {
+                                "暂存此目录/分组"
+                            },
+                        )),
+                        crate::scm::ScmTarget::Repository(_) => {
+                            rows.push((Command::Key(KeyCode::Char('s')), "暂存此仓库"));
+                            rows.push((Command::Key(KeyCode::Char('u')), "取消暂存此仓库"));
+                        }
+                        _ => {}
+                    }
                 }
                 rows.extend([
                     (Command::Key(KeyCode::Char('C')), "提交暂存更改"),

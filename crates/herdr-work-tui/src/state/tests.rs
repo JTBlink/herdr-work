@@ -1277,3 +1277,21 @@ fn unknown_git_operation_has_an_explicit_tui_evidence_flow_without_automatic_ret
     assert!(app.status.contains("没有自动重试"));
     assert!(app.desk.unresolved_git_operations().unwrap().is_empty());
 }
+
+#[test]
+fn staged_section_cannot_stage_unselected_changes_from_the_other_group() {
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = app();
+    let snapshot = app.desk.code_snapshot(&app.root, &[], 1).unwrap();
+    app.desk.stage(&snapshot.changes[0], true).unwrap();
+    std::fs::write(app.root.join("other.txt"), "must stay unstaged").unwrap();
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 2).unwrap());
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| matches!(r.3, crate::scm::ScmTarget::Section(_, true)))
+        .unwrap();
+    assert!(app.action(KeyCode::Char('s')).is_err());
+    assert!(app.prompt.is_none());
+}

@@ -417,14 +417,23 @@ impl App {
         use crate::scm::ScmTarget;
         if let Some(row) = self.scm_rows().get(self.scm_cursor) {
             match row.3.clone() {
-                ScmTarget::Directory(_, _, path) => {
+                ScmTarget::Directory(_, already_staged, path) => {
+                    anyhow::ensure!(already_staged != stage, "请选择相应的 Changes/Staged 分组");
                     return self.work_git(if stage {
                         herdr_work_engine::WorkGitAction::StageUnder(path)
                     } else {
                         herdr_work_engine::WorkGitAction::UnstageUnder(path)
                     });
                 }
-                ScmTarget::Section(..) | ScmTarget::Repository(_) => {
+                ScmTarget::Section(_, already_staged) => {
+                    anyhow::ensure!(already_staged != stage, "请选择相应的 Changes/Staged 分组");
+                    return self.work_git(if stage {
+                        herdr_work_engine::WorkGitAction::StageAll
+                    } else {
+                        herdr_work_engine::WorkGitAction::UnstageAll
+                    });
+                }
+                ScmTarget::Repository(_) => {
                     return self.work_git(if stage {
                         herdr_work_engine::WorkGitAction::StageAll
                     } else {
@@ -446,6 +455,7 @@ impl App {
             .and_then(|c| c.changes.get(self.selection))
             .context("No change selected")?
             .clone();
+        anyhow::ensure!(c.staged != stage, "请选择相应的 Changes/Staged 文件");
         self.job(move |d| {
             d.stage(&c, stage)?;
             Ok(Data::Business(
