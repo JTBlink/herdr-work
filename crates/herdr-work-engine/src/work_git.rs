@@ -354,6 +354,7 @@ impl HerdrWork {
         } else {
             CommitDraft::default()
         };
+        ensure!(draft.message.len() <= 65536, "提交草稿超过限制；保留原文件");
         draft.cursor = draft.cursor.min(draft.message.len());
         Ok(draft)
     }

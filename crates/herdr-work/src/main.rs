@@ -57,11 +57,46 @@ fn run() -> Result<()> {
     if matches!(&cli.command, Some(Command::ProfilePath)) {
         return print(&serde_json::json!({"profile":root}));
     }
+    if let Some(Command::Activate {
+        action,
+        root: worktree,
+    }) = &cli.command
+    {
+        let view = match action.as_str() {
+            "show-explorer" => herdr_work_tui::InitialView::Explorer,
+            "show-search" => herdr_work_tui::InitialView::Search,
+            "show-git" => herdr_work_tui::InitialView::Git,
+            "quick-open" => herdr_work_tui::InitialView::QuickOpen,
+            _ => unreachable!("clap validates activities"),
+        };
+        return print(&HerdrWork::activate(&root, worktree.as_deref(), view)?);
+    }
     let desk = HerdrWork::open(&root, cli.projects_backend)?;
     match cli.command.unwrap_or(Command::Ui {
-        root: std::env::current_dir()?,
+        root: None,
+        initial_view: None,
     }) {
-        Command::Ui { root } => herdr_work_tui::run(desk, root),
+        Command::Ui { root, initial_view } => {
+            let initial_view =
+                initial_view.or_else(|| std::env::var("HERDR_WORK_INITIAL_VIEW").ok());
+            let initial = initial_view
+                .as_deref()
+                .map(|value| {
+                    herdr_work_tui::InitialView::from_env_value(value).context("无效的初始活动")
+                })
+                .transpose()?;
+            let root = root
+                .or_else(|| {
+                    initial.and_then(|_| {
+                        std::env::var_os("HERDR_WORK_ROOT").map(std::path::PathBuf::from)
+                    })
+                })
+                .unwrap_or(std::env::current_dir()?);
+            herdr_work_tui::run_with_initial(desk, root, initial)
+        }
+        Command::Activate { .. } => {
+            unreachable!("host activity is dispatched before the profile lock")
+        }
         Command::Doctor => print(
             &serde_json::json!({"product":"HerdrWork","version":env!("CARGO_PKG_VERSION"),"profile":desk.root(),"projects_backend":desk.backend(),"projects_backend_installed":desk.backend().is_file(),"projects_backend_platform":if cfg!(unix){"bundled"}else{"Unix backend required; native Windows task execution unavailable"},"sources":{"projects":"92a2813be9a7c2f8cda737f6b78ed21e8413c3ce","sidebar":"081ed133f3faa377438b51ce435fe8a87c439593","reviewr":"859dd5b11a5280fe282de56b52378b20a54fa10a"}}),
         ),

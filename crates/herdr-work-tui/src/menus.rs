@@ -17,6 +17,7 @@ pub(crate) enum Command {
     External,
     Reveal,
     Settings,
+    FontHelp,
     Edit,
     SaveEditor,
     DiscardEditor,
@@ -50,7 +51,9 @@ pub(crate) fn modal_rect(area: Rect, rows: usize) -> Rect {
 }
 impl App {
     pub(crate) fn icon_theme(&self) -> IconTheme {
-        IconTheme::from_state_name(&self.preferences.icon_theme).unwrap_or(IconTheme::Emoji)
+        IconTheme::from_state_name(&self.preferences.icon_theme)
+            .or(self.interaction.auto_icons)
+            .unwrap_or(IconTheme::Emoji)
     }
     pub(crate) fn color_theme(&self) -> ColorTheme {
         ColorTheme::from_state_name(&self.preferences.color_theme).unwrap_or(ColorTheme::VsCode)
@@ -67,8 +70,24 @@ impl App {
             format!("Git 状态装饰        {}", on(p.git_decorations)),
             format!("底部快捷键          {}", on(p.show_hotkeys)),
             format!("预览选区自动复制    {}", on(p.copy_on_select)),
+            format!("Git 分支与同步栏     {}", on(p.show_git_footer)),
+            "字体使用说明（手动选择 Nerd Font）".into(),
             format!("HerdrWork           v{}", env!("CARGO_PKG_VERSION")),
         ]
+    }
+    fn font_help(&mut self) {
+        self.overlay = Some(Overlay::Menu {
+            title: "字体与图标",
+            rows: vec![
+                (Command::Cancel, "Emoji 图标适合普通终端字体"),
+                (Command::Cancel, "Material 图标需终端手动选择 Nerd Font"),
+                (Command::Cancel, "auto 只检测已安装字体；可随时切回 Emoji"),
+                (Command::Cancel, "字体资料：https://www.nerdfonts.com/"),
+                (Command::Cancel, "在当前终端设置中选择字体后重新打开工作台"),
+                (Command::Cancel, "关闭说明"),
+            ],
+            selected: 0,
+        });
     }
     pub(crate) fn open_settings(&mut self) {
         self.edit_request = None;
@@ -279,6 +298,7 @@ impl App {
         rows.extend([
             (Command::Key(KeyCode::Char('r')), "刷新"),
             (Command::Settings, "侧栏设置"),
+            (Command::FontHelp, "字体与图标说明"),
         ]);
         self.overlay = Some(Overlay::Menu {
             title,
@@ -295,18 +315,31 @@ impl App {
             }
             1 => p.dock_right = !p.dock_right,
             2 => p.color_theme = self.color_theme().next().label().into(),
-            3 => p.icon_theme = self.icon_theme().toggled().state_name().into(),
+            3 => {
+                p.icon_theme = match p.icon_theme.as_str() {
+                    "emoji" => "material",
+                    "material" => "auto",
+                    _ => "emoji",
+                }
+                .into()
+            }
             4 => p.show_hidden = !p.show_hidden,
             5 => p.git_decorations = !p.git_decorations,
             6 => p.show_hotkeys = !p.show_hotkeys,
             7 => p.copy_on_select = !p.copy_on_select,
+            8 => p.show_git_footer = !p.show_git_footer,
+            9 => {
+                self.font_help();
+                return Ok(());
+            }
             _ => return Ok(()),
         }
-        self.desk.save_ui_preferences(&p)?;
-        let refresh = p.show_hidden != self.preferences.show_hidden;
+        let refresh = p.show_hidden != self.preferences.show_hidden
+            || p.git_decorations != self.preferences.git_decorations;
         self.preferences = p;
         ui::set_color_theme(self.color_theme());
-        self.status = "设置已保存".into();
+        self.save_preferences()?;
+        self.status = "正在保存设置…".into();
         if refresh {
             self.refresh()?;
         }
@@ -349,7 +382,9 @@ impl App {
                     }
                     _ => {}
                 }
-                self.overlay = Some(Overlay::Settings(index));
+                if self.overlay.is_none() {
+                    self.overlay = Some(Overlay::Settings(index));
+                }
             }
             Overlay::Menu {
                 title,
@@ -406,7 +441,7 @@ impl App {
             Ok(c.root.join(&c.path))
         }
     }
-    fn menu_command(&mut self, command: Command) -> Result<()> {
+    pub(crate) fn menu_command(&mut self, command: Command) -> Result<()> {
         match command {
             Command::Key(key) => {
                 if self.tab == Tab::Review {
@@ -420,6 +455,7 @@ impl App {
                 self.job(move |d| Ok(Data::Reconcile(request, d.unresolved_git_operations())))?;
             }
             Command::Settings => self.open_settings(),
+            Command::FontHelp => self.font_help(),
             Command::Collapse => {
                 self.expanded.clear();
                 self.selection = 0;

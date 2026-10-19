@@ -214,6 +214,7 @@ impl App {
         Ok(())
     }
     pub(crate) fn input_key(&mut self, key: KeyEvent, area: Rect) -> Result<bool> {
+        self.interaction.area = area;
         if let Some(picker) = self.git.picker.as_mut() {
             let action = picker.key(key);
             self.picker_action(action)?;
@@ -270,6 +271,15 @@ impl App {
                 self.edit_request = None;
                 self.status = "已取消打开编辑器".into();
             }
+            return Ok(false);
+        }
+        if let Some(view) = match key.code {
+            KeyCode::F(9) => Some(herdr_work_engine::InitialView::Explorer),
+            KeyCode::F(10) => Some(herdr_work_engine::InitialView::Search),
+            KeyCode::F(11) => Some(herdr_work_engine::InitialView::Git),
+            _ => None,
+        } {
+            self.activate_initial_view(view);
             return Ok(false);
         }
         if key.modifiers.contains(KeyModifiers::CONTROL)

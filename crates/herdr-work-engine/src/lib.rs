@@ -1,4 +1,5 @@
 //! HerdrWork orchestration. All terminal-free business commands enter here.
+mod activation;
 mod code;
 mod editing;
 mod files;
@@ -10,8 +11,10 @@ mod scm;
 mod search;
 mod storage;
 mod tasks;
+mod ui_state;
 mod work_git;
 
+pub use activation::{ActivationRequest, InitialView, WorkbenchRegistration};
 pub use code::{CodeSnapshot, CommitPlan, DiffView, FileRow, GitChange, RepositoryStatus};
 pub use editing::{EditorExternalObservation, EditorExternalRequest, EditorSession};
 pub use files::FilePlan;
@@ -21,6 +24,7 @@ pub use review::SendOutcome;
 pub use scm::{DrawerView, GitPlan};
 pub use search::{QuickIndex, SearchRow, SearchView};
 pub use storage::fingerprint;
+pub use ui_state::{DocumentState, WorkspaceUiState};
 pub use work_git::{CommitDraft, WorkGitAction, WorkGitOutcome, WorkGitPlan};
 
 use anyhow::Result;
@@ -147,6 +151,17 @@ impl<T: Send + 'static> Default for JobQueue<T> {
     }
 }
 impl<T: Send + 'static> JobQueue<T> {
+    /// FIFO shutdown barrier. Only use after the input loop has ended: unlike
+    /// submit, this waits for capacity so final persistence cannot be dropped.
+    pub fn submit_on_shutdown(
+        &self,
+        epoch: u64,
+        job: impl FnOnce() -> Result<T> + Send + 'static,
+    ) -> Result<()> {
+        self.tx
+            .send((epoch, Box::new(job)))
+            .map_err(|_| anyhow::anyhow!("Worker stopped before final persistence"))
+    }
     pub fn submit(
         &self,
         epoch: u64,

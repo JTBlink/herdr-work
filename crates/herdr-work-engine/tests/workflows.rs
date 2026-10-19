@@ -937,3 +937,105 @@ fn installed_preview_tools_render_markdown_and_a_real_video_poster() {
     assert!(poster.is_media(), "{}", poster.plain_text());
     assert_eq!(poster.media_hint(), Some("视频封面"));
 }
+
+#[test]
+fn product_workspace_state_is_root_scoped_and_rejects_escaped_paths() {
+    use std::path::PathBuf;
+    let (repo, _home, desk) = fixture();
+    std::fs::create_dir(repo.path().join("folder")).unwrap();
+    std::fs::write(repo.path().join("folder/child.txt"), "child").unwrap();
+    let mut saved = desk.workspace_ui_state(repo.path()).unwrap();
+    saved.tree.expanded = vec![PathBuf::from("folder")];
+    saved.tree.selected = Some(PathBuf::from("folder/child.txt"));
+    desk.save_workspace_ui_state(repo.path(), &saved).unwrap();
+    let restored = desk.workspace_ui_state(repo.path()).unwrap();
+    assert_eq!(
+        restored.tree.selected,
+        Some(PathBuf::from("folder/child.txt"))
+    );
+    let other = tempfile::tempdir().unwrap();
+    assert!(
+        desk.workspace_ui_state(other.path())
+            .unwrap()
+            .tree
+            .expanded
+            .is_empty()
+    );
+    saved.tree.selected = Some(PathBuf::from("../outside.txt"));
+    assert!(desk.save_workspace_ui_state(repo.path(), &saved).is_err());
+    assert_eq!(
+        desk.workspace_ui_state(repo.path()).unwrap().tree.selected,
+        Some(PathBuf::from("folder/child.txt"))
+    );
+}
+
+#[test]
+fn workspace_final_save_cannot_be_overwritten_by_an_older_background_snapshot() {
+    let (repo, _home, desk) = fixture();
+    let mut old = desk.workspace_ui_state(repo.path()).unwrap();
+    old.revision = 1;
+    let mut final_state = old.clone();
+    final_state.revision = 2;
+    final_state.tree.selected = Some("file.txt".into());
+    desk.save_workspace_ui_state(repo.path(), &final_state)
+        .unwrap();
+    desk.save_workspace_ui_state(repo.path(), &old).unwrap();
+    assert_eq!(
+        desk.workspace_ui_state(repo.path()).unwrap().tree.selected,
+        Some("file.txt".into())
+    );
+}
+
+#[test]
+fn stale_setting_changes_preserve_other_fields_written_since_they_were_observed() {
+    let (_repo, _home, desk) = fixture();
+    let observed = desk.ui_preferences().unwrap();
+    let mut another = observed.clone();
+    another.dock_right = true;
+    desk.update_ui_preferences(&observed, &another).unwrap();
+    let mut local = observed.clone();
+    local.show_hotkeys = false;
+    let saved = desk.update_ui_preferences(&observed, &local).unwrap();
+    assert!(saved.dock_right);
+    assert!(!saved.show_hotkeys);
+    assert!(desk.ui_preferences().unwrap().dock_right);
+}
+
+#[test]
+fn disabling_explorer_decorations_keeps_scm_changes_and_repository_identity() {
+    let (repo, _home, desk) = fixture();
+    std::fs::write(repo.path().join("file.txt"), "changed\n").unwrap();
+    let enabled = desk.code_snapshot(repo.path(), &[], 1).unwrap();
+    assert!(enabled.files.iter().any(|row| row.status.is_some()));
+    let disabled = desk
+        .code_snapshot_with_options(repo.path(), &[], 2, true, false)
+        .unwrap();
+    assert!(disabled.files.iter().all(|row| row.status.is_none()));
+    assert_eq!(disabled.repositories.len(), enabled.repositories.len());
+    assert_eq!(disabled.changes.len(), enabled.changes.len());
+    assert_eq!(disabled.changes[0].instance, enabled.changes[0].instance);
+    assert_eq!(
+        disabled.changes[0].expected_index,
+        enabled.changes[0].expected_index
+    );
+}
+
+#[test]
+fn workspace_state_does_not_follow_a_replaced_directory_instance() {
+    let (_repo, home, desk) = fixture();
+    let root = home.path().join("browse-root");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("same.txt"), "one").unwrap();
+    let mut state = desk.workspace_ui_state(&root).unwrap();
+    state.activity = "git".into();
+    state.tree.selected = Some("same.txt".into());
+    desk.save_workspace_ui_state(&root, &state).unwrap();
+    std::fs::rename(&root, home.path().join("old-root")).unwrap();
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("same.txt"), "two").unwrap();
+    let fresh = desk.workspace_ui_state(&root).unwrap();
+    assert_ne!(fresh.identity, state.identity);
+    assert!(fresh.activity.is_empty());
+    assert_eq!(fresh.tree.selected, None);
+    assert!(desk.save_workspace_ui_state(&root, &state).is_err());
+}

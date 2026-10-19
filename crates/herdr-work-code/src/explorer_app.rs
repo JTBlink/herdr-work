@@ -1116,8 +1116,8 @@ impl App {
             KeyCode::PageDown => self.move_by(self.page as isize),
             KeyCode::Home | KeyCode::Char('g') => self.select(0),
             KeyCode::End | KeyCode::Char('G') => self.select(self.rows.len().saturating_sub(1)),
-            KeyCode::Right | KeyCode::Char('l') => self.expand_or_enter(),
-            KeyCode::Left | KeyCode::Char('h') => self.collapse_or_parent(),
+            KeyCode::Right | KeyCode::Char('l') => self.navigate_tree(true),
+            KeyCode::Left | KeyCode::Char('h') => self.navigate_tree(false),
             KeyCode::Enter | KeyCode::Char(' ') => self.toggle(),
             KeyCode::Char('r') => {
                 self.refresh_tree();
@@ -3059,52 +3059,24 @@ impl App {
         self.scroll = (self.scroll as isize + delta).clamp(0, max) as usize;
     }
 
-    /// Right/l: expand a collapsed directory, step into an expanded one.
-    fn expand_or_enter(&mut self) {
-        let Some(row) = self.selected_row() else {
+    fn navigate_tree(&mut self, right: bool) {
+        use herdr_work_code::tree::{Navigation, navigate};
+        let Some(index) = self.selected else {
             return;
         };
-        if !row.is_dir {
-            return;
-        }
-        if row.expanded {
-            // First child, if any, sits directly below at depth + 1.
-            let index = self.selected.unwrap_or(0);
-            if self
-                .rows
-                .get(index + 1)
-                .is_some_and(|next| next.depth == row.depth + 1)
-            {
-                self.select(index + 1);
+        let expanded = self.rows.get(index).is_some_and(|row| row.expanded);
+        match navigate(&self.rows, index, expanded, right) {
+            Navigation::Select(index) => self.select(index),
+            Navigation::Expand | Navigation::Collapse => {
+                let path = self.rows[index].path.clone();
+                if right {
+                    self.tree.expand(&path);
+                } else {
+                    self.tree.collapse(&path);
+                }
+                self.rebuild();
             }
-        } else {
-            let path = row.path.clone();
-            self.tree.expand(&path);
-            self.rebuild();
-        }
-    }
-
-    /// Left/h: collapse an expanded directory, otherwise jump to the parent row.
-    fn collapse_or_parent(&mut self) {
-        let Some(row) = self.selected_row() else {
-            return;
-        };
-        if row.is_dir && row.expanded {
-            let path = row.path.clone();
-            self.tree.collapse(&path);
-            self.rebuild();
-            return;
-        }
-        let index = self.selected.unwrap_or(0);
-        let depth = row.depth;
-        if depth == 0 {
-            return;
-        }
-        if let Some(parent) = self.rows[..index]
-            .iter()
-            .rposition(|r| r.depth == depth - 1)
-        {
-            self.select(parent);
+            Navigation::None => {}
         }
     }
 

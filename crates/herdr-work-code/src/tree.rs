@@ -24,6 +24,63 @@ pub struct Row {
     pub expanded: bool,
 }
 
+/// Pure navigation shared by the source Explorer and the product snapshot UI.
+pub trait NavigationRow {
+    fn depth(&self) -> usize;
+    fn directory(&self) -> bool;
+}
+impl NavigationRow for Row {
+    fn depth(&self) -> usize {
+        self.depth
+    }
+    fn directory(&self) -> bool {
+        self.is_dir
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Navigation {
+    None,
+    Select(usize),
+    Expand,
+    Collapse,
+}
+pub fn navigate<R: NavigationRow>(
+    rows: &[R],
+    selected: usize,
+    expanded: bool,
+    right: bool,
+) -> Navigation {
+    let Some(row) = rows.get(selected) else {
+        return Navigation::None;
+    };
+    if right {
+        if !row.directory() {
+            return Navigation::None;
+        }
+        if !expanded {
+            return Navigation::Expand;
+        }
+        if rows
+            .get(selected + 1)
+            .is_some_and(|next| next.depth() == row.depth() + 1)
+        {
+            return Navigation::Select(selected + 1);
+        }
+    } else {
+        if row.directory() && expanded {
+            return Navigation::Collapse;
+        }
+        if row.depth() > 0
+            && let Some(parent) = rows[..selected]
+                .iter()
+                .rposition(|parent| parent.depth() == row.depth() - 1)
+        {
+            return Navigation::Select(parent);
+        }
+    }
+    Navigation::None
+}
+
 pub struct Tree {
     root: PathBuf,
     expanded: BTreeSet<PathBuf>,

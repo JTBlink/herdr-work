@@ -33,24 +33,11 @@ pub enum Target {
 
 impl Target {
     pub fn from_env_value(value: &str) -> Option<Self> {
-        match value {
-            "explorer" => Some(Self::Explorer),
-            "search" => Some(Self::Search),
-            "source-control" => Some(Self::SourceControl),
-            "quick-open" => Some(Self::QuickOpen),
-            _ => None,
-        }
+        crate::activity::InitialView::from_env_value(value).map(Self::from)
     }
-
     pub fn env_value(self) -> &'static str {
-        match self {
-            Self::Explorer => "explorer",
-            Self::Search => "search",
-            Self::SourceControl => "source-control",
-            Self::QuickOpen => "quick-open",
-        }
+        crate::activity::InitialView::from(self).env_value()
     }
-
     pub fn pane_view(self, merged: bool) -> View {
         match self {
             Self::SourceControl if !merged => View::SourceControl,
@@ -66,11 +53,27 @@ impl Target {
     }
 
     fn key(self) -> &'static str {
-        match self {
-            Self::Explorer => "f9",
-            Self::Search => "f10",
-            Self::SourceControl => "f11",
-            Self::QuickOpen => "f12",
+        crate::activity::InitialView::from(self).key()
+    }
+}
+
+impl From<Target> for crate::activity::InitialView {
+    fn from(target: Target) -> Self {
+        match target {
+            Target::Explorer => Self::Explorer,
+            Target::Search => Self::Search,
+            Target::SourceControl => Self::Git,
+            Target::QuickOpen => Self::QuickOpen,
+        }
+    }
+}
+impl From<crate::activity::InitialView> for Target {
+    fn from(view: crate::activity::InitialView) -> Self {
+        match view {
+            crate::activity::InitialView::Explorer => Self::Explorer,
+            crate::activity::InitialView::Search => Self::Search,
+            crate::activity::InitialView::Git => Self::SourceControl,
+            crate::activity::InitialView::QuickOpen => Self::QuickOpen,
         }
     }
 }
