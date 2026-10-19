@@ -8,6 +8,8 @@
 
 只修改 HerdrWork 仓库内的源码副本。独立安装的 Sidebar、Projects、Reviewr 插件及其注册表、命令、配置、任务、草稿不属于本产品；不得接管、关闭、替换、更新、迁移或卸载它们。共享仓库的文件和 Git 状态仅因用户明确的文件/Git 操作而改变。
 
+完整功能差异见 [Sidebar 能力对齐盘点](sidebar-capability-audit.md)。下表记录本版实际接入，不代表来源全能力已经对齐。
+
 ## 实际代码复用
 
 | 能力 | 原实现与迁移方式 | HerdrWork 接入 |
