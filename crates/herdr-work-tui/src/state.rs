@@ -7,6 +7,7 @@ use herdr_work_engine::{CodeSnapshot, DiffView, HerdrWork, JobQueue};
 use std::path::PathBuf;
 
 pub(crate) enum Data {
+    Background(crate::refresh::BackgroundRefresh),
     Tasks(Result<Vec<Task>>),
     Code(u64, Result<CodeSnapshot>),
     Diff(DiffView, Review),
@@ -72,6 +73,8 @@ pub(crate) enum Prompt {
     Git(herdr_work_engine::GitPlan),
 }
 pub(crate) struct App {
+    pub(crate) background_pending: Option<(u64, u64)>,
+    pub(crate) last_background: std::time::Instant,
     pub(crate) desk: HerdrWork,
     pub(crate) context: Context,
     pub(crate) tasks: Vec<Task>,
@@ -132,6 +135,8 @@ impl App {
         let root = root.canonicalize()?;
         let preferences = desk.ui_preferences()?;
         Ok(Self {
+            background_pending: None,
+            last_background: std::time::Instant::now(),
             desk,
             context,
             tasks: vec![],
@@ -246,6 +251,7 @@ impl App {
             return;
         }
         match data {
+            Ok(Data::Background(update)) => self.apply_background(update),
             Err(e) => self.status = format!("{e:#}"),
             Ok(Data::Business(text)) => {
                 self.status = text;
