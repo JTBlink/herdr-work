@@ -12,7 +12,7 @@ pub(crate) enum Data {
     Diff(DiffView, Review),
     CommitReady(herdr_work_engine::CommitPlan),
     Delivery(Review, String),
-    Preview(PathBuf, Result<String>),
+    Preview(u64, PathBuf, Result<herdr_work_code::preview::Doc>),
     Review(Review),
     Bound(Execution),
     Business(String),
@@ -80,6 +80,13 @@ pub(crate) struct App {
     pub(crate) selection: usize,
     pub(crate) scm_selection: usize,
     pub(crate) focus: Focus,
+    pub(crate) preview_doc: Option<herdr_work_code::preview::Doc>,
+    pub(crate) preview_request: u64,
+    pub(crate) preview_width: u16,
+    pub(crate) preview_pinned: bool,
+    pub(crate) preview_documents: Vec<crate::preview::PreviewDocument>,
+    pub(crate) preview_last_click: Option<(PathBuf, std::time::Instant)>,
+    pub(crate) preview_copier: Option<herdr_work_code::preview::ReleaseCopier>,
     pub(crate) preview_scroll: u16,
     pub(crate) preview_path: Option<PathBuf>,
     pub(crate) root: PathBuf,
@@ -140,6 +147,13 @@ impl App {
             selection: 0,
             scm_selection: 0,
             focus: Focus::Sidebar,
+            preview_doc: None,
+            preview_request: 0,
+            preview_width: 80,
+            preview_pinned: false,
+            preview_documents: vec![],
+            preview_last_click: None,
+            preview_copier: None,
             preview_scroll: 0,
             preview_path: None,
             root,
@@ -339,19 +353,18 @@ impl App {
                     self.selection = 0;
                 }
             }
-            Ok(Data::Preview(path, text)) if self.preview_path.as_ref() == Some(&path) => {
-                self.text = match text {
-                    Ok(text) => text,
-                    Err(error) => format!("无法预览文件：{error:#}"),
-                };
-                self.preview_scroll = self
-                    .preview_target
-                    .as_ref()
-                    .filter(|(p, _)| p == &path)
-                    .map(|(_, line)| line.saturating_sub(1).min(u16::MAX as usize) as u16)
-                    .unwrap_or(0);
+            Ok(Data::Preview(request, path, result))
+                if request == self.preview_request && self.preview_path.as_ref() == Some(&path) =>
+            {
+                match result {
+                    Ok(doc) => self.apply_preview(path, doc, false),
+                    Err(error) => {
+                        self.preview_doc = None;
+                        self.text = format!("无法预览文件：{error:#}");
+                    }
+                }
             }
-            Ok(Data::Preview(_, _)) => {}
+            Ok(Data::Preview(..)) => {}
             Ok(Data::GitReady(plan)) => {
                 self.input.clear();
                 self.prompt = Some(Prompt::Git(plan));
@@ -455,6 +468,7 @@ impl App {
         self.context.select(e);
         self.desk.save_context(&self.context)?;
         self.diff = None;
+        self.clear_previews();
         self.search_runtime = Default::default();
         self.preview_target = None;
         self.search_request += 1;
@@ -492,6 +506,7 @@ impl App {
         self.edit_request = None;
         self.text.clear();
         self.expanded.clear();
+        self.clear_previews();
         self.search_runtime = Default::default();
         self.preview_target = None;
         self.search_request += 1;

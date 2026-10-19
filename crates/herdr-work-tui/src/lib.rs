@@ -24,6 +24,7 @@ mod layout;
 mod loading;
 mod menus;
 mod mouse;
+mod preview;
 mod scm;
 mod search;
 mod sidebar_view;

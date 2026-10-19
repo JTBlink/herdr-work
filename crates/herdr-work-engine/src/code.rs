@@ -342,6 +342,17 @@ impl HerdrWork {
             })
         })
     }
+    pub fn preview_file(
+        &self,
+        root: &Path,
+        file: &str,
+        line: Option<usize>,
+        width: u16,
+    ) -> Result<herdr_work_code::preview::Doc> {
+        let root = root.canonicalize()?;
+        let path = checked_path(&root, file)?;
+        Ok(herdr_work_code::preview::file(&path, line, width))
+    }
     pub fn file(&self, root: &Path, file: &str) -> Result<String> {
         let root = root.canonicalize()?;
         let path = checked_path(&root, file)?;

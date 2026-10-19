@@ -141,13 +141,7 @@ impl App {
             .get(self.selection)
             .context("暂无结果；按 / 输入搜索内容")?
             .clone();
-        self.preview_path = Some(row.path.clone());
-        self.preview_target = Some((row.path.clone(), row.line));
-        self.preview_scroll = row.line.saturating_sub(1).min(u16::MAX as usize) as u16;
-        self.text = "正在读取文件…".into();
-        let root = self.root.clone();
-        let file = row.path.strip_prefix(&root)?.to_string_lossy().into_owned();
-        self.job(move |d| Ok(Data::Preview(row.path, d.file(&root, &file))))
+        self.open_preview(row.path, Some(row.line))
     }
     pub(crate) fn draw_search_sidebar(&self, f: &mut Frame, area: Rect) {
         let block = self.sidebar_block(
