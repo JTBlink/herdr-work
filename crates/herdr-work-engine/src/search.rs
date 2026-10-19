@@ -55,38 +55,33 @@ impl HerdrWork {
         &self,
         root: &Path,
         query: &str,
-        quick: bool,
         show_hidden: bool,
         options: SearchOptions,
         include: &str,
         exclude: &str,
     ) -> Result<SearchView> {
         let root = root.canonicalize()?;
-        if quick {
-            Ok(self.quick_index(&root, show_hidden)?.matches(query))
-        } else {
-            let (hits, truncated) = search::collect_content_hits(
-                &root,
-                show_hidden,
-                query,
-                include,
-                exclude,
-                options,
-                search::CONTENT_SEARCH_MATCH_LIMIT,
-            )
-            .map_err(anyhow::Error::msg)?;
-            Ok(SearchView {
-                rows: hits
-                    .into_iter()
-                    .map(|h| SearchRow {
-                        path: h.path,
-                        label: h.label,
-                        line: h.line,
-                        context: h.context,
-                    })
-                    .collect(),
-                truncated,
-            })
-        }
+        let (hits, truncated) = search::collect_content_hits(
+            &root,
+            show_hidden,
+            query,
+            include,
+            exclude,
+            options,
+            search::CONTENT_SEARCH_MATCH_LIMIT,
+        )
+        .map_err(anyhow::Error::msg)?;
+        Ok(SearchView {
+            rows: hits
+                .into_iter()
+                .map(|h| SearchRow {
+                    path: h.path,
+                    label: h.label,
+                    line: h.line,
+                    context: h.context,
+                })
+                .collect(),
+            truncated,
+        })
     }
 }

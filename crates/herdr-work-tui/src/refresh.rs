@@ -85,7 +85,7 @@ impl App {
                     desk.scm_drawer(&view.root, view.kind, view.file.as_deref()),
                 )
             });
-            Ok(Data::Background(BackgroundRefresh {
+            Ok(Data::Background(Box::new(BackgroundRefresh {
                 epoch,
                 generation,
                 root,
@@ -93,7 +93,7 @@ impl App {
                 preview,
                 diff,
                 drawer,
-            }))
+            })))
         })?;
         self.last_background = now;
         self.background_pending = Some((epoch, generation));
@@ -127,33 +127,32 @@ impl App {
             }
             Err(_) => {} // Retain the last usable snapshot on transient passive read errors.
         }
-        if self.editor.is_none() {
-            if let Some((request, path, Ok(Some(doc)))) = update.preview {
-                if request == self.preview_request && self.preview_path.as_ref() == Some(&path) {
-                    self.apply_preview(path, doc, true);
-                }
-            }
+        if self.editor.is_none()
+            && let Some((request, path, Ok(Some(doc)))) = update.preview
+            && request == self.preview_request
+            && self.preview_path.as_ref() == Some(&path)
+        {
+            self.apply_preview(path, doc, true);
         }
-        if self.prompt.is_none() && self.overlay.is_none() {
-            if let Some((previous, Ok(fresh))) = update.diff {
-                if self.diff.as_ref().is_some_and(|current| {
-                    current.root == previous.root
-                        && current.file == previous.file
-                        && current.scope == previous.scope
-                        && current.base == previous.base
-                        && current.fingerprint == previous.fingerprint
-                }) {
-                    self.diff = Some(fresh);
-                }
-            }
+        if self.prompt.is_none()
+            && self.overlay.is_none()
+            && let Some((previous, Ok(fresh))) = update.diff
+            && self.diff.as_ref().is_some_and(|current| {
+                current.root == previous.root
+                    && current.file == previous.file
+                    && current.scope == previous.scope
+                    && current.base == previous.base
+                    && current.fingerprint == previous.fingerprint
+            })
+        {
+            self.diff = Some(fresh);
         }
-        if let Some((request, Ok(view))) = update.drawer {
-            if request == self.drawer_request
-                && self.active_drawer == Some(view.kind)
-                && self.drawer_show.is_none()
-            {
-                self.drawers.insert(view.kind, view);
-            }
+        if let Some((request, Ok(view))) = update.drawer
+            && request == self.drawer_request
+            && self.active_drawer == Some(view.kind)
+            && self.drawer_show.is_none()
+        {
+            self.drawers.insert(view.kind, view);
         }
     }
 }
