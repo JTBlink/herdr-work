@@ -7,7 +7,7 @@ use herdr_work_engine::{CodeSnapshot, DiffView, HerdrWork, JobQueue};
 use std::path::PathBuf;
 
 pub(crate) enum Data {
-    Background(crate::refresh::BackgroundRefresh),
+    Background(Box<crate::refresh::BackgroundRefresh>),
     Tasks(Result<Vec<Task>>),
     Code(u64, Result<CodeSnapshot>),
     Diff(DiffView, Review),
@@ -50,7 +50,7 @@ pub(crate) enum Data {
 }
 pub(crate) enum Message {
     Input(Event),
-    Result(u64, Result<Data>),
+    Result(u64, Box<Result<Data>>),
 }
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Tab {
@@ -287,7 +287,7 @@ impl App {
             return;
         }
         match data {
-            Ok(Data::Background(update)) => self.apply_background(update),
+            Ok(Data::Background(update)) => self.apply_background(*update),
             Err(e) => self.status = format!("{e:#}"),
             Ok(Data::Business(text)) => {
                 self.status = text;
