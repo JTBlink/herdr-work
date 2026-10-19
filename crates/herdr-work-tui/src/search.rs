@@ -68,18 +68,19 @@ impl App {
             return Ok(());
         };
         if self.search_quick {
-            if let Some(index) = &self.search_runtime.cache {
-                if index.root == self.root && index.show_hidden == self.preferences.show_hidden {
-                    let view = index.matches(&self.search_query);
-                    self.search_rows = view.rows;
-                    self.search_state = LoadState::Ready;
-                    self.selection = 0;
-                    self.search_runtime.dirty_since = None;
-                    if view.truncated {
-                        self.status = "结果已截断，请缩小搜索范围".into();
-                    }
-                    return Ok(());
+            if let Some(index) = &self.search_runtime.cache
+                && index.root == self.root
+                && index.show_hidden == self.preferences.show_hidden
+            {
+                let view = index.matches(&self.search_query);
+                self.search_rows = view.rows;
+                self.search_state = LoadState::Ready;
+                self.selection = 0;
+                self.search_runtime.dirty_since = None;
+                if view.truncated {
+                    self.status = "结果已截断，请缩小搜索范围".into();
                 }
+                return Ok(());
             }
         } else if now.saturating_duration_since(dirty) < Duration::from_millis(300) {
             return Ok(());
@@ -104,7 +105,7 @@ impl App {
             self.job(move |d| {
                 Ok(Data::Search(
                     request,
-                    d.search_files(&root, &query, false, hidden, options, &include, &exclude),
+                    d.search_files(&root, &query, hidden, options, &include, &exclude),
                 ))
             })?;
         }
@@ -170,7 +171,7 @@ impl App {
         let options = self.search_options;
         let header = format!(
             "{}\n[Aa:{}] [W:{}] [.*:{}]\n包含: {}\n排除: {}",
-            format!(
+            format_args!(
                 "{}{}",
                 if matches!(self.prompt, Some(Prompt::Search(_))) {
                     "› "
