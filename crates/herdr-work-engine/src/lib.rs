@@ -1,14 +1,24 @@
 //! HerdrWork orchestration. All terminal-free business commands enter here.
 mod code;
+mod editing;
+mod files;
 mod host;
+mod preferences;
 mod profile;
 mod review;
+mod scm;
+mod search;
 mod storage;
 mod tasks;
 
 pub use code::{CodeSnapshot, CommitPlan, DiffView, FileRow, GitChange};
+pub use editing::EditorSession;
+pub use files::FilePlan;
 pub use herdr_work_core as model;
+pub use preferences::UiPreferences;
 pub use review::SendOutcome;
+pub use scm::{DrawerView, GitPlan};
+pub use search::{SearchRow, SearchView};
 pub use storage::fingerprint;
 
 use anyhow::Result;

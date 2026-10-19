@@ -30,6 +30,99 @@ fn fixture() -> (tempfile::TempDir, tempfile::TempDir, HerdrWork) {
     let desk = HerdrWork::open(home.path(), None).unwrap();
     (repo, home, desk)
 }
+
+#[test]
+fn file_menu_operations_reuse_source_actions_without_overwriting_changed_targets() {
+    use herdr_work_code::actions::MenuAction;
+    let (repo, _home, desk) = fixture();
+    let create = desk
+        .prepare_file_action(repo.path(), None, MenuAction::NewFile)
+        .unwrap();
+    desk.apply_file_action(&create, "created.txt").unwrap();
+    assert!(repo.path().join("created.txt").is_file());
+    assert!(desk.apply_file_action(&create, "created.txt").is_err());
+    let rename = desk
+        .prepare_file_action(
+            repo.path(),
+            Some(&repo.path().join("created.txt")),
+            MenuAction::Rename,
+        )
+        .unwrap();
+    desk.apply_file_action(&rename, "renamed.txt").unwrap();
+    let delete = desk
+        .prepare_file_action(
+            repo.path(),
+            Some(&repo.path().join("renamed.txt")),
+            MenuAction::Delete,
+        )
+        .unwrap();
+    std::fs::write(
+        repo.path().join("renamed.txt"),
+        "changed since confirmation",
+    )
+    .unwrap();
+    assert!(desk.apply_file_action(&delete, "DELETE").is_err());
+    assert!(repo.path().join("renamed.txt").exists());
+    assert!(
+        desk.prepare_file_action(repo.path(), Some(repo.path()), MenuAction::Delete)
+            .is_err()
+    );
+    assert!(desk.edit_file(repo.path(), ".git/config").is_err());
+}
+
+#[test]
+fn shared_git_reference_actions_respect_confirmation_snapshot() {
+    use herdr_work_code::scm::{Drawer, MenuAction};
+    let (repo, _home, desk) = fixture();
+    git(repo.path(), &["tag", "delete-me"]);
+    let view = desk.scm_drawer(repo.path(), Drawer::Tags, None).unwrap();
+    let index = view.lines.iter().position(|r| r == "delete-me").unwrap();
+    let plan = desk
+        .prepare_scm_action(&view, index, MenuAction::DeleteTag)
+        .unwrap();
+    std::fs::write(repo.path().join("file.txt"), "new external edit").unwrap();
+    assert!(desk.execute_git_plan(&plan).is_err());
+    git(repo.path(), &["rev-parse", "refs/tags/delete-me"]);
+    let plan = desk
+        .prepare_scm_action(&view, index, MenuAction::DeleteTag)
+        .unwrap();
+    desk.execute_git_plan(&plan).unwrap();
+    assert!(
+        !Command::new("git")
+            .args(["rev-parse", "--verify", "refs/tags/delete-me"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn internal_editor_and_file_menu_cannot_follow_an_outside_symlink() {
+    let (repo, _home, desk) = fixture();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("private.txt"), "third party data").unwrap();
+    std::os::unix::fs::symlink(
+        outside.path().join("private.txt"),
+        repo.path().join("escape.txt"),
+    )
+    .unwrap();
+    assert!(desk.edit_file(repo.path(), "escape.txt").is_err());
+    assert!(
+        desk.prepare_file_action(
+            repo.path(),
+            Some(&repo.path().join("escape.txt")),
+            herdr_work_code::actions::MenuAction::Delete
+        )
+        .is_err()
+    );
+    assert_eq!(
+        std::fs::read_to_string(outside.path().join("private.txt")).unwrap(),
+        "third party data"
+    );
+}
 fn execution(root: &Path) -> Execution {
     Execution {
         id: ExecutionId("fixture-run".into()),
@@ -252,9 +345,9 @@ fn git_hook_descendants_and_blocking_hooks_are_bounded_after_commit() {
     let hook = repo.path().join(".git/hooks/post-commit");
     std::fs::write(&hook, "#!/bin/sh\nsleep 30 &\nexit 0\n").unwrap();
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let source = herdr_sidebar::git::Git::discover(repo.path()).unwrap();
+    let source = herdr_work_code::git::Git::discover(repo.path()).unwrap();
     let began = Instant::now();
-    let result = herdr_sidebar::git::herdr_work_bounded(
+    let result = herdr_work_code::git::herdr_work_bounded(
         |command, _| {
                 .map_err(|e| e.to_string())
         },
@@ -268,7 +361,7 @@ fn git_hook_descendants_and_blocking_hooks_are_bounded_after_commit() {
     git(repo.path(), &["add", "file.txt"]);
     std::fs::write(&hook, "#!/bin/sh\nsleep 30\n").unwrap();
     let began = Instant::now();
-    let result = herdr_sidebar::git::herdr_work_bounded(
+    let result = herdr_work_code::git::herdr_work_bounded(
         |command, _| {
                 .map_err(|e| e.to_string())
         },

@@ -37,7 +37,7 @@ def build(target, tag=None):
     subprocess.run(['cargo', 'build', '--release', '--locked', '--target', target, '-p', 'herdr-work', '--bin', 'herdr-work'], cwd=ROOT, check=True)
     if info['projects_backend']:
         subprocess.run(['cargo', 'build', '--release', '--locked', '--target', target,
-                        '--manifest-path', 'upstream/herdr-projects/Cargo.toml', '--bin', 'herdr-projects'], cwd=ROOT, check=True)
+                        '-p', 'herdr-work-projects', '--bin', 'herdr-work-projects'], cwd=ROOT, check=True)
     return info
 
 if __name__ == '__main__':

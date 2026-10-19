@@ -6,6 +6,7 @@ use herdr_work_core::Side;
 use crate::state::*;
 impl App {
     pub(crate) fn switch_tab(&mut self, tab: Tab) {
+        self.edit_request = None;
         if self.tab == Tab::Scm {
             self.scm_selection = self.selection;
         }
@@ -20,8 +21,21 @@ impl App {
         } else {
             Focus::Sidebar
         };
+        if tab == Tab::Scm {
+            self.scm_cursor = self
+                .scm_rows()
+                .iter()
+                .position(|r| r.0 == Some(self.selection))
+                .unwrap_or(0);
+        }
     }
     pub(crate) fn key(&mut self, key: KeyCode) -> Result<bool> {
+        if self.overlay.is_some() {
+            if let Err(error) = self.overlay_key(key) {
+                self.status = error.to_string();
+            }
+            return Ok(false);
+        }
         if self.prompt.is_some() {
             match key {
                 KeyCode::Esc => {
@@ -49,10 +63,65 @@ impl App {
     }
     pub(crate) fn action(&mut self, key: KeyCode) -> Result<()> {
         match key {
+            KeyCode::Char(',') => self.open_settings(),
+            KeyCode::Char('m') => self.open_menu(true),
+            KeyCode::Char('e') if matches!(self.tab, Tab::Files | Tab::Search) => {
+                self.start_editor()?
+            }
+            KeyCode::Char('/') => self.query_prompt(false),
+            KeyCode::Char('5') => self.switch_tab(Tab::Search),
+            KeyCode::Char('c' | 'w' | '*')
+                if self.tab == Tab::Search && self.focus == Focus::Sidebar =>
+            {
+                match key {
+                    KeyCode::Char('c') => {
+                        self.search_options.match_case = !self.search_options.match_case
+                    }
+                    KeyCode::Char('w') => {
+                        self.search_options.whole_word = !self.search_options.whole_word
+                    }
+                    _ => self.search_options.regex = !self.search_options.regex,
+                }
+                self.search()?;
+            }
+            KeyCode::Char('i' | 'o') if self.tab == Tab::Search => {
+                let include = key == KeyCode::Char('i');
+                self.prompt = Some(if include {
+                    Prompt::SearchInclude
+                } else {
+                    Prompt::SearchExclude
+                });
+                self.input = if include {
+                    self.search_include.clone()
+                } else {
+                    self.search_exclude.clone()
+                };
+            }
             KeyCode::Char('1') => self.switch_tab(Tab::Tasks),
             KeyCode::Char('2') => self.switch_tab(Tab::Files),
             KeyCode::Char('3') => self.switch_tab(Tab::Scm),
             KeyCode::Char('4') => self.switch_tab(Tab::Review),
+            KeyCode::Down | KeyCode::Up | KeyCode::Char('j' | 'k') if self.tab == Tab::Scm => {
+                let down = matches!(key, KeyCode::Down | KeyCode::Char('j'));
+                if self.focus == Focus::Content && self.active_drawer.is_some() {
+                    self.drawer_scroll = if down {
+                        self.drawer_scroll.saturating_add(1)
+                    } else {
+                        self.drawer_scroll.saturating_sub(1)
+                    };
+                } else {
+                    let rows = self.scm_rows();
+                    self.scm_cursor = if down {
+                        (self.scm_cursor + 1).min(rows.len().saturating_sub(1))
+                    } else {
+                        self.scm_cursor.saturating_sub(1)
+                    };
+                    if let Some(index) = rows.get(self.scm_cursor).and_then(|r| r.0) {
+                        self.selection = index;
+                        self.scm_selection = index;
+                    }
+                }
+            }
             KeyCode::Tab | KeyCode::BackTab => {
                 self.focus = if self.focus == Focus::Sidebar {
                     Focus::Content
@@ -61,13 +130,16 @@ impl App {
                 };
                 if self.tab == Tab::Review {
                     self.switch_tab(Tab::Scm);
-                } else if self.tab == Tab::Scm && self.diff.is_some() {
+                } else if self.tab == Tab::Scm
+                    && self.diff.is_some()
+                    && self.active_drawer.is_none()
+                {
                     self.scm_selection = self.selection;
                     self.switch_tab(Tab::Review);
                 }
             }
             KeyCode::Down | KeyCode::Char('j')
-                if self.tab == Tab::Files && self.focus == Focus::Content =>
+                if matches!(self.tab, Tab::Files | Tab::Search) && self.focus == Focus::Content =>
             {
                 self.preview_scroll = self.preview_scroll.saturating_add(1).min(
                     self.text
@@ -78,7 +150,7 @@ impl App {
                 );
             }
             KeyCode::Up | KeyCode::Char('k')
-                if self.tab == Tab::Files && self.focus == Focus::Content =>
+                if matches!(self.tab, Tab::Files | Tab::Search) && self.focus == Focus::Content =>
             {
                 self.preview_scroll = self.preview_scroll.saturating_sub(1);
             }
@@ -90,6 +162,7 @@ impl App {
                         Tab::Files => self.code.as_ref().map(|c| c.files.len()).unwrap_or(0),
                         Tab::Scm => self.code.as_ref().map(|c| c.changes.len()).unwrap_or(0),
                         Tab::Review => self.diff.as_ref().map(|d| d.rows.len()).unwrap_or(0),
+                        Tab::Search => self.search_rows.len(),
                         _ => 0,
                     };
                     self.selection = self
@@ -108,10 +181,14 @@ impl App {
             KeyCode::Char('r') => {
                 self.refresh()?;
                 self.load_tasks()?;
+                if let Some(kind) = self.active_drawer {
+                    self.load_drawer(kind)?;
+                }
             }
             KeyCode::Enter => match self.tab {
                 Tab::Tasks => self.choose_execution()?,
                 Tab::Files => {
+                    self.edit_request = None;
                     let row = self
                         .code
                         .as_ref()
@@ -138,21 +215,15 @@ impl App {
                         self.job(move |d| Ok(Data::Preview(path, d.file(&root, &file))))?;
                     }
                 }
-                Tab::Scm => {
-                    self.scm_selection = self.selection;
-                    let c = self
-                        .code
-                        .as_ref()
-                        .and_then(|c| c.changes.get(self.selection))
-                        .context("No change selected")?
-                        .clone();
-                    self.open_diff(
-                        c.root,
-                        c.path,
-                        if c.staged { "staged" } else { "unstaged" }.into(),
-                    )?;
-                }
+                Tab::Scm => self.activate_scm_row()?,
                 Tab::Review => {}
+                Tab::Search => {
+                    if self.search_rows.is_empty() {
+                        self.query_prompt(false);
+                    } else {
+                        self.open_search_result()?;
+                    }
+                }
             },
             KeyCode::Char('b') => {
                 let e = self.execution();
@@ -168,8 +239,7 @@ impl App {
             KeyCode::Char('s') if self.tab == Tab::Scm => self.change_stage(true)?,
             KeyCode::Char('u') if self.tab == Tab::Scm => self.change_stage(false)?,
             KeyCode::Char('C') if self.tab == Tab::Scm => {
-                let root = self.root.clone();
-                self.job(move |d| Ok(Data::CommitReady(d.prepare_commit(&root)?)))?;
+                self.prepare_commit()?;
             }
             KeyCode::Char('c') if self.tab == Tab::Review => {
                 let diff = self.diff.as_ref().context("Open a Diff first")?;
@@ -250,6 +320,12 @@ impl App {
         Ok(())
     }
     pub(crate) fn change_stage(&self, stage: bool) -> Result<()> {
+        anyhow::ensure!(
+            self.scm_rows()
+                .get(self.scm_cursor)
+                .is_some_and(|r| r.0 == Some(self.selection)),
+            "请先选择要暂存或取消暂存的文件"
+        );
         let c = self
             .code
             .as_ref()
@@ -267,6 +343,31 @@ impl App {
         let input = std::mem::take(&mut self.input);
         let prompt = self.prompt.take().unwrap();
         match prompt {
+            Prompt::Git(plan) => {
+                anyhow::ensure!(input == "APPLY", "请输入 APPLY 确认 Git 操作");
+                self.job(move |d| Ok(Data::Business(d.execute_git_plan(&plan)?)))?;
+            }
+            Prompt::File(plan) => {
+                self.job(move |d| {
+                    d.apply_file_action(&plan, &input)?;
+                    Ok(Data::Business("文件操作已完成".into()))
+                })?;
+            }
+            Prompt::Folder => self.change_folder(std::path::PathBuf::from(input.trim()))?,
+            Prompt::Search(quick) => {
+                self.search_query = input;
+                self.search_quick = quick;
+                self.switch_tab(Tab::Search);
+                self.search()?;
+            }
+            Prompt::SearchInclude => {
+                self.search_include = input;
+                self.search()?;
+            }
+            Prompt::SearchExclude => {
+                self.search_exclude = input;
+                self.search()?;
+            }
             Prompt::NewTask => {
                 let root = self.root.clone();
                 self.job(move |d| {

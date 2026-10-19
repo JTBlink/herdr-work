@@ -27,7 +27,9 @@ Windows 使用 `python install.py --prefix "$env:LOCALAPPDATA/HerdrWork"`，运�
 | Linux x86_64 | HerdrWork 与固定 Projects 后端 |
 | Windows x86_64 | 原生文件、Git、Diff 与评论界面；Projects 后端仍依赖 Unix，不提供原生任务执行 |
 
-默认页面是文件树与预览区，左侧活动栏可点击切换文件、Git、任务和审查。按 `1`–`4` 分别进入任务、文件、SCM、审查，`j/k` 移动，`Enter` 打开，`Tab` 切换焦点，`r` 刷新，`q` 关闭界面。SCM 按 `s/u` 暂存/取消暂存，按 `C` 提交；任务页按 `n` 创建任务。
+默认页面是文件树与预览区，左侧为文件、搜索、Git、任务、审查图标，底部齿轮打开设置。`1`–`4` 分别进入任务、文件、SCM、审查，`5` 进入搜索；`m` 或右键打开菜单，`,` 打开设置，`Tab` 切换焦点，`r` 刷新，`q` 退出。
+
+文件页按 `e` 使用内置编辑器，`Ctrl+S` 保存，`Ctrl+Z/Y` 撤销/重做，`Esc` 返回并处理未保存内容；`Ctrl+P` 快速打开文件，`/` 搜索文本。SCM 按 `s/u` 暂存/取消暂存，`C` 提交，并可展开 Graph、Commits、File History、Branches、Worktrees、Remotes、Stashes、Tags；任务页按 `n` 创建任务。
 
 Agent 定位和发送需要 Herdr 0.9.3+ 提供的宿主连接。独立启动时仍可浏览 Git 和保存评论。关闭界面不会停止已委派的 Agent。
 
@@ -57,7 +59,6 @@ python3 scripts/smoke.py --archives dist
 ```
 
 
-当前四个产品 crate 位于 `crates/`，来源源码仍在 `upstream/`。后续按[内部模块架构](docs/architecture/herdr-work-internal-modules.md)统一工程，实施进度见[任务索引](docs/plans/internal-modules/README.md)，实际复用见[源码来源与补丁](docs/upstream/source-map.md)。GitHub 仓库仍使用 `JTBlink/herdr-work` 地址。
 
 ## 来源与许可
 

@@ -36,7 +36,7 @@ def projects_smoke(binary, backend, profile, root):
     if not any(row['title'] == 'Installation smoke task' for row in tasks):
         raise ValueError('Original Projects create/list flow failed')
 
-    managed = dict(env, HERDR_WORK_MANAGED='1', HERDR_PLUGIN_ID='jtblink.herdr-work',
+    managed = dict(env, HERDR_WORK_HOME=str(profile.resolve()), HERDR_WORK_MANAGED='1', HERDR_PLUGIN_ID='jtblink.herdr-work',
                    HERDR_PROJECTS_HOME=str(projects), HERDR_PROJECTS_DATA_DIR=str(projects / 'data'),
                    HERDR_PROJECTS_CONFIG_DIR=str(projects / 'settings'),
                    HERDR_PROJECTS_REPORTS_DIR=str(projects / 'reports'))
@@ -65,8 +65,9 @@ def projects_smoke(binary, backend, profile, root):
     obsolete = dict(managed)
     obsolete.pop('HERDR_WORK_MANAGED')
     obsolete['WORKDESK_MANAGED'] = '1'
-    if json.loads(output([backend, 'herdr-work-environment'], env=obsolete))['managed']:
-        raise ValueError('Obsolete managed flag is still supported')
+    observed = json.loads(output([backend, 'herdr-work-environment'], env=obsolete))
+    if not observed['managed'] or observed['home'] != str(projects):
+        raise ValueError('Product worker isolation depends on an inherited managed flag')
     (projects / 'data' / 'workdesk-paused').write_text('obsolete')
     if json.loads(output(command + ['scheduler', 'status'], env=env))['paused']:
         raise ValueError('Obsolete pause marker still controls the scheduler')

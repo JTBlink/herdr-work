@@ -44,6 +44,7 @@ pub fn board_env() -> Vec<(String, String)> {
          ("HERDR_PROJECTS_CONFIG_DIR".into(), absolute(&config_dir()).display().to_string())];
     if herdr_work_managed() {
         pairs.extend([
+            ("HERDR_WORK_HOME".into(), std::env::var("HERDR_WORK_HOME").unwrap_or_else(|_| home_dir().parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf().display().to_string())),
             ("HERDR_WORK_MANAGED".into(), "1".into()),
             ("HERDR_PROJECTS_HOME".into(), absolute(&home_dir()).display().to_string()),
             ("HERDR_PROJECTS_REPORTS_DIR".into(), absolute(&reports_dir()).display().to_string()),

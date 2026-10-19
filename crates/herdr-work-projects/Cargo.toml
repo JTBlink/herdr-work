@@ -1,0 +1,12 @@
+[package]
+name = "herdr-work-projects"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+herdr-work-tasks = { package = "herdr-projects", path = "../../upstream/herdr-projects" }
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true

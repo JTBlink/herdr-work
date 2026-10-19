@@ -100,6 +100,31 @@ class InstallerLifecycle(unittest.TestCase):
                 self.assertFalse(binary.exists())
                 self.assertEqual(data.read_text(), 'keep')
 
+    def test_install_lifecycle_preserves_independently_installed_plugins(self):
+        import install as installer
+        from unittest.mock import patch
+        import shutil
+        for suffix in ['', '.exe']:
+            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as temp:
+                stage, prefix, _ = self.fixture(Path(temp).resolve(), suffix)
+                original = {}
+                    binary = prefix / 'bin' / ('herdr-' + name + suffix)
+                    config = prefix / 'independent-plugins' / name / 'config.json'
+                    config.parent.mkdir(parents=True)
+                    original[binary] = ('independent ' + name).encode()
+                    original[config] = ('original config ' + name).encode()
+                registry = prefix / 'independent-plugins' / 'plugins.json'
+                original[registry] = b'{"sidebar":{"enabled":true},"projects":{"enabled":true}}'
+                for path, content in original.items():
+                    path.write_bytes(content)
+                with patch('install.replace', side_effect=shutil.copy2):
+                    installer.install(stage, prefix)
+                    installer.rollback(prefix)
+                    installer.install(stage, prefix)
+                    installer.uninstall(prefix)
+                for path, content in original.items():
+                    self.assertEqual(path.read_bytes(), content)
+
     def test_interrupted_replacement_restores_original_installation(self):
         import install as installer
         from unittest.mock import patch

@@ -8,7 +8,6 @@ date: 2026-10-19
 
 用户已确认：来源代码属于 HerdrWork 自身功能，由本项目长期开发、定制和重构。按产品职责组织代码，以一个 Cargo workspace 管理全部生产 Rust package。实际复用已有实现、测试和资源，保留许可证与来源记录。
 
-本文是后续实施依据。当前发布基线为 v0.1.4：四个产品 crate 位于 `crates/`，三个来源工程仍在 `upstream/`，Projects 仍独立构建。本轮正在处理旧名称兼容清理和默认 Explorer 布局；**内部模块迁移尚未实施**。旧首版文档保留为[基线架构](herdr-work-architecture.md)，其中“四个 crate 上限、必须保留来源原布局、双 workspace/锁文件”的约束被本文替代。领域中 Task、Attempt、Execution、Run 的含义保持不变。
 
 ## 产品约定
 
@@ -25,7 +24,7 @@ date: 2026-10-19
 | `upstream/herdr-projects/Cargo.toml` | 根 CLI 依赖 `sw-web → sw-board → sw-flow → sw-core`，含独立 workspace/锁文件 | 先迁入现有 package，再切断任务业务对旧看板/Web 的依赖 |
 | Projects core/flow | 含 Ratatui、宿主调用、环境、格式化与业务流程 | 不能将其标成已经纯化的领域模块；分阶段移交 UI 与运行设施 |
 | 来源资源和测试 | 有相对 `include_str!`、`include_bytes!`、`CARGO_MANIFEST_DIR` 与原 CLI fixture | 移动时更新资源定位及测试入口，记录保留/迁移/移除的理由 |
-| 根构建与打包脚本 | Projects 单独构建，归档从第二个 target 目录取文件 | 统一从根 workspace/target 获取两个产品可执行文件 |
+| 根构建与打包脚本 | 已改为根构建主程序和专属 worker，从根 target 取文件；Projects 作为源码库依赖 | 后续将其余 package 声明一并迁入根 workspace |
 
 ## 最终目录与职责
 

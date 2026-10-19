@@ -48,6 +48,7 @@ impl HerdrWork {
     pub fn projects_command(&self, args: &[&str], cwd: Option<&Path>) -> Result<Value> {
         let mut cmd = Command::new(self.backend());
         cmd.args(args)
+            .env("HERDR_WORK_HOME", self.root())
             .env("HERDR_PROJECTS_HOME", self.projects_home())
             .env("HERDR_PROJECTS_DATA_DIR", self.projects_home().join("data"))
             .env(
