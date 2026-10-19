@@ -86,6 +86,7 @@ pub struct Editor {
     anchor: Option<TextPos>,
     preferred_x: Option<usize>,
     pub scroll: usize,
+    follow_cursor: bool,
     original_bytes: Vec<u8>,
     bom: bool,
     line_ending: LineEnding,
@@ -115,9 +116,35 @@ fn remember(history: &mut std::collections::VecDeque<Snapshot>, snapshot: Snapsh
     }
 }
 
+/// File I/O is separated from applying a result so hosts can observe on a worker.
+pub struct ExternalRequest {
+    path: PathBuf,
+    baseline: Vec<u8>,
+}
+pub struct ExternalObservation {
+    path: PathBuf,
+    baseline: Vec<u8>,
+    fresh: Result<Editor, OpenError>,
+}
+impl ExternalRequest {
+    pub fn observe(self, max_bytes: usize, max_lines: usize) -> ExternalObservation {
+        ExternalObservation {
+            fresh: Editor::open(&self.path, max_bytes, max_lines),
+            path: self.path,
+            baseline: self.baseline,
+        }
+    }
+}
+
 impl Editor {
     pub fn open(path: &Path, max_bytes: usize, max_lines: usize) -> Result<Self, OpenError> {
-        let bytes = std::fs::read(path).map_err(OpenError::Io)?;
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)
+            .map_err(OpenError::Io)?
+            .take(max_bytes.saturating_add(1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(OpenError::Io)?;
         Self::from_bytes(path.to_path_buf(), bytes, max_bytes, max_lines)
     }
 
@@ -153,6 +180,7 @@ impl Editor {
             anchor: None,
             preferred_x: None,
             scroll: 0,
+            follow_cursor: true,
             original_bytes: bytes,
             bom,
             line_ending,
@@ -211,6 +239,7 @@ impl Editor {
     }
 
     pub fn on_key(&mut self, key: KeyEvent, wrap_width: usize, page: usize) -> EditAction {
+        self.follow_cursor = true;
         let shortcut = (key.modifiers.contains(KeyModifiers::CONTROL)
             && !key.modifiers.contains(KeyModifiers::ALT))
             || key.modifiers.contains(KeyModifiers::SUPER);
@@ -646,6 +675,7 @@ impl Editor {
     }
 
     pub fn insert_text(&mut self, text: &str) {
+        self.follow_cursor = true;
         let before = self.snapshot();
         self.insert_text_inner(text);
         if before.lines != self.lines {
@@ -750,7 +780,15 @@ impl Editor {
     }
 
     fn disk_changed(&self) -> bool {
-        std::fs::read(&self.path).map_or(true, |bytes| bytes != self.original_bytes)
+        use std::io::Read;
+        let read = || -> std::io::Result<Vec<u8>> {
+            let mut bytes = Vec::new();
+            std::fs::File::open(&self.path)?
+                .take(self.original_bytes.len().saturating_add(1) as u64)
+                .read_to_end(&mut bytes)?;
+            Ok(bytes)
+        };
+        read().map_or(true, |bytes| bytes != self.original_bytes)
     }
 
     pub fn save(&mut self, overwrite_external: bool) -> std::io::Result<SaveOutcome> {
@@ -767,39 +805,109 @@ impl Editor {
         Ok(SaveOutcome::Saved)
     }
 
-    pub fn poll_external(&mut self, max_bytes: usize, max_lines: usize) {
-        if !self.disk_changed() {
-            self.external_changed = false;
+    pub fn external_request(&self) -> ExternalRequest {
+        ExternalRequest {
+            path: self.path.clone(),
+            baseline: self.original_bytes.clone(),
+        }
+    }
+
+    /// Apply only to the same baseline; a pending observation never replaces new edits.
+    pub fn apply_external(&mut self, observation: ExternalObservation) {
+        if observation.path != self.path || observation.baseline != self.original_bytes {
             return;
         }
-        if self.dirty {
-            self.external_changed = true;
-            self.status = Some("file changed on disk — save will ask before overwriting".into());
-            return;
-        }
-        match std::fs::read(&self.path)
-            .map_err(OpenError::Io)
-            .and_then(|bytes| Self::from_bytes(self.path.clone(), bytes, max_bytes, max_lines))
-        {
+        match observation.fresh {
+            Ok(fresh) if fresh.original_bytes == self.original_bytes => {
+                self.external_changed = false;
+            }
+            Ok(_) if self.dirty => {
+                self.external_changed = true;
+                self.status =
+                    Some("file changed on disk — save will ask before overwriting".into());
+            }
             Ok(mut fresh) => {
                 fresh.status = Some("reloaded after external change".into());
-                *self = fresh;
+                self.replace_from_disk(fresh);
             }
-            Err(e) => {
+            Err(error) => {
                 self.external_changed = true;
-                self.status = Some(format!("external change: {e}"));
+                self.status = Some(format!("external change: {error}"));
             }
         }
+    }
+
+    pub fn poll_external(&mut self, max_bytes: usize, max_lines: usize) {
+        let observation = self.external_request().observe(max_bytes, max_lines);
+        self.apply_external(observation);
+    }
+
+    fn replace_from_disk(&mut self, mut fresh: Self) {
+        let clamp = |position: TextPos| {
+            let line = position.line.min(fresh.lines.len().saturating_sub(1));
+            TextPos {
+                line,
+                col: position.col.min(char_len(&fresh.lines[line])),
+            }
+        };
+        fresh.cursor = clamp(self.cursor);
+        fresh.anchor = self.anchor.map(clamp);
+        fresh.scroll = self.scroll;
+        fresh.follow_cursor = self.follow_cursor;
+        *self = fresh;
     }
 
     pub fn reload(&mut self, max_bytes: usize, max_lines: usize) -> Result<(), OpenError> {
         let mut fresh = Self::open(&self.path, max_bytes, max_lines)?;
         fresh.status = Some("reloaded from disk".into());
-        *self = fresh;
+        self.replace_from_disk(fresh);
         Ok(())
     }
 
+    /// A worker snapshot needs the buffer/encoding, without copying undo history.
+    pub fn io_snapshot(&self) -> Self {
+        Self {
+            path: self.path.clone(),
+            lines: self.lines.clone(),
+            cursor: self.cursor,
+            anchor: self.anchor,
+            preferred_x: self.preferred_x,
+            scroll: self.scroll,
+            follow_cursor: self.follow_cursor,
+            original_bytes: self.original_bytes.clone(),
+            bom: self.bom,
+            line_ending: self.line_ending,
+            dirty: self.dirty,
+            external_changed: self.external_changed,
+            status: self.status.clone(),
+            search: self.search.clone(),
+            mouse_anchor: self.mouse_anchor,
+            undo: Default::default(),
+            redo: Default::default(),
+        }
+    }
+
+    /// A completed save acknowledges its bytes while retaining subsequent user input.
+    pub fn apply_saved(&mut self, saved: &Self) {
+        if self.path != saved.path {
+            return;
+        }
+        self.original_bytes = saved.original_bytes.clone();
+        self.dirty = self.encoded_bytes() != self.original_bytes;
+        self.external_changed = false;
+        self.status = Some("saved".into());
+    }
+
+    pub fn apply_reloaded(&mut self, expected_text: &str, fresh: Self) -> bool {
+        if self.path != fresh.path || self.text() != expected_text {
+            return false;
+        }
+        self.replace_from_disk(fresh);
+        true
+    }
+
     pub fn scroll_by(&mut self, delta: isize, width: usize, height: usize) {
+        self.follow_cursor = false;
         let count = self.rows(width).len();
         let max = count.saturating_sub(height.max(1));
         self.scroll = self.scroll.saturating_add_signed(delta).min(max);
@@ -808,6 +916,7 @@ impl Editor {
     pub fn on_mouse(&mut self, mouse: &MouseEvent, body: Rect) {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
+                self.follow_cursor = true;
                 let Some(position) = self.text_position_at(body, mouse.column, mouse.row) else {
                     return;
                 };
@@ -823,6 +932,7 @@ impl Editor {
                 self.preferred_x = None;
             }
             MouseEventKind::Drag(MouseButton::Left) => {
+                self.follow_cursor = true;
                 let Some(anchor) = self.mouse_anchor else {
                     return;
                 };
@@ -872,9 +982,9 @@ impl Editor {
         let rows = self.rows(width);
         let cursor_row = visual_row_index(&rows, self.cursor).unwrap_or(0);
         let height = usize::from(body.height).max(1);
-        if cursor_row < self.scroll {
+        if self.follow_cursor && cursor_row < self.scroll {
             self.scroll = cursor_row;
-        } else if cursor_row >= self.scroll + height {
+        } else if self.follow_cursor && cursor_row >= self.scroll + height {
             self.scroll = cursor_row + 1 - height;
         }
         self.scroll = self.scroll.min(rows.len().saturating_sub(height));
@@ -940,7 +1050,12 @@ impl Editor {
         };
         frame.render_widget(Paragraph::new(Line::from(footer_text).dim()), footer);
 
-        if prompt.is_none() && self.search.is_none() && body.width > gutter as u16 {
+        if prompt.is_none()
+            && self.search.is_none()
+            && body.width > gutter as u16
+            && cursor_row >= self.scroll
+            && cursor_row < self.scroll + height
+        {
             let row = &rows[cursor_row];
             let x = display_width_range(&self.lines[row.line], row.start, self.cursor.col);
             let screen_y =

@@ -382,3 +382,88 @@ fn git_hook_descendants_and_blocking_hooks_are_bounded_after_commit() {
         "bounded blocking hook"
     );
 }
+
+#[test]
+fn editor_observation_never_replaces_edits_made_while_the_disk_check_is_pending() {
+    let (repo, _home, desk) = fixture();
+    let mut session = desk.edit_file(repo.path(), "file.txt").unwrap();
+    let request = session.external_request();
+    std::fs::write(repo.path().join("file.txt"), "external\n").unwrap();
+    let observed = request.observe().unwrap();
+    session.editor.insert_text("local ");
+    let cursor = session.editor.cursor();
+    session.apply_external(observed);
+    assert_eq!(session.editor.text(), "local after\n");
+    assert_eq!(session.editor.cursor(), cursor);
+    assert!(session.editor.external_changed);
+    assert!(session.save().is_err());
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("file.txt")).unwrap(),
+        "external\n"
+    );
+}
+
+#[test]
+fn editor_reload_and_overwrite_preserve_utf8_bom_and_crlf() {
+    use herdr_work_code::editor::SaveOutcome;
+    let (repo, _home, desk) = fixture();
+    std::fs::write(
+        repo.path().join("file.txt"),
+        b"\xef\xbb\xbfhello\r\nworld\r\n",
+    )
+    .unwrap();
+    let mut session = desk.edit_file(repo.path(), "file.txt").unwrap();
+    std::fs::write(
+        repo.path().join("file.txt"),
+        b"\xef\xbb\xbfhello\r\nnew disk\r\n",
+    )
+    .unwrap();
+    session.apply_external(session.external_request().observe().unwrap());
+    session.editor.insert_text("界");
+    assert_eq!(session.editor.text(), "界hello\nnew disk\n");
+    std::fs::write(repo.path().join("file.txt"), "changed again\n").unwrap();
+    assert_eq!(
+        session.save_with_overwrite(false).unwrap(),
+        SaveOutcome::Conflict
+    );
+    assert_eq!(
+        session.save_with_overwrite(true).unwrap(),
+        SaveOutcome::Saved
+    );
+    assert_eq!(
+        std::fs::read(repo.path().join("file.txt")).unwrap(),
+        "\u{feff}界hello\r\nnew disk\r\n".as_bytes()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn editor_reload_observe_and_explicit_overwrite_reject_replaced_path_or_root() {
+    use std::os::unix::fs::symlink;
+    let (repo, _home, desk) = fixture();
+    let outside = tempfile::tempdir().unwrap();
+    let protected = outside.path().join("private.txt");
+    std::fs::write(&protected, "private").unwrap();
+    let mut session = desk.edit_file(repo.path(), "file.txt").unwrap();
+    std::fs::remove_file(repo.path().join("file.txt")).unwrap();
+    symlink(&protected, repo.path().join("file.txt")).unwrap();
+    assert!(session.external_request().observe().is_err());
+    assert!(session.reload().is_err());
+    assert!(session.save_with_overwrite(true).is_err());
+    assert_eq!(std::fs::read_to_string(protected).unwrap(), "private");
+
+    let root = outside.path().join("worktree");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("file.txt"), "old root").unwrap();
+    let mut session = desk.edit_file(&root, "file.txt").unwrap();
+    std::fs::rename(&root, outside.path().join("old-worktree")).unwrap();
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("file.txt"), "replacement root").unwrap();
+    assert!(session.external_request().observe().is_err());
+    assert!(session.reload().is_err());
+    assert!(session.save_with_overwrite(true).is_err());
+    assert_eq!(
+        std::fs::read_to_string(root.join("file.txt")).unwrap(),
+        "replacement root"
+    );
+}
