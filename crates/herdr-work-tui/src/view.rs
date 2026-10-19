@@ -15,6 +15,7 @@ use ratatui::{
 impl App {
     pub(crate) fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
+        self.interaction.area = area;
         let layout = self.panes(area);
         for (index, (tab, label, key)) in ACTIVITIES.iter().enumerate() {
             let y = layout.activity.y + index as u16 * 3;

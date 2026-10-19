@@ -214,6 +214,7 @@ impl App {
         Ok(())
     }
     pub(crate) fn input_key(&mut self, key: KeyEvent, area: Rect) -> Result<bool> {
+        self.interaction.area = area;
         if let Some(picker) = self.git.picker.as_mut() {
             let action = picker.key(key);
             self.picker_action(action)?;

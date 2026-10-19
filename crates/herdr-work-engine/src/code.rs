@@ -17,6 +17,14 @@ pub struct FileRow {
     pub symlink: bool,
     pub status: Option<char>,
 }
+impl herdr_work_code::tree::NavigationRow for FileRow {
+    fn depth(&self) -> usize {
+        self.depth
+    }
+    fn directory(&self) -> bool {
+        self.directory
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GitChange {
     pub root: PathBuf,

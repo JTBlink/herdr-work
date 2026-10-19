@@ -20,6 +20,7 @@ use std::{
 
 mod actions;
 mod editing;
+mod interaction;
 mod layout;
 mod loading;
 mod menus;

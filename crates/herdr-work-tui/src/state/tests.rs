@@ -1685,3 +1685,89 @@ fn compact_scm_repository_input_click_matches_the_scrolled_rendered_row() {
         assert_eq!(app.git.active, Some(nested));
     }
 }
+
+#[test]
+fn explorer_navigation_expands_enters_and_returns_to_parent_without_opening_files() {
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = loaded_app();
+    std::fs::create_dir(app.root.join("folder")).unwrap();
+    std::fs::write(app.root.join("folder/child.txt"), "child\n").unwrap();
+    app.refresh().unwrap();
+    receive(&mut app);
+    app.key(KeyCode::Home).unwrap();
+    assert_eq!(
+        app.code.as_ref().unwrap().files[app.selection].name,
+        "folder"
+    );
+    app.key(KeyCode::Right).unwrap();
+    receive(&mut app);
+    app.key(KeyCode::Right).unwrap();
+    assert_eq!(
+        app.code.as_ref().unwrap().files[app.selection].name,
+        "child.txt"
+    );
+    assert!(app.preview_path.is_none());
+    app.key(KeyCode::Left).unwrap();
+    assert_eq!(
+        app.code.as_ref().unwrap().files[app.selection].name,
+        "folder"
+    );
+    app.key(KeyCode::Left).unwrap();
+    receive(&mut app);
+    assert!(
+        !app.code
+            .as_ref()
+            .unwrap()
+            .files
+            .iter()
+            .any(|f| f.name == "child.txt")
+    );
+    app.key(KeyCode::End).unwrap();
+    assert_eq!(
+        app.code.as_ref().unwrap().files[app.selection].name,
+        "visible.txt"
+    );
+}
+
+#[test]
+fn explorer_pages_use_the_visible_body_and_scm_left_selects_and_folds_parent() {
+    use crate::scm::ScmTarget;
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = loaded_app();
+    for n in 0..50 {
+        std::fs::write(app.root.join(format!("f{n:02}.txt")), "file").unwrap();
+    }
+    std::fs::create_dir(app.root.join("folder")).unwrap();
+    std::fs::write(app.root.join("folder/child.txt"), "child").unwrap();
+    app.refresh().unwrap();
+    receive(&mut app);
+    app.key(KeyCode::Home).unwrap();
+    app.key(KeyCode::PageDown).unwrap();
+    assert_eq!(app.selection, 21);
+    app.key(KeyCode::PageUp).unwrap();
+    assert_eq!(app.selection, 0);
+    app.git.tree = true;
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|row| {
+            row.0
+                .is_some_and(|i| app.code.as_ref().unwrap().changes[i].path == "folder/child.txt")
+        })
+        .unwrap();
+    app.key(KeyCode::Left).unwrap();
+    assert!(
+        matches!(&app.scm_rows()[app.scm_cursor].3, ScmTarget::Directory(_, false, path) if path == "folder")
+    );
+    app.key(KeyCode::Left).unwrap();
+    assert!(!app.scm_rows().iter().any(|row| {
+        row.0
+            .is_some_and(|i| app.code.as_ref().unwrap().changes[i].path == "folder/child.txt")
+    }));
+    app.key(KeyCode::Right).unwrap();
+    assert!(app.scm_rows().iter().any(|row| {
+        row.0
+            .is_some_and(|i| app.code.as_ref().unwrap().changes[i].path == "folder/child.txt")
+    }));
+}

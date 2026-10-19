@@ -2422,12 +2422,12 @@ impl App {
                 .copied(),
             _ => None,
         };
-        let Some(depth) = self.rows.get(index).and_then(depth_of) else {
-            return;
-        };
-        if let Some(parent) = (0..index).rev().find(|&i| {
-            dir(self.rows[i]).is_some() && depth_of(&self.rows[i]).is_some_and(|d| d < depth)
-        }) {
+        let depths = self
+            .rows
+            .iter()
+            .map(|row| (depth_of(row).unwrap_or(usize::MAX), dir(*row).is_some()))
+            .collect::<Vec<_>>();
+        if let Some(parent) = herdr_work_code::scm_tree::parent_directory(&depths, index) {
             self.select(parent);
         }
     }

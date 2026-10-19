@@ -109,6 +109,9 @@ impl App {
         Ok(key == KeyCode::Char('q'))
     }
     pub(crate) fn action(&mut self, key: KeyCode) -> Result<()> {
+        if self.navigate_key(key)? {
+            return Ok(());
+        }
         match key {
             KeyCode::Char(',') => self.open_settings(),
             KeyCode::Char('m') => self.open_menu(true),

@@ -9,6 +9,7 @@ use ratatui::layout::{Position, Rect};
 
 impl App {
     pub(crate) fn mouse(&mut self, event: MouseEvent, area: Rect) -> Result<()> {
+        self.interaction.area = area;
         if let Some(picker) = self.git.picker.as_mut() {
             let action = picker.mouse(event);
             return self.picker_action(action);
