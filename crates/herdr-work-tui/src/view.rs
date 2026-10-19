@@ -15,6 +15,7 @@ use ratatui::{
 impl App {
     pub(crate) fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
+        self.interaction.area = area;
         let layout = self.panes(area);
         for (index, (tab, label, key)) in ACTIVITIES.iter().enumerate() {
             let y = layout.activity.y + index as u16 * 3;
@@ -86,51 +87,7 @@ impl App {
             (Tab::Review, _) => "c 评论 · s 发送 · b 绑定 · f 聚焦 Agent · Tab 返回 Git",
             (Tab::Tasks, _) => "Enter 选择执行 · n 创建 · d 委派 · x 停止",
         };
-        let project = herdr_work_code::ui::truncate_to(
-            self.root
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned(),
-            16,
-        );
-        let branch = self
-            .code
-            .as_ref()
-            .map(|code| code.branch.as_str())
-            .unwrap_or("");
-        let branch = herdr_work_code::ui::truncate_to(branch.to_string(), 18);
-        let location = if branch.is_empty() {
-            project
-        } else {
-            format!("{project} · {branch}")
-        };
-        let status = if self.status.is_empty() {
-            self.load_summary()
-        } else {
-            self.status.clone()
-        };
-        let notice = if self
-            .editor
-            .as_ref()
-            .is_some_and(|session| session.editor.external_changed)
-        {
-            "磁盘已改变，保留编辑内容 · "
-        } else {
-            ""
-        };
-        let status = status.lines().collect::<Vec<_>>().join(" · ");
-        f.render_widget(
-            Paragraph::new(format!(
-                "{location} | {notice}{status}{}",
-                if self.preferences.show_hotkeys {
-                    format!("\n{hints} · r 刷新 · q 退出")
-                } else {
-                    String::new()
-                }
-            )),
-            layout.footer,
-        );
+        self.draw_footer(f, layout.footer, hints);
         self.draw_editor(f, &layout);
         if let Some(prompt) = &self.prompt
             && !self.search_prompt()

@@ -7,8 +7,12 @@ use herdr_work_engine::{CodeSnapshot, DiffView, HerdrWork, JobQueue};
 use std::path::PathBuf;
 
 pub(crate) enum Data {
+    Preferences(crate::preferences::Update),
+    Persistence(Box<crate::persistence::Update>),
     Background(Box<crate::refresh::BackgroundRefresh>),
     Tasks(Result<Vec<Task>>),
+    ActivationReported(Result<()>),
+    ActivationRead(u64, Result<Option<herdr_work_engine::ActivationRequest>>),
     Code(u64, Result<CodeSnapshot>),
     Diff(DiffView, Review),
     CommitReady(u64, Result<herdr_work_engine::CommitPlan>),
@@ -44,7 +48,9 @@ pub(crate) enum Data {
     CommitDone(PathBuf, String, Result<String>),
     BranchPicker(u64, Result<herdr_work_code::branch_ui::BranchPicker>),
     Reconcile(u64, Result<Vec<(String, String)>>),
-    Suggested(u64, PathBuf, Vec<char>, Result<String>),
+    Suggested(u64, PathBuf, herdr_work_engine::CommitDraft, Result<String>),
+    GitDraftSaved(PathBuf, u64, Result<()>),
+    GitDraftFlush,
 }
 pub(crate) enum Message {
     Input(Event),
@@ -83,7 +89,9 @@ pub(crate) enum Prompt {
 pub(crate) struct App {
     pub(crate) background_pending: Option<(u64, u64)>,
     pub(crate) last_background: std::time::Instant,
+    pub(crate) activation: Option<crate::activation::ActivationRuntime>,
     pub(crate) desk: HerdrWork,
+    pub(crate) interaction: crate::interaction::Interaction,
     pub(crate) context: Context,
     pub(crate) tasks: Vec<Task>,
     pub(crate) task: usize,
@@ -120,6 +128,7 @@ pub(crate) struct App {
     pub(crate) editor: Option<herdr_work_engine::EditorSession>,
     pub(crate) edit_request: Option<PathBuf>,
     pub(crate) git: crate::scm::GitUi,
+    pub(crate) hover: crate::hover::HoverState,
     pub(crate) editor_request: u64,
     pub(crate) editor_poll: Option<(u64, u64)>,
     pub(crate) editor_write: Option<(u64, u64)>,
@@ -153,14 +162,38 @@ impl App {
     pub(crate) fn new(desk: HerdrWork, root: PathBuf, context: Context) -> Result<Self> {
         let root = root.canonicalize()?;
         let preferences = desk.ui_preferences()?;
+        let workspace = desk.workspace_ui_state(&root)?;
+        let expanded = workspace
+            .tree
+            .expanded
+            .iter()
+            .map(|path| root.join(path))
+            .collect();
+        let file_selection = workspace.tree.selected.as_ref().map(|path| root.join(path));
+        let tab = match workspace.activity.as_str() {
+            "git" => Tab::Scm,
+            "search" => Tab::Search,
+            "tasks" => Tab::Tasks,
+            "review" => Tab::Review,
+            _ => Tab::Files,
+        };
         Ok(Self {
             background_pending: None,
             last_background: std::time::Instant::now(),
             desk,
+            interaction: crate::interaction::Interaction {
+                preference_base: preferences.clone(),
+                file_selection,
+                restore: (!workspace.activity.is_empty()).then(|| workspace.clone()),
+                workspace,
+                ..Default::default()
+            },
+            activation: None,
+
             context,
             tasks: vec![],
             task: 0,
-            tab: Tab::Files,
+            tab,
             selection: 0,
             scm_selection: 0,
             focus: Focus::Sidebar,
@@ -183,7 +216,7 @@ impl App {
             status: String::new(),
             tasks_state: LoadState::Loading,
             code_state: LoadState::Loading,
-            expanded: vec![],
+            expanded,
             generation: 0,
             prompt: None,
             input: String::new(),
@@ -193,6 +226,7 @@ impl App {
             editor: None,
             edit_request: None,
             git: Default::default(),
+            hover: Default::default(),
             editor_request: 0,
             editor_poll: None,
             editor_write: None,
@@ -240,10 +274,11 @@ impl App {
         let root = self.root.clone();
         let expanded = self.expanded.clone();
         let show_hidden = self.preferences.show_hidden;
+        let decorate = self.preferences.git_decorations;
         self.job(move |d| {
             Ok(Data::Code(
                 generation,
-                d.code_snapshot_with_hidden(&root, &expanded, generation, show_hidden),
+                d.code_snapshot_with_options(&root, &expanded, generation, show_hidden, decorate),
             ))
         })?;
         self.code_state = LoadState::Loading;
@@ -272,7 +307,12 @@ impl App {
             && !matches!(
                 &data,
                 Ok(Data::Tasks(_)
+                    | Data::Preferences(..)
+                    | Data::Persistence(..)
+                    | Data::ActivationRead(..)
                     | Data::CommitDone(..)
+                    | Data::GitDraftSaved(..)
+                    | Data::GitDraftFlush
                     | Data::EditorObserved(..)
                     | Data::EditorSaved(..)
                     | Data::EditorReloaded(..))
@@ -281,8 +321,15 @@ impl App {
             return;
         }
         match data {
+            Ok(Data::Preferences(update)) => self.apply_preferences(update),
+            Ok(Data::Persistence(update)) => self.apply_persistence(*update),
             Ok(Data::Background(update)) => self.apply_background(*update),
             Err(e) => self.status = format!("{e:#}"),
+            Ok(Data::ActivationReported(Err(error))) => {
+                self.status = format!("自有宿主入口注册失败：{error:#}")
+            }
+            Ok(Data::ActivationReported(Ok(()))) => {}
+            Ok(Data::ActivationRead(request, result)) => self.activation_read(request, result),
             Ok(Data::Business(text)) => {
                 self.status = text;
                 let _ = self.refresh();
@@ -311,6 +358,10 @@ impl App {
             Ok(Data::EditorReloaded(session, request, text, result)) => {
                 self.editor_reloaded(session, request, text, result)
             }
+            Ok(Data::GitDraftSaved(root, revision, result)) => {
+                self.git_draft_saved(root, revision, result)
+            }
+            Ok(Data::GitDraftFlush) => {}
             Ok(data) if epoch != self.context.epoch && !matches!(&data, Data::CommitDone(..)) => {}
             Ok(Data::Code(generation, _)) if generation != self.generation => {}
             Ok(Data::Code(_, Err(error))) => {
@@ -347,7 +398,12 @@ impl App {
                     .unwrap_or(self.selection)
                     .min(count.saturating_sub(1));
                 for repo in &code.repositories {
-                    let _ = self.ensure_draft(&repo.root);
+                    if repo.draft_error.is_none() {
+                        self.git
+                            .drafts
+                            .entry(repo.root.clone())
+                            .or_insert_with(|| repo.draft.clone());
+                    }
                 }
                 self.code = Some(code);
                 if was_change {
@@ -386,6 +442,9 @@ impl App {
                             _ => previous == r.3,
                         })
                         .unwrap_or(self.scm_cursor.min(self.scm_rows().len().saturating_sub(1)));
+                }
+                if let Err(error) = self.restore_workspace_after_code() {
+                    self.status = error.to_string();
                 }
             }
             Ok(Data::CommitReady(request, result))
@@ -495,7 +554,7 @@ impl App {
                             .is_some_and(|d| d.message.iter().collect::<String>() == message)
                         {
                             self.git.drafts.insert(root.clone(), Default::default());
-                            let _ = self.desk.save_git_draft(&root, &Default::default());
+                            self.mark_git_draft(root.clone());
                         }
                         self.apply(epoch, Ok(Data::Business(text)));
                     }
@@ -507,19 +566,13 @@ impl App {
             }
             Ok(Data::Suggested(request, root, baseline, result)) if request == self.git.request => {
                 match result {
-                    Ok(message)
-                        if self
-                            .git
-                            .drafts
-                            .get(&root)
-                            .is_some_and(|d| d.message == baseline) =>
-                    {
+                    Ok(message) if self.git.drafts.get(&root).is_some_and(|d| *d == baseline) => {
                         let draft = herdr_work_engine::CommitDraft {
                             message: message.chars().collect(),
                             cursor: message.chars().count(),
                         };
-                        let _ = self.desk.save_git_draft(&root, &draft);
-                        self.git.drafts.insert(root, draft);
+                        self.git.drafts.insert(root.clone(), draft);
+                        self.mark_git_draft(root);
                         self.status = "提交消息建议已生成".into();
                     }
                     Ok(_) => self.status = "提交消息已编辑，保留当前草稿".into(),
@@ -655,6 +708,7 @@ impl App {
             .first()
             .cloned()
             .context("Task has no execution; delegate it first")?;
+        self.queue_workspace_save()?;
         self.root = e.worktree.clone();
         self.context.select(e);
         self.desk.save_context(&self.context)?;
@@ -677,6 +731,7 @@ impl App {
         self.selection = 0;
         self.tab = Tab::Files;
         self.focus = Focus::Sidebar;
+        self.load_workspace_after_change()?;
         self.refresh()
     }
     pub(crate) fn change_folder(&mut self, root: PathBuf) -> Result<()> {
@@ -688,6 +743,7 @@ impl App {
             execution: None,
         };
         self.desk.save_context(&context)?;
+        self.queue_workspace_save()?;
         self.context = context;
         self.root = root;
         self.code = None;
@@ -708,6 +764,7 @@ impl App {
         self.drawer_open = [false; 8];
         self.overlay = None;
         self.switch_tab(Tab::Files);
+        self.load_workspace_after_change()?;
         self.refresh()
     }
     pub(crate) fn open_diff(&self, root: PathBuf, path: String, scope: String) -> Result<()> {

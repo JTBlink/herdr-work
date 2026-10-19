@@ -9,6 +9,16 @@ use ratatui::layout::{Position, Rect};
 
 impl App {
     pub(crate) fn mouse(&mut self, event: MouseEvent, area: Rect) -> Result<()> {
+        self.interaction.area = area;
+        self.interaction.pointer = Some(Position::new(event.column, event.row));
+        if matches!(
+            event.kind,
+            MouseEventKind::Down(_) | MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+        ) {
+            self.interaction.user_revision = self.interaction.user_revision.wrapping_add(1);
+            self.interaction.restore = None;
+            self.interaction.pending_scm_key = None;
+        }
         if let Some(picker) = self.git.picker.as_mut() {
             let action = picker.mouse(event);
             return self.picker_action(action);
@@ -18,6 +28,19 @@ impl App {
         }
         if self.prompt.is_some() && !self.search_prompt() {
             return Ok(());
+        }
+        if self.footer_mouse(&event)? {
+            return Ok(());
+        }
+        let old_hover = self.hover.point;
+        let title_zones = self.sidebar_title_actions(self.panes(area).sidebar).1;
+        self.track_sidebar_mouse(Position::new(event.column, event.row), area);
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && let Some((_, action)) = title_zones
+                .iter()
+                .find(|(rect, _)| rect.contains(Position::new(event.column, event.row)))
+        {
+            return self.sidebar_title_action(*action);
         }
         if self.preview_mouse(&event, area) {
             return Ok(());
@@ -138,7 +161,9 @@ impl App {
                         }
                         if right {
                             self.open_menu(true);
-                        } else {
+                        } else if !(old_hover.is_some_and(|p| body.contains(p) && p.y == point.y)
+                            && self.scm_hover_action(index, event.column - body.x, body.width)?)
+                        {
                             self.activate_scm_row()?;
                         }
                     }

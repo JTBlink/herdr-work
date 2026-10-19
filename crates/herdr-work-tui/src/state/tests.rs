@@ -2,6 +2,10 @@ use super::*;
 use ratatui::{Terminal, backend::TestBackend};
 use std::{process::Command, time::Duration};
 
+// A full parallel suite may queue several bounded Git reads per fixture. Keep
+// the wait finite while allowing CI CPU contention; production timers stay fixed.
+const TEST_JOB_TIMEOUT: Duration = Duration::from_secs(20);
+
 fn app() -> (tempfile::TempDir, App) {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("repo");
@@ -62,11 +66,7 @@ fn completed_empty_startup_has_guidance_and_one_task_list() {
     app.switch_tab(Tab::Tasks);
     app.apply(0, Ok(Data::Tasks(Ok(vec![]))));
     app.refresh().unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert!(matches!(app.tasks_state, LoadState::Ready));
     assert!(matches!(app.code_state, LoadState::Ready));
@@ -96,11 +96,7 @@ fn backend_failure_does_not_hide_loaded_files_or_look_pending() {
     app.load_tasks().unwrap();
     app.refresh().unwrap();
     for _ in 0..2 {
-        let (epoch, data) = app
-            .jobs
-            .results
-            .recv_timeout(Duration::from_secs(3))
-            .unwrap();
+        let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
         app.apply(epoch, data);
     }
     assert!(
@@ -122,20 +118,12 @@ fn failed_code_load_can_retry_and_stale_errors_cannot_replace_ready_data() {
     let root = app.root.clone();
     app.root = root.join("missing");
     app.refresh().unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert!(matches!(app.code_state, LoadState::Failed(_)));
     app.root = root;
     app.refresh().unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert!(matches!(app.code_state, LoadState::Ready));
     app.apply(
@@ -155,11 +143,7 @@ fn default_activity_exposes_explorer_files_and_preview() {
     );
     app.apply(0, Ok(Data::Tasks(Ok(vec![]))));
     app.refresh().unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     let rendered = screen(&mut app);
     assert!(rendered.contains("EXPLORER"));
@@ -179,11 +163,7 @@ fn loaded_app() -> (tempfile::TempDir, App) {
     (temp, app)
 }
 fn receive(app: &mut App) {
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
 }
 #[test]
@@ -439,11 +419,14 @@ fn sidebar_preferences_persist_and_apply_to_the_original_tree() {
     std::fs::write(app.root.join(".hidden"), "hidden").unwrap();
     app.open_settings();
     app.key(KeyCode::Right).unwrap();
+    assert_eq!(app.preferences.sidebar_width, 36);
+    receive(&mut app);
     assert_eq!(app.desk.ui_preferences().unwrap().sidebar_width, 36);
     for _ in 0..4 {
         app.key(KeyCode::Down).unwrap();
     }
     app.key(KeyCode::Enter).unwrap();
+    receive(&mut app);
     receive(&mut app);
     assert!(!app.desk.ui_preferences().unwrap().show_hidden);
     assert!(
@@ -586,11 +569,7 @@ fn clean_editor_reloads_external_changes_but_pending_check_preserves_new_input()
     std::fs::write(app.root.join("visible.txt"), "new external\n").unwrap();
     app.poll_editor().unwrap();
     // Wait until observation is complete, then type before its result is applied.
-    let (epoch, result) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, result) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.input_key(
         KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
         ratatui::layout::Rect::new(0, 0, 120, 32),
@@ -670,11 +649,7 @@ fn input_arriving_while_save_or_reload_is_pending_is_never_lost() {
     let key = |ch| KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE);
     app.input_key(key('x'), area).unwrap();
     app.save_editor().unwrap();
-    let (epoch, result) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, result) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.input_key(key('y'), area).unwrap();
     app.apply(epoch, result);
     assert_eq!(
@@ -685,11 +660,7 @@ fn input_arriving_while_save_or_reload_is_pending_is_never_lost() {
     assert!(app.editor.as_ref().unwrap().editor.dirty);
     receive(&mut app); // Snapshot refresh after save.
     app.reload_editor().unwrap();
-    let (epoch, result) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, result) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.input_key(key('z'), area).unwrap();
     app.apply(epoch, result);
     assert_eq!(app.editor.as_ref().unwrap().editor.text(), "xyzfixture\n");
@@ -721,11 +692,7 @@ fn old_observation_cannot_replace_a_reopened_editor_at_the_same_path() {
     let (_temp, mut app) = editing_app();
     std::fs::write(app.root.join("visible.txt"), "observed old file\n").unwrap();
     app.poll_editor().unwrap();
-    let (epoch, old) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, old) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.finish_editor().unwrap();
     receive(&mut app);
     std::fs::write(app.root.join("visible.txt"), "reopened file\n").unwrap();
@@ -743,11 +710,7 @@ fn binding_context_change_during_save_does_not_strand_the_same_editor() {
     let (_temp, mut app) = editing_app();
     app.editor.as_mut().unwrap().editor.insert_text("local ");
     app.save_editor().unwrap();
-    let (epoch, result) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, result) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     // A previously queued Agent binding may complete while this editor remains open.
     app.context.epoch += 1;
     app.apply(epoch, result);
@@ -767,11 +730,7 @@ fn quick_open_filters_while_typing_and_keeps_results_navigable() {
     )
     .unwrap();
     for _ in 0..1 {
-        let (epoch, data) = app
-            .jobs
-            .results
-            .recv_timeout(Duration::from_secs(3))
-            .unwrap();
+        let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
         app.apply(epoch, data);
     }
     for c in "visible".chars() {
@@ -782,11 +741,7 @@ fn quick_open_filters_while_typing_and_keeps_results_navigable() {
     assert!(screen(&mut app).contains("visible.txt"));
     app.key(KeyCode::Down).unwrap();
     app.key(KeyCode::Enter).unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert_eq!(app.text, "fixture\n");
 }
@@ -812,11 +767,7 @@ fn content_search_debounces_and_hit_line_survives_result_navigation() {
     )
     .unwrap();
     // Drain the initial empty query; subsequent input stays quiet for 300 ms.
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     for c in "needle".chars() {
         app.key(KeyCode::Char(c)).unwrap();
@@ -825,29 +776,17 @@ fn content_search_debounces_and_hit_line_survives_result_navigation() {
     app.tick_search(now + Duration::from_millis(299)).unwrap();
     assert!(app.jobs.results.try_recv().is_err());
     app.tick_search(now + Duration::from_millis(301)).unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     app.key(KeyCode::Down).unwrap(); // query -> results
     app.key(KeyCode::Enter).unwrap();
     app.key(KeyCode::Down).unwrap(); // selection changes while file is loading
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert_eq!(app.preview_scroll, 79);
     app.key(KeyCode::Up).unwrap();
     app.start_editor().unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert_eq!(app.editor.as_ref().unwrap().editor.cursor().line, 79);
 }
@@ -874,11 +813,7 @@ fn file_history_uses_current_change_even_with_another_preview() {
     std::fs::write(app.root.join("visible.txt"), "changed\n").unwrap();
     std::fs::write(app.root.join("other.txt"), "other\n").unwrap();
     app.refresh().unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     app.switch_tab(Tab::Scm);
     app.selection = app
@@ -891,11 +826,7 @@ fn file_history_uses_current_change_even_with_another_preview() {
         .unwrap();
     app.preview_path = Some(app.root.join("other.txt"));
     app.load_drawer(Drawer::FileHistory).unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert!(
         app.drawers[&Drawer::FileHistory]
@@ -910,11 +841,7 @@ fn search_mouse_filter_and_include_field_remain_live() {
     use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     let (_temp, mut app) = app();
     app.query_prompt(false);
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     let area = ratatui::layout::Rect::new(0, 0, 160, 32);
     let sidebar = app.panes(area).sidebar;
@@ -966,11 +893,7 @@ fn fast_content_query_changes_coalesce_and_old_query_never_renders() {
     }
     app.tick_search(Instant::now() + Duration::from_secs(1))
         .unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert!(
         app.jobs.results.try_recv().is_err(),
@@ -982,11 +905,7 @@ fn fast_content_query_changes_coalesce_and_old_query_never_renders() {
     ));
     app.tick_search(Instant::now() + Duration::from_secs(1))
         .unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert_eq!(app.search_rows.len(), 1);
     assert_eq!(app.search_rows[0].context, "fixture");
@@ -1090,6 +1009,7 @@ fn compact_long_unicode_document_keeps_one_divider_and_status_when_editing() {
     app.preview_path = Some(app.root.join(&file));
     app.text = "文档正文\n第二行\n".into();
     app.code.as_mut().unwrap().branch = "feature/layout".into();
+    app.code.as_mut().unwrap().repositories[0].branch = "feature/layout".into();
     let area = ratatui::layout::Rect::new(0, 0, 80, 24);
     for dock_right in [false, true] {
         app.preferences.dock_right = dock_right;
@@ -1327,6 +1247,8 @@ fn scm_repository_inputs_survive_refresh_and_failed_commit_without_crossing_root
         ratatui::layout::Rect::new(0, 0, 160, 32),
     )
     .unwrap();
+    app.flush_git_drafts().unwrap();
+    receive(&mut app);
     let draft = app.desk.git_draft(&nested).unwrap();
     assert_eq!(draft.message.iter().collect::<String>(), "中");
     assert_eq!(draft.cursor, 0);
@@ -1348,11 +1270,7 @@ fn scm_repository_inputs_survive_refresh_and_failed_commit_without_crossing_root
         ratatui::layout::Rect::new(0, 0, 160, 32),
     )
     .unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert_eq!(
         app.git.drafts[&nested].message.iter().collect::<String>(),
@@ -1377,11 +1295,7 @@ fn scm_folder_action_requires_its_snapshot_confirmation_and_never_stages_another
         .position(|r| matches!(&r.3, ScmTarget::Directory(_, false, path) if path == "dir"))
         .unwrap();
     app.action(KeyCode::Char('s')).unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert!(matches!(app.prompt, Some(Prompt::WorkGit(_))));
     assert!(screen(&mut app).contains("StageUnder"));
@@ -1390,11 +1304,7 @@ fn scm_folder_action_requires_its_snapshot_confirmation_and_never_stages_another
     assert!(matches!(app.prompt, Some(Prompt::WorkGit(_))));
     app.input = "APPLY".into();
     app.submit_prompt().unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     let snapshot = app.desk.code_snapshot(&app.root, &[], 2).unwrap();
     assert!(
@@ -1464,11 +1374,7 @@ fn failed_commit_keeps_the_edited_message_and_repository_draft() {
     app.paste_commit("keep my 中文 message").unwrap();
     app.edit_commit_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
         .unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert!(matches!(app.prompt, Some(Prompt::Commit(_))));
     // Change HEAD/index after preparation: the commit must fail, preserving input.
@@ -1482,17 +1388,15 @@ fn failed_commit_keeps_the_edited_message_and_repository_draft() {
             .success()
     );
     app.submit_prompt().unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert!(app.status.contains("草稿已保留"));
     assert_eq!(
         app.git.drafts[&app.root].message.iter().collect::<String>(),
         "keep my 中文 message"
     );
+    app.flush_git_drafts().unwrap();
+    receive(&mut app);
     assert_eq!(
         app.desk.git_draft(&app.root).unwrap(),
         app.git.drafts[&app.root]
@@ -1522,11 +1426,7 @@ fn unknown_git_operation_has_an_explicit_tui_evidence_flow_without_automatic_ret
         .position(|(cmd, _)| matches!(cmd, MenuCommand::Recovery))
         .unwrap();
     app.overlay_key(KeyCode::Enter).unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert!(matches!(app.overlay, Some(Overlay::Recovery(_))));
     app.overlay_key(KeyCode::Enter).unwrap();
@@ -1534,11 +1434,7 @@ fn unknown_git_operation_has_an_explicit_tui_evidence_flow_without_automatic_ret
     assert!(screen(&mut app).contains("当前HEAD"));
     app.input = "Inspected HEAD and refs: invalid name was never created".into();
     app.submit_prompt().unwrap();
-    let (epoch, data) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap();
+    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
     assert!(app.status.contains("没有自动重试"));
     assert!(app.desk.unresolved_git_operations().unwrap().is_empty());
@@ -1613,11 +1509,7 @@ fn repeated_preview_requests_coalesce_and_same_path_old_load_cannot_win() {
     for _ in 0..20 {
         app.open_preview(path.clone(), Some(1)).unwrap();
     }
-    let (epoch, old) = app
-        .jobs
-        .results
-        .recv_timeout(Duration::from_secs(3))
-        .unwrap();
+    let (epoch, old) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     assert!(
         app.jobs.results.try_recv().is_err(),
         "obsolete preview requests filled the worker queue"
@@ -1715,4 +1607,779 @@ fn clicking_readonly_content_exits_search_input_and_uses_preview_keys() {
     assert!(app.search_query.is_empty());
     assert!(!app.preview_doc.as_ref().unwrap().wrap());
     assert!(screen(&mut app).contains("fixture"));
+}
+
+#[test]
+fn commit_draft_edits_coalesce_in_the_worker_and_late_save_keeps_new_input() {
+    let (_temp, mut app) = loaded_app();
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| matches!(r.3, crate::scm::ScmTarget::Message(0)))
+        .unwrap();
+    app.activate_scm_row().unwrap();
+    app.paste_commit("first").unwrap();
+    assert!(
+        app.desk.git_draft(&app.root).unwrap().message.is_empty(),
+        "input events must not write drafts to disk"
+    );
+    let future = std::time::Instant::now() + Duration::from_secs(1);
+    app.tick_git_drafts(future).unwrap();
+    app.paste_commit("-new").unwrap();
+    receive(&mut app);
+    assert_eq!(
+        app.git.drafts[&app.root].message.iter().collect::<String>(),
+        "first-new"
+    );
+    app.flush_git_drafts().unwrap();
+    let saved = app.desk.git_draft(&app.root).unwrap();
+    assert_eq!(saved.message.iter().collect::<String>(), "first-new");
+    assert_eq!(saved.cursor, "first-new".chars().count());
+}
+
+#[test]
+fn scm_hover_button_uses_the_visible_file_and_is_disabled_when_too_narrow() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    app.switch_tab(Tab::Scm);
+    let area = ratatui::layout::Rect::new(0, 0, 160, 32);
+    let body = app
+        .sidebar_block(String::new())
+        .inner(app.panes(area).sidebar);
+    let index = app.scm_rows().iter().position(|r| r.0 == Some(0)).unwrap();
+    app.scm_cursor = index;
+    let x = body.right() - 4;
+    let y = body.y + index as u16;
+    let mouse = |kind, column, row| MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    app.mouse(mouse(MouseEventKind::Moved, x, y), area).unwrap();
+    assert!(
+        screen(&mut app).contains("↶"),
+        "hover actions must be drawn before they can be clicked"
+    );
+    app.mouse(mouse(MouseEventKind::Down(MouseButton::Left), x, y), area)
+        .unwrap();
+    receive(&mut app);
+    assert!(
+        app.desk
+            .code_snapshot(&app.root, &[], 2)
+            .unwrap()
+            .changes
+            .iter()
+            .any(|c| c.path == "visible.txt" && c.staged)
+    );
+    // A second file in a narrow sidebar must only open the row, never hit an invisible +.
+    std::fs::write(app.root.join("second.txt"), "new").unwrap();
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 3).unwrap());
+    app.preferences.sidebar_width = 12;
+    let body = app
+        .sidebar_block(String::new())
+        .inner(app.panes(area).sidebar);
+    let selected = app
+        .code
+        .as_ref()
+        .unwrap()
+        .changes
+        .iter()
+        .position(|c| c.path == "second.txt")
+        .unwrap();
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| r.0 == Some(selected))
+        .unwrap();
+    let y = body.y + app.scm_cursor as u16;
+    app.mouse(mouse(MouseEventKind::Moved, body.right() - 4, y), area)
+        .unwrap();
+    app.mouse(
+        mouse(MouseEventKind::Down(MouseButton::Left), body.right() - 4, y),
+        area,
+    )
+    .unwrap();
+    assert!(
+        !app.desk
+            .code_snapshot(&app.root, &[], 4)
+            .unwrap()
+            .changes
+            .iter()
+            .any(|c| c.path == "second.txt" && c.staged)
+    );
+}
+
+#[test]
+fn explorer_title_buttons_follow_visible_geometry_on_both_sides_and_hide_when_narrow() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    for dock_right in [false, true] {
+        let (_temp, mut app) = loaded_app();
+        let folder = app.root.join("folder");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("child.txt"), "child").unwrap();
+        app.expanded.push(folder.clone());
+        app.code = Some(app.desk.code_snapshot(&app.root, &app.expanded, 1).unwrap());
+        app.preferences.dock_right = dock_right;
+        let area = ratatui::layout::Rect::new(0, 0, 120, 24);
+        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        assert!(!(0..area.width).any(|x| terminal.backend().buffer()[(x, 0)].symbol() == "⊟"));
+        let sidebar = app.panes(area).sidebar;
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: sidebar.x + 3,
+                row: sidebar.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let x = (sidebar.x..sidebar.right())
+            .find(|x| terminal.backend().buffer()[(*x, 0)].symbol() == "⊟")
+            .expect("hover must render the actual collapse control");
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: x,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        assert!(app.expanded.is_empty());
+        assert!(app.overlay.is_none());
+        app.expanded.push(folder);
+        app.preferences.sidebar_width = 12;
+        let sidebar = app.panes(area).sidebar;
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: sidebar.x + 3,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        assert!(
+            !(sidebar.x..sidebar.right())
+                .any(|x| terminal.backend().buffer()[(x, 0)].symbol() == "⊟")
+        );
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: sidebar.x + 3,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        assert!(
+            !app.expanded.is_empty(),
+            "hidden title controls must not receive clicks"
+        );
+    }
+}
+
+#[test]
+fn refreshed_disk_draft_never_replaces_text_typed_while_the_worker_was_loading() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = app();
+    app.desk
+        .save_git_draft(
+            &app.root,
+            &herdr_work_engine::CommitDraft {
+                message: "旧稿".chars().collect(),
+                cursor: 1,
+            },
+        )
+        .unwrap();
+    app.refresh().unwrap();
+    receive(&mut app);
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|row| matches!(row.3, crate::scm::ScmTarget::Message(0)))
+        .unwrap();
+    app.activate_scm_row().unwrap();
+    assert_eq!(app.git.drafts[&app.root].cursor, 1);
+    app.refresh().unwrap();
+    let (epoch, result) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
+    app.edit_commit_key(KeyEvent::new(KeyCode::Char('新'), KeyModifiers::NONE))
+        .unwrap();
+    app.apply(epoch, result);
+    assert_eq!(
+        app.git.drafts[&app.root].message.iter().collect::<String>(),
+        "旧新稿"
+    );
+    assert_eq!(app.git.drafts[&app.root].cursor, 2);
+}
+
+#[test]
+fn exit_flush_waits_for_a_full_worker_queue_and_saves_the_last_draft() {
+    let (_temp, mut app) = loaded_app();
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|row| matches!(row.3, crate::scm::ScmTarget::Message(0)))
+        .unwrap();
+    app.activate_scm_row().unwrap();
+    app.paste_commit("last unsaved input").unwrap();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    app.job(move |_| {
+        started_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+        Ok(Data::GitDraftFlush)
+    })
+    .unwrap();
+    started_rx.recv().unwrap();
+    for _ in 0..32 {
+        app.job(|_| Ok(Data::GitDraftFlush)).unwrap();
+    }
+    app.tick_git_drafts(std::time::Instant::now() + Duration::from_secs(1))
+        .unwrap();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(20));
+        release_tx.send(()).unwrap();
+    });
+    app.flush_git_drafts().unwrap();
+    assert_eq!(
+        app.desk
+            .git_draft(&app.root)
+            .unwrap()
+            .message
+            .iter()
+            .collect::<String>(),
+        "last unsaved input"
+    );
+}
+
+#[test]
+fn explorer_navigation_expands_enters_and_returns_to_parent_without_opening_files() {
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = loaded_app();
+    std::fs::create_dir(app.root.join("folder")).unwrap();
+    std::fs::write(app.root.join("folder/child.txt"), "child\n").unwrap();
+    app.refresh().unwrap();
+    receive(&mut app);
+    app.key(KeyCode::Home).unwrap();
+    assert_eq!(
+        app.code.as_ref().unwrap().files[app.selection].name,
+        "folder"
+    );
+    app.key(KeyCode::Right).unwrap();
+    receive(&mut app);
+    app.key(KeyCode::Right).unwrap();
+    assert_eq!(
+        app.code.as_ref().unwrap().files[app.selection].name,
+        "child.txt"
+    );
+    assert!(app.preview_path.is_none());
+    app.key(KeyCode::Left).unwrap();
+    assert_eq!(
+        app.code.as_ref().unwrap().files[app.selection].name,
+        "folder"
+    );
+    app.key(KeyCode::Left).unwrap();
+    receive(&mut app);
+    assert!(
+        !app.code
+            .as_ref()
+            .unwrap()
+            .files
+            .iter()
+            .any(|f| f.name == "child.txt")
+    );
+    app.key(KeyCode::End).unwrap();
+    assert_eq!(
+        app.code.as_ref().unwrap().files[app.selection].name,
+        "visible.txt"
+    );
+}
+
+#[test]
+fn explorer_pages_use_the_visible_body_and_scm_left_selects_and_folds_parent() {
+    use crate::scm::ScmTarget;
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = loaded_app();
+    for n in 0..50 {
+        std::fs::write(app.root.join(format!("f{n:02}.txt")), "file").unwrap();
+    }
+    std::fs::create_dir(app.root.join("folder")).unwrap();
+    std::fs::write(app.root.join("folder/child.txt"), "child").unwrap();
+    app.refresh().unwrap();
+    receive(&mut app);
+    app.key(KeyCode::Home).unwrap();
+    app.key(KeyCode::PageDown).unwrap();
+    assert_eq!(app.selection, 21);
+    app.key(KeyCode::PageUp).unwrap();
+    assert_eq!(app.selection, 0);
+    app.git.tree = true;
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|row| {
+            row.0
+                .is_some_and(|i| app.code.as_ref().unwrap().changes[i].path == "folder/child.txt")
+        })
+        .unwrap();
+    app.key(KeyCode::Left).unwrap();
+    assert!(
+        matches!(&app.scm_rows()[app.scm_cursor].3, ScmTarget::Directory(_, false, path) if path == "folder")
+    );
+    app.key(KeyCode::Left).unwrap();
+    assert!(!app.scm_rows().iter().any(|row| {
+        row.0
+            .is_some_and(|i| app.code.as_ref().unwrap().changes[i].path == "folder/child.txt")
+    }));
+    app.key(KeyCode::Right).unwrap();
+    assert!(app.scm_rows().iter().any(|row| {
+        row.0
+            .is_some_and(|i| app.code.as_ref().unwrap().changes[i].path == "folder/child.txt")
+    }));
+}
+
+#[test]
+fn workspace_restart_restores_tree_selection_scm_shape_and_pinned_document_views() {
+    use crossterm::event::KeyCode;
+    use herdr_work_code::preview::ViewState;
+    let (_temp, mut app) = loaded_app();
+    std::fs::create_dir(app.root.join("folder")).unwrap();
+    std::fs::write(app.root.join("folder/child.txt"), "child\n").unwrap();
+    std::fs::write(app.root.join("visible.txt"), "first\nsecond\nthird\n").unwrap();
+    app.refresh().unwrap();
+    receive(&mut app);
+    app.key(KeyCode::Home).unwrap();
+    app.key(KeyCode::Right).unwrap();
+    receive(&mut app);
+    app.key(KeyCode::Right).unwrap();
+    app.open_preview(app.root.join("folder/child.txt"), None)
+        .unwrap();
+    receive(&mut app);
+    app.preview_pinned = true;
+    app.open_preview(app.root.join("visible.txt"), None)
+        .unwrap();
+    receive(&mut app);
+    app.preview_doc
+        .as_mut()
+        .unwrap()
+        .restore_view_state(ViewState {
+            line: 2,
+            wrap: false,
+        });
+    app.git.tree = true;
+    app.git.section_collapsed.insert((app.root.clone(), true));
+    app.persist_workspace_on_exit().unwrap();
+    let mut restored = App::new(app.desk.clone(), app.root.clone(), Context::default()).unwrap();
+    restored.refresh().unwrap();
+    receive(&mut restored);
+    receive(&mut restored);
+    assert_eq!(
+        restored.code.as_ref().unwrap().files[restored.selection].name,
+        "child.txt"
+    );
+    assert!(
+        restored.git.tree
+            && restored
+                .git
+                .section_collapsed
+                .contains(&(restored.root.clone(), true))
+    );
+    assert_eq!(
+        restored.preview_path.as_ref(),
+        Some(&restored.root.join("visible.txt"))
+    );
+    assert_eq!(restored.preview_documents.len(), 1);
+    assert_eq!(restored.preview_doc.as_ref().unwrap().view_state().line, 2);
+    assert!(!restored.preview_doc.as_ref().unwrap().view_state().wrap);
+}
+
+#[test]
+fn pending_workspace_document_restore_does_not_replace_a_new_dirty_editor() {
+    let (_temp, mut app) = loaded_app();
+    app.open_preview(app.root.join("visible.txt"), None)
+        .unwrap();
+    receive(&mut app);
+    app.persist_workspace_on_exit().unwrap();
+    let mut restored = App::new(app.desk.clone(), app.root.clone(), Context::default()).unwrap();
+    restored.refresh().unwrap();
+    receive(&mut restored);
+    let (epoch, documents) = restored
+        .jobs
+        .results
+        .recv_timeout(TEST_JOB_TIMEOUT)
+        .unwrap();
+    let mut editor = restored
+        .desk
+        .edit_file(&restored.root, "visible.txt")
+        .unwrap();
+    editor.editor.insert_text("local ");
+    restored.editor = Some(editor);
+    restored.apply(epoch, documents);
+    assert!(restored.preview_path.is_none());
+    assert_eq!(
+        restored.editor.as_ref().unwrap().editor.text(),
+        "local fixture\n"
+    );
+    assert!(restored.editor.as_ref().unwrap().editor.dirty);
+}
+
+#[test]
+fn global_git_footer_uses_active_repository_on_both_docks_and_disables_hidden_hotspots() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    let second = app.root.join("other");
+    std::fs::create_dir(&second).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .arg(&second)
+            .status()
+            .unwrap()
+            .success()
+    );
+    for args in [
+        vec![
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "initial",
+        ],
+        vec!["config", "branch.master.remote", "."],
+        vec!["config", "branch.master.merge", "refs/heads/master"],
+    ] {
+        assert!(
+            Command::new("git")
+                .args(args)
+                .current_dir(&second)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    // Match the actual default branch rather than assuming user git configuration.
+    let branch = String::from_utf8(
+        Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(&second)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    for (key, value) in [
+        (format!("branch.{}.remote", branch.trim()), ".".into()),
+        (
+            format!("branch.{}.merge", branch.trim()),
+            format!("refs/heads/{}", branch.trim()),
+        ),
+    ] {
+        assert!(
+            Command::new("git")
+                .args(["config", &key, &value])
+                .current_dir(&second)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    app.refresh().unwrap();
+    receive(&mut app);
+    app.git.active = Some(second.clone());
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    for right in [false, true] {
+        app.preferences.dock_right = right;
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let zones = app.interaction.footer;
+        assert!(zones.branch.width > 0 && zones.sync.width > 0);
+        assert_eq!(zones.branch.y, 22);
+        let click = |rect: ratatui::layout::Rect| MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: rect.x,
+            row: rect.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.mouse(
+            click(zones.branch),
+            ratatui::layout::Rect::new(0, 0, 80, 24),
+        )
+        .unwrap();
+        receive(&mut app);
+        assert_eq!(app.git.picker.as_ref().unwrap().git.root(), second);
+        app.git.picker = None;
+        app.mouse(click(zones.sync), ratatui::layout::Rect::new(0, 0, 80, 24))
+            .unwrap();
+        receive(&mut app);
+        assert!(matches!(&app.prompt, Some(Prompt::WorkGit(plan)) if plan.root == second));
+        app.prompt = None;
+    }
+    let old_zone = app.interaction.footer.branch;
+    let request = app.git.request;
+    app.preferences.show_git_footer = false;
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: old_zone.x,
+            row: old_zone.y,
+            modifiers: KeyModifiers::NONE,
+        },
+        ratatui::layout::Rect::new(0, 0, 80, 24),
+    )
+    .unwrap();
+    assert_eq!(app.git.request, request);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(app.interaction.footer.branch.width, 0);
+    assert_eq!(app.interaction.footer.sync.width, 0);
+}
+
+#[test]
+fn pending_settings_save_preserves_later_local_edits_and_unrelated_disk_fields() {
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = loaded_app();
+    let observed = app.preferences.clone();
+    let mut external = observed.clone();
+    external.dock_right = true;
+    app.desk
+        .update_ui_preferences(&observed, &external)
+        .unwrap();
+    app.open_settings();
+    app.key(KeyCode::Right).unwrap(); // one in-flight width save
+    for _ in 0..6 {
+        app.key(KeyCode::Down).unwrap();
+    }
+    app.key(KeyCode::Enter).unwrap(); // local hotkeys edit while pending
+    assert!(!app.preferences.show_hotkeys);
+    receive(&mut app);
+    assert!(app.preferences.dock_right);
+    assert!(!app.preferences.show_hotkeys);
+    receive(&mut app);
+    let saved = app.desk.ui_preferences().unwrap();
+    assert_eq!(saved.sidebar_width, 36);
+    assert!(saved.dock_right);
+    assert!(!saved.show_hotkeys);
+}
+
+#[test]
+fn own_host_activity_requests_preserve_editor_and_modal_input() {
+    use herdr_work_engine::{ActivationRequest, InitialView};
+    let (_temp, mut app) = editing_app();
+    app.editor.as_mut().unwrap().editor.insert_text("unsaved ");
+    let original = app.editor.as_ref().unwrap().editor.text();
+    let request = |root| ActivationRequest {
+        nonce: "fixture".into(),
+        pane: "own".into(),
+        profile: "fixture".into(),
+        instance: "fixture".into(),
+        root,
+        view: InitialView::Search,
+    };
+    app.apply_activation(request(app.root.clone()));
+    assert_eq!(app.editor.as_ref().unwrap().editor.text(), original);
+    assert!(app.prompt.is_none());
+    assert!(screen(&mut app).contains("unsaved"));
+    app.editor = None;
+    app.prompt = Some(Prompt::NewTask);
+    app.input = "保留草稿".into();
+    app.apply_activation(request(app.root.clone()));
+    assert!(matches!(app.prompt, Some(Prompt::NewTask)));
+    assert_eq!(app.input, "保留草稿");
+    app.prompt = None;
+    app.apply_activation(request(app.root.clone()));
+    assert!(app.tab == Tab::Search);
+    assert!(app.search_prompt());
+}
+
+#[test]
+fn final_preferences_flush_keeps_a_reversion_made_while_the_first_save_was_pending() {
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = loaded_app();
+    let original = app.preferences.sidebar_width;
+    app.open_settings();
+    app.key(KeyCode::Right).unwrap();
+    app.key(KeyCode::Left).unwrap();
+    assert_eq!(app.preferences.sidebar_width, original);
+    app.flush_preferences().unwrap();
+    assert_eq!(app.desk.ui_preferences().unwrap().sidebar_width, original);
+}
+
+#[test]
+fn explicit_initial_activity_wins_saved_restore_and_function_keys_preserve_editor_input() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use herdr_work_code::preview::ViewState;
+    use herdr_work_engine::{DocumentState, InitialView};
+    let (_temp, app) = loaded_app();
+    let mut saved = app.desk.workspace_ui_state(&app.root).unwrap();
+    saved.activity = "git".into();
+    saved.documents.push(DocumentState {
+        path: "visible.txt".into(),
+        view: ViewState {
+            line: 1,
+            wrap: false,
+        },
+        pinned: true,
+        active: true,
+    });
+    app.desk.save_workspace_ui_state(&app.root, &saved).unwrap();
+    let mut restored = App::new(app.desk.clone(), app.root.clone(), Context::default()).unwrap();
+    restored.activate_initial_view(InitialView::Explorer);
+    restored.refresh().unwrap();
+    receive(&mut restored);
+    assert!(restored.tab == Tab::Files);
+    assert!(restored.preview_path.is_none());
+    assert!(restored.preview_documents.is_empty());
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    restored
+        .input_key(KeyEvent::new(KeyCode::F(11), KeyModifiers::NONE), area)
+        .unwrap();
+    assert!(restored.tab == Tab::Scm);
+    restored
+        .input_key(KeyEvent::new(KeyCode::F(9), KeyModifiers::NONE), area)
+        .unwrap();
+    assert!(restored.tab == Tab::Files);
+    restored.editor = Some(
+        restored
+            .desk
+            .edit_file(&restored.root, "visible.txt")
+            .unwrap(),
+    );
+    restored.editor.as_mut().unwrap().editor.on_key(
+        KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+        80,
+        20,
+    );
+    let text = restored.editor.as_ref().unwrap().editor.text();
+    restored
+        .input_key(KeyEvent::new(KeyCode::F(11), KeyModifiers::NONE), area)
+        .unwrap();
+    assert!(restored.tab == Tab::Files);
+    assert_eq!(restored.editor.as_ref().unwrap().editor.text(), text);
+}
+
+#[test]
+fn saved_drawer_queries_complete_after_unrelated_tree_navigation_without_resetting_scroll() {
+    use crossterm::event::KeyCode;
+    use herdr_work_code::scm::Drawer;
+    let (_temp, mut app) = loaded_app();
+    for kind in [Drawer::Branches, Drawer::Remotes] {
+        app.drawer_open[kind.index()] = true;
+    }
+    app.active_drawer = Some(Drawer::Remotes);
+    app.drawer_scroll = 3;
+    app.persist_workspace_on_exit().unwrap();
+    let mut restored = App::new(app.desk.clone(), app.root.clone(), Context::default()).unwrap();
+    restored.refresh().unwrap();
+    receive(&mut restored);
+    restored.key(KeyCode::Down).unwrap();
+    receive(&mut restored);
+    assert!(restored.drawers.contains_key(&Drawer::Branches));
+    assert!(restored.drawers.contains_key(&Drawer::Remotes));
+    assert!(matches!(restored.drawer_state, LoadState::Ready));
+    assert_eq!(restored.drawer_scroll, 3);
+}
+
+#[test]
+fn hover_stage_targets_the_nested_repository_with_the_same_filename() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    let nested = app.root.join("inner");
+    std::fs::create_dir(&nested).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .arg(&nested)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(nested.join("visible.txt"), "nested").unwrap();
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 1).unwrap());
+    app.switch_tab(Tab::Scm);
+    let change = app
+        .code
+        .as_ref()
+        .unwrap()
+        .changes
+        .iter()
+        .position(|c| c.root == nested && c.path == "visible.txt")
+        .unwrap();
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| r.0 == Some(change))
+        .unwrap();
+    let area = ratatui::layout::Rect::new(0, 0, 160, 32);
+    let body = app
+        .sidebar_block(String::new())
+        .inner(app.panes(area).sidebar);
+    let row = body.y + (app.scm_cursor - crate::layout::offset(app.scm_cursor, body.height)) as u16;
+    let event = |kind| MouseEvent {
+        kind,
+        column: body.right() - 4,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    app.mouse(event(MouseEventKind::Moved), area).unwrap();
+    screen(&mut app);
+    app.mouse(event(MouseEventKind::Down(MouseButton::Left)), area)
+        .unwrap();
+    receive(&mut app);
+    let snapshot = app.desk.code_snapshot(&app.root, &[], 2).unwrap();
+    assert!(
+        snapshot
+            .changes
+            .iter()
+            .any(|c| c.root == nested && c.path == "visible.txt" && c.staged)
+    );
+    assert!(
+        !snapshot
+            .changes
+            .iter()
+            .any(|c| c.root == app.root && c.path == "visible.txt" && c.staged)
+    );
+}
+
+#[test]
+fn failed_old_draft_save_keeps_new_text_and_allows_the_new_revision_to_save() {
+    let (temp, mut app) = loaded_app();
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| matches!(r.3, crate::scm::ScmTarget::Message(0)))
+        .unwrap();
+    app.activate_scm_row().unwrap();
+    app.paste_commit("first").unwrap();
+    let blocked = temp.path().join("profile/git-drafts");
+    std::fs::write(&blocked, "blocks the draft directory").unwrap();
+    let future = std::time::Instant::now() + Duration::from_secs(1);
+    app.tick_git_drafts(future).unwrap();
+    let (epoch, result) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
+    app.paste_commit("新").unwrap();
+    std::fs::remove_file(blocked).unwrap();
+    app.apply(epoch, result);
+    assert_eq!(
+        app.git.drafts[&app.root].message.iter().collect::<String>(),
+        "first新"
+    );
+    app.tick_git_drafts(future + Duration::from_secs(1))
+        .unwrap();
+    receive(&mut app);
+    let saved = app.desk.git_draft(&app.root).unwrap();
+    assert_eq!(saved.message.iter().collect::<String>(), "first新");
+    assert_eq!(saved.cursor, 6);
 }

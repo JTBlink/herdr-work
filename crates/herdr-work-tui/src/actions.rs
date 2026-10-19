@@ -6,6 +6,13 @@ use herdr_work_core::Side;
 use crate::state::*;
 impl App {
     pub(crate) fn switch_tab(&mut self, tab: Tab) {
+        if self.tab == Tab::Files {
+            self.interaction.file_selection = self
+                .code
+                .as_ref()
+                .and_then(|code| code.files.get(self.selection))
+                .map(|row| row.path.clone());
+        }
         self.edit_request = None;
         self.git.editing = None;
         self.git.picker = None;
@@ -15,6 +22,16 @@ impl App {
         self.tab = tab;
         self.selection = if tab == Tab::Scm {
             self.scm_selection
+        } else if tab == Tab::Files {
+            self.interaction
+                .file_selection
+                .as_ref()
+                .and_then(|path| {
+                    self.code
+                        .as_ref()
+                        .and_then(|code| code.files.iter().position(|row| &row.path == path))
+                })
+                .unwrap_or(0)
         } else {
             0
         };
@@ -32,6 +49,9 @@ impl App {
         }
     }
     pub(crate) fn key(&mut self, key: KeyCode) -> Result<bool> {
+        self.interaction.user_revision = self.interaction.user_revision.wrapping_add(1);
+        self.interaction.restore = None;
+        self.interaction.pending_scm_key = None;
         if self.overlay.is_some() {
             if let Err(error) = self.overlay_key(key) {
                 self.status = error.to_string();
@@ -109,6 +129,9 @@ impl App {
         Ok(key == KeyCode::Char('q'))
     }
     pub(crate) fn action(&mut self, key: KeyCode) -> Result<()> {
+        if self.navigate_key(key)? {
+            return Ok(());
+        }
         match key {
             KeyCode::Char(',') => self.open_settings(),
             KeyCode::Char('m') => self.open_menu(true),
@@ -543,7 +566,7 @@ impl App {
                 let draft = self.git.drafts.entry(root.clone()).or_default();
                 draft.message = input.chars().collect();
                 draft.cursor = draft.message.len();
-                self.desk.save_git_draft(&root, draft)?;
+                self.mark_git_draft(root.clone());
                 self.git.committing.insert(root.clone());
                 self.job(move |d| {
                     let result = d.commit(&plan, &input);

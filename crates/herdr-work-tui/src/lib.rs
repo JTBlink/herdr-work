@@ -19,11 +19,19 @@ use std::{
 };
 
 mod actions;
+mod activation;
+mod drafts;
+
 mod editing;
+mod footer;
+mod hover;
+mod interaction;
 mod layout;
 mod loading;
 mod menus;
 mod mouse;
+mod persistence;
+mod preferences;
 mod preview;
 mod refresh;
 mod scm;
@@ -32,6 +40,7 @@ mod sidebar_view;
 mod state;
 mod task_view;
 mod view;
+pub use herdr_work_engine::InitialView;
 use state::*;
 
 struct TerminalGuard;
@@ -47,14 +56,38 @@ impl Drop for TerminalGuard {
 }
 
 pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
+    run_with_initial(desk, root, None)
+}
+
+pub fn run_with_initial(
+    desk: HerdrWork,
+    root: PathBuf,
+    initial: Option<InitialView>,
+) -> Result<()> {
     let root = root.canonicalize()?;
-    let context = desk.load_context()?;
-    let root = context
-        .execution
-        .as_ref()
-        .map(|e| e.worktree.clone())
-        .unwrap_or(root);
+    let mut context = desk.load_context()?;
+    let root = if initial.is_some() {
+        if context
+            .execution
+            .as_ref()
+            .is_some_and(|execution| execution.worktree != root)
+        {
+            context.epoch = context.epoch.wrapping_add(1);
+            context.execution = None;
+        }
+        root
+    } else {
+        context
+            .execution
+            .as_ref()
+            .map(|e| e.worktree.clone())
+            .unwrap_or(root)
+    };
     let mut app = App::new(desk, root, context)?;
+    if let Some(view) = initial {
+        app.activate_initial_view(view);
+    }
+    app.start_activation()?;
     herdr_work_code::ui::set_color_theme(app.color_theme());
     let mut terminal = ratatui::init();
     let _guard = TerminalGuard;
@@ -152,8 +185,16 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
             }
             let now = Instant::now();
             if now.duration_since(last_tick) >= Duration::from_millis(100) {
+                if let Err(error) = app.tick_activation(now) {
+                    app.status = format!("活动请求排队失败：{error:#}");
+                    redraw = true;
+                }
                 app.tick_search(now)?;
+                app.tick_git_drafts(now)?;
                 redraw |= app.tick_preview();
+                redraw |= app.tick_hover();
+                app.tick_persistence(now)?;
+                app.tick_preferences()?;
                 app.tick_refresh(now)?;
                 if now.duration_since(last_editor_poll) >= Duration::from_secs(2) {
                     app.poll_editor()?;
@@ -164,7 +205,11 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
         }
         Ok(())
     })();
+    // Lifecycle persistence is completed before releasing the exclusive profile.
+    let saved = app.persist_workspace_on_exit();
     stop.store(true, Ordering::Relaxed);
     let _ = input.join();
-    result
+    let preferences_flush = app.flush_preferences();
+    let draft_flush = app.flush_git_drafts();
+    result.and(saved).and(preferences_flush).and(draft_flush)
 }

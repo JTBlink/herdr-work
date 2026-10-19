@@ -52,6 +52,8 @@ herdr-work reconcile         # 查看未知操作，核对后可记录证据
 
 Herdr 插件入口使用稳定 ID `jtblink.herdr-work`。安装依赖 Python 3.12+，插件安装时按版本下载并校验归档；从源码开发可运行 `python3 scripts/plugin.py --from-source` 后 `herdr plugin link .`。插件的原 Projects hook 在独立数据目录运行。
 
+插件动作提供 Show HerdrWork Explorer、Search、Source Control 和 Quick Open；宿主为自有工作台分配终端，已有实例通过身份核验后聚焦。也可在宿主环境执行 `herdr-work activate show-search --root /path/to/repository`，其余动作名为 `show-explorer`、`show-git`、`quick-open`。编辑器或输入弹窗打开时，动作只聚焦并提示保留当前输入；结束输入后可再次选择活动。
+
 ## 开发与验证
 
 依赖 Rust 1.99.0、Git、Python 3.12+ 和平台 C/C++ 构建工具。Linux CI 安装编译依赖，Windows 使用 MSVC。构建入口固定 Cargo 锁文件：

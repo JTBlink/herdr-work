@@ -17,6 +17,14 @@ pub struct FileRow {
     pub symlink: bool,
     pub status: Option<char>,
 }
+impl herdr_work_code::tree::NavigationRow for FileRow {
+    fn depth(&self) -> usize {
+        self.depth
+    }
+    fn directory(&self) -> bool {
+        self.directory
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GitChange {
     pub root: PathBuf,
@@ -43,6 +51,10 @@ pub struct RepositoryStatus {
     pub has_upstream: bool,
     #[serde(default)]
     pub write_error: Option<String>,
+    #[serde(default)]
+    pub draft: crate::CommitDraft,
+    #[serde(default)]
+    pub draft_error: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CodeSnapshot {
@@ -156,6 +168,16 @@ impl HerdrWork {
         generation: u64,
         show_hidden: bool,
     ) -> Result<CodeSnapshot> {
+        self.code_snapshot_with_options(root, expanded, generation, show_hidden, true)
+    }
+    pub fn code_snapshot_with_options(
+        &self,
+        root: &Path,
+        expanded: &[PathBuf],
+        generation: u64,
+        show_hidden: bool,
+        decorate: bool,
+    ) -> Result<CodeSnapshot> {
         bounded_git(|| {
             let root = root.canonicalize()?;
             let mut tree = Tree::new(root.clone());
@@ -189,6 +211,10 @@ impl HerdrWork {
                     Ok(stamp) => (stamp, None),
                     Err(error) => (String::new(), Some(format!("{error:#}"))),
                 };
+                let (draft, draft_error) = match self.git_draft(repo.root()) {
+                    Ok(draft) => (draft, None),
+                    Err(error) => (crate::CommitDraft::default(), Some(format!("{error:#}"))),
+                };
                 repositories.push(RepositoryStatus {
                     root: repo.root().into(),
                     branch: status.branch.clone(),
@@ -196,12 +222,16 @@ impl HerdrWork {
                     behind: status.behind,
                     has_upstream: status.has_upstream,
                     write_error: write_error.clone(),
+                    draft,
+                    draft_error,
                 });
-                decorations.push(herdr_work_code::gitdeco::RepoStatus {
-                    root: repo.root().into(),
-                    status: status.clone(),
-                    ignored: repo.ignored().unwrap_or_default(),
-                });
+                if decorate {
+                    decorations.push(herdr_work_code::gitdeco::RepoStatus {
+                        root: repo.root().into(),
+                        status: status.clone(),
+                        ignored: repo.ignored().unwrap_or_default(),
+                    });
+                }
                 let instance = Self::worktree_identity(repo.root())?;
                 let repository = crate::work_git::repository_identity(&repo)?;
                 for (staged, entries) in [(true, status.staged), (false, status.unstaged)] {
@@ -231,9 +261,11 @@ impl HerdrWork {
                     }
                 }
             }
-            let decorations = herdr_work_code::gitdeco::Decorations::build(&decorations);
-            for row in &mut files {
-                row.status = decorations.letter(&row.path, row.directory);
+            if decorate {
+                let decorations = herdr_work_code::gitdeco::Decorations::build(&decorations);
+                for row in &mut files {
+                    row.status = decorations.letter(&row.path, row.directory);
+                }
             }
             Ok(CodeSnapshot {
                 root,
