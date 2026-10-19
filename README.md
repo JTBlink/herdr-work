@@ -50,7 +50,14 @@ herdr-work reconcile         # 查看未知操作，核对后可记录证据
 
 卸载使用原归档的 `python3 install.py --prefix ~/.local --uninstall`，用户数据保留。安装回滚使用 `python3 install.py --prefix ~/.local --rollback`。
 
-Herdr 插件入口使用稳定 ID `jtblink.herdr-work`。安装依赖 Python 3.12+，插件安装时按版本下载并校验归档；从源码开发可运行 `python3 scripts/plugin.py --from-source` 后 `herdr plugin link .`。插件的原 Projects hook 在独立数据目录运行。
+Herdr 插件入口使用稳定 ID `jtblink.herdr-work`。在仓库根目录使用快捷入口安装并链接插件（Herdr 0.9.3+、Python 3.12+）：
+
+```sh
+sh install-plugin.sh            # 默认从当前源码构建，需要 Rust 和平台编译工具
+sh install-plugin.sh --release  # 下载 VERSION 对应的发行包，校验后安装
+```
+
+脚本支持 macOS Apple Silicon 和 Linux x86_64，可从任意目录通过脚本路径调用。底层入口为 `scripts/plugin.py`，安装完成后自动执行 `herdr plugin link .`；插件链接依赖当前仓库目录，请保留该目录。插件的原 Projects hook 在独立数据目录运行。
 
 插件动作提供 Show HerdrWork Explorer、Search、Source Control 和 Quick Open；宿主为自有工作台分配终端，已有实例通过身份核验后聚焦。也可在宿主环境执行 `herdr-work activate show-search --root /path/to/repository`，其余动作名为 `show-explorer`、`show-git`、`quick-open`。编辑器或输入弹窗打开时，动作只聚焦并提示保留当前输入；结束输入后可再次选择活动。
 
