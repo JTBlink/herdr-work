@@ -2291,3 +2291,95 @@ fn saved_drawer_queries_complete_after_unrelated_tree_navigation_without_resetti
     assert!(matches!(restored.drawer_state, LoadState::Ready));
     assert_eq!(restored.drawer_scroll, 3);
 }
+
+#[test]
+fn hover_stage_targets_the_nested_repository_with_the_same_filename() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    let nested = app.root.join("inner");
+    std::fs::create_dir(&nested).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .arg(&nested)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(nested.join("visible.txt"), "nested").unwrap();
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 1).unwrap());
+    app.switch_tab(Tab::Scm);
+    let change = app
+        .code
+        .as_ref()
+        .unwrap()
+        .changes
+        .iter()
+        .position(|c| c.root == nested && c.path == "visible.txt")
+        .unwrap();
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| r.0 == Some(change))
+        .unwrap();
+    let area = ratatui::layout::Rect::new(0, 0, 160, 32);
+    let body = app
+        .sidebar_block(String::new())
+        .inner(app.panes(area).sidebar);
+    let row = body.y + (app.scm_cursor - crate::layout::offset(app.scm_cursor, body.height)) as u16;
+    let event = |kind| MouseEvent {
+        kind,
+        column: body.right() - 4,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    app.mouse(event(MouseEventKind::Moved), area).unwrap();
+    screen(&mut app);
+    app.mouse(event(MouseEventKind::Down(MouseButton::Left)), area)
+        .unwrap();
+    receive(&mut app);
+    let snapshot = app.desk.code_snapshot(&app.root, &[], 2).unwrap();
+    assert!(
+        snapshot
+            .changes
+            .iter()
+            .any(|c| c.root == nested && c.path == "visible.txt" && c.staged)
+    );
+    assert!(
+        !snapshot
+            .changes
+            .iter()
+            .any(|c| c.root == app.root && c.path == "visible.txt" && c.staged)
+    );
+}
+
+#[test]
+fn failed_old_draft_save_keeps_new_text_and_allows_the_new_revision_to_save() {
+    let (temp, mut app) = loaded_app();
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| matches!(r.3, crate::scm::ScmTarget::Message(0)))
+        .unwrap();
+    app.activate_scm_row().unwrap();
+    app.paste_commit("first").unwrap();
+    let blocked = temp.path().join("profile/git-drafts");
+    std::fs::write(&blocked, "blocks the draft directory").unwrap();
+    let future = std::time::Instant::now() + Duration::from_secs(1);
+    app.tick_git_drafts(future).unwrap();
+    let (epoch, result) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
+    app.paste_commit("新").unwrap();
+    std::fs::remove_file(blocked).unwrap();
+    app.apply(epoch, result);
+    assert_eq!(
+        app.git.drafts[&app.root].message.iter().collect::<String>(),
+        "first新"
+    );
+    app.tick_git_drafts(future + Duration::from_secs(1))
+        .unwrap();
+    receive(&mut app);
+    let saved = app.desk.git_draft(&app.root).unwrap();
+    assert_eq!(saved.message.iter().collect::<String>(), "first新");
+    assert_eq!(saved.cursor, 6);
+}
