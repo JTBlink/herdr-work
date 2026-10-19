@@ -111,48 +111,47 @@ impl App {
                 }
                 let mut row = event.row.saturating_sub(body.y) as usize;
                 if self.tab == Tab::Search {
-                    let (header, results) = self.search_regions(layout.sidebar);
-                    if header.contains(point) {
-                        match row {
-                            0 => self.query_prompt(self.search_quick),
-                            1 if !self.search_quick => {
-                                self.prompt = None;
-                                let x = event.column.saturating_sub(header.x);
-                                match x {
-                                    0..=5 => {
-                                        self.search_options.match_case =
-                                            !self.search_options.match_case
-                                    }
-                                    7..=11 => {
-                                        self.search_options.whole_word =
-                                            !self.search_options.whole_word
-                                    }
-                                    13..=18 => {
-                                        self.search_options.regex = !self.search_options.regex
-                                    }
-                                    _ => return Ok(()),
+                    let search = self.search_layout(layout.sidebar);
+                    if search.header.contains(point) {
+                        if !self.search_quick && search.details.contains(point) {
+                            self.search_details = !self.search_filters_visible();
+                            self.prompt = None;
+                            self.input.clear();
+                        } else if let Some(index) =
+                            search.options.iter().position(|rect| rect.contains(point))
+                        {
+                            match index {
+                                0 => {
+                                    self.search_options.match_case = !self.search_options.match_case
                                 }
-                                self.search()?;
+                                1 => {
+                                    self.search_options.whole_word = !self.search_options.whole_word
+                                }
+                                _ => self.search_options.regex = !self.search_options.regex,
                             }
-                            2 | 3 if !self.search_quick => {
-                                self.prompt = Some(if row == 2 {
-                                    Prompt::SearchInclude
-                                } else {
-                                    Prompt::SearchExclude
-                                });
-                                self.input = if row == 2 {
-                                    self.search_include.clone()
-                                } else {
-                                    self.search_exclude.clone()
-                                };
-                            }
-                            _ => {}
+                            self.search()?;
+                        } else if self.search_filters_visible()
+                            && (search.include.contains(point) || search.exclude.contains(point))
+                        {
+                            let include = search.include.contains(point);
+                            self.prompt = Some(if include {
+                                Prompt::SearchInclude
+                            } else {
+                                Prompt::SearchExclude
+                            });
+                            self.input = if include {
+                                self.search_include.clone()
+                            } else {
+                                self.search_exclude.clone()
+                            };
+                        } else if search.query_box.contains(point) {
+                            self.query_prompt(self.search_quick);
                         }
                         return Ok(());
                     }
                     self.prompt = None;
                     self.input.clear();
-                    body = results;
+                    body = search.body;
                     row = event.row.saturating_sub(body.y) as usize;
                 }
                 if self.tab == Tab::Scm {

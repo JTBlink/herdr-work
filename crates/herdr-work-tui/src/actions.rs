@@ -83,6 +83,12 @@ impl App {
                         Some(Prompt::SearchInclude) => Some(Prompt::SearchExclude),
                         _ => None,
                     };
+                    if matches!(
+                        self.prompt,
+                        Some(Prompt::SearchInclude | Prompt::SearchExclude)
+                    ) {
+                        self.search_details = true;
+                    }
                     self.input = match self.prompt {
                         Some(Prompt::SearchInclude) => self.search_include.clone(),
                         Some(Prompt::SearchExclude) => self.search_exclude.clone(),
@@ -155,6 +161,8 @@ impl App {
                 self.search()?;
             }
             KeyCode::Char('i' | 'o') if self.tab == Tab::Search => {
+                self.search_details = true;
+                self.search_quick = false;
                 let include = key == KeyCode::Char('i');
                 self.prompt = Some(if include {
                     Prompt::SearchInclude
