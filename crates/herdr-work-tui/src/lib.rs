@@ -82,7 +82,7 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
     let results = std::mem::replace(&mut app.jobs.results, empty_rx);
     std::thread::spawn(move || {
         while let Ok((epoch, result)) = results.recv() {
-            if tx.send(Message::Result(epoch, result)).is_err() {
+            if tx.send(Message::Result(epoch, Box::new(result))).is_err() {
                 break;
             }
         }
@@ -115,7 +115,7 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
                         break;
                     }
                 }
-                Some(Message::Result(epoch, data)) => app.apply(epoch, data),
+                Some(Message::Result(epoch, data)) => app.apply(epoch, *data),
                 Some(Message::Input(Event::Paste(text))) if app.overlay.is_none() => {
                     if app.prompt.is_some() {
                         if app.input.len() + text.len() <= 1024 * 1024 {

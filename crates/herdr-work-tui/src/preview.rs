@@ -38,18 +38,18 @@ impl App {
         self.preview_request = self.preview_request.wrapping_add(1);
         self.preview_pending = None;
         if self.preview_path.as_ref() != Some(&path) {
-            if let (Some(old), Some(doc)) = (self.preview_path.take(), self.preview_doc.take()) {
-                if self.preview_pinned {
-                    self.preview_documents.push(PreviewDocument {
-                        target: self
-                            .preview_target
-                            .as_ref()
-                            .filter(|(p, _)| p == &old)
-                            .map(|(_, line)| *line),
-                        path: old,
-                        doc,
-                    });
-                }
+            if let (Some(old), Some(doc)) = (self.preview_path.take(), self.preview_doc.take())
+                && self.preview_pinned
+            {
+                self.preview_documents.push(PreviewDocument {
+                    target: self
+                        .preview_target
+                        .as_ref()
+                        .filter(|(p, _)| p == &old)
+                        .map(|(_, line)| *line),
+                    path: old,
+                    doc,
+                });
             }
             self.preview_pinned = false;
             if let Some(index) = self
@@ -233,18 +233,18 @@ impl App {
             self.preview_documents.len() - 1
         };
         let saved = self.preview_documents.remove(index);
-        if self.preview_pinned {
-            if let (Some(path), Some(doc)) = (self.preview_path.take(), self.preview_doc.take()) {
-                self.preview_documents.push(PreviewDocument {
-                    target: self
-                        .preview_target
-                        .as_ref()
-                        .filter(|(p, _)| p == &path)
-                        .map(|(_, line)| *line),
-                    path,
-                    doc,
-                });
-            }
+        if self.preview_pinned
+            && let (Some(path), Some(doc)) = (self.preview_path.take(), self.preview_doc.take())
+        {
+            self.preview_documents.push(PreviewDocument {
+                target: self
+                    .preview_target
+                    .as_ref()
+                    .filter(|(p, _)| p == &path)
+                    .map(|(_, line)| *line),
+                path,
+                doc,
+            });
         }
         self.preview_target = saved.target.map(|line| (saved.path.clone(), line));
         self.preview_path = Some(saved.path);
