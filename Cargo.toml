@@ -3,7 +3,7 @@ members = ["crates/herdr-work-core", "crates/herdr-work-engine", "crates/herdr-w
 resolver = "3"
 
 [workspace.package]
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 license = "MIT"
 rust-version = "1.99"
