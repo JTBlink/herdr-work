@@ -57,11 +57,46 @@ fn run() -> Result<()> {
     if matches!(&cli.command, Some(Command::ProfilePath)) {
         return print(&serde_json::json!({"profile":root}));
     }
+    if let Some(Command::Activate {
+        action,
+        root: worktree,
+    }) = &cli.command
+    {
+        let view = match action.as_str() {
+            "show-explorer" => herdr_work_tui::InitialView::Explorer,
+            "show-search" => herdr_work_tui::InitialView::Search,
+            "show-git" => herdr_work_tui::InitialView::Git,
+            "quick-open" => herdr_work_tui::InitialView::QuickOpen,
+            _ => unreachable!("clap validates activities"),
+        };
+        return print(&HerdrWork::activate(&root, worktree.as_deref(), view)?);
+    }
     let desk = HerdrWork::open(&root, cli.projects_backend)?;
     match cli.command.unwrap_or(Command::Ui {
-        root: std::env::current_dir()?,
+        root: None,
+        initial_view: None,
     }) {
-        Command::Ui { root } => herdr_work_tui::run(desk, root),
+        Command::Ui { root, initial_view } => {
+            let initial_view =
+                initial_view.or_else(|| std::env::var("HERDR_WORK_INITIAL_VIEW").ok());
+            let initial = initial_view
+                .as_deref()
+                .map(|value| {
+                    herdr_work_tui::InitialView::from_env_value(value).context("无效的初始活动")
+                })
+                .transpose()?;
+            let root = root
+                .or_else(|| {
+                    initial.and_then(|_| {
+                        std::env::var_os("HERDR_WORK_ROOT").map(std::path::PathBuf::from)
+                    })
+                })
+                .unwrap_or(std::env::current_dir()?);
+            herdr_work_tui::run_with_initial(desk, root, initial)
+        }
+        Command::Activate { .. } => {
+            unreachable!("host activity is dispatched before the profile lock")
+        }
         Command::Doctor => print(
         ),
         Command::ProfilePath => unreachable!("profile path is resolved before opening the profile"),

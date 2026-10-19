@@ -3,6 +3,7 @@
 //! `reference-ui` exists only for explicit source UI validation.
 
 pub mod actions;
+pub mod activity;
 pub mod ansi;
 pub mod branch_ui;
 pub mod diffview;
