@@ -51,7 +51,7 @@
 
 ## 搜索与历史接入补丁（#30）
 
-Sidebar 固定基线不变。`search::collect_quick_files/quick_matches` 经 Engine 的 `QuickIndex` 缓存供实时输入使用；内容搜索延续原 `explorer_app` 的 300 ms 防抖和单个在途请求策略，产品 epoch/请求号拒绝失效结果。输入、筛选和结果在同一侧栏内操作；命中行号作为加载目标保存，并交给原 `Editor` 定位。
+Sidebar 固定基线不变。`search::collect_quick_files/quick_matches` 经 Engine 的 `QuickIndex` 缓存供实时输入使用；内容搜索延续原 `explorer_app` 的 300 ms 防抖和单个在途请求策略，产品 epoch/请求号拒绝失效结果。输入、筛选和结果在同一侧栏内操作；命中行号作为加载目标保存，并交给共享 `Doc` 和原 `Editor` 定位。
 
 原 `viewer::load_show` 的 Git 参数构造抽至共享 `scm::show_args`，来源 viewer 和产品 Engine 均调用同一实现，保留 stat、patch、路径过滤、禁用外部 Diff 及颜色；产品绘制调用来源 `ansi::to_lines`。File History 从当前 SCM 文件及其仓库创建快照，详情继续使用该快照的文件目标。没有新增另一套搜索或 patch 算法。
 
@@ -66,7 +66,7 @@ Sidebar 固定基线不变。`search::collect_quick_files/quick_matches` 经 Eng
 
 机械抽取后增加必要适配：文本读取上限 1 MiB/5000 行，避免原先先整文件读取再截断；glow 与 ffmpeg 都跳过相对 PATH、当前目录及活动工作目录内的程序，输出和等待有界，失败回退到代码/文本或可见媒体提示。复制沿原 native/OSC52 策略与队列顺序，OSC52 只由唯一事件循环输出；自动复制开关来自 HerdrWork 的 ui.json，队列随产品界面关闭而停止。
 
-文档身份为文件路径，固定状态、源行位置和换行在产品内存中维护；临时预览可替换，固定文档可切换和关闭。共享 `ViewState` 仅含一基源行与换行，供后续产品状态恢复使用，不保存像素、选区或编辑缓冲。未运行、读取或控制独立插件。
+文档身份为文件路径，临时预览可替换，固定文档可切换和关闭。共享 `ViewState` 仅含一基源行与换行；产品按目录实例保存固定文档身份与该状态，后台恢复不覆盖新打开的文档或 dirty 编辑器，不保存像素、选区或编辑缓冲。未运行、读取或控制独立插件。
 
 ## 自有宿主活动入口（#35）
 

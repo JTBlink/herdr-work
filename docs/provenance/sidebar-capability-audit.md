@@ -2,7 +2,29 @@
 
 日期：2026-10-19。产品基线：HerdrWork v0.1.5，提交 `1a34733492bdaf175bbf6d7531b7f2ade47ed629`。来源基线：Sidebar v0.15.1，导入提交 `081ed133f3faa377438b51ce435fe8a87c439593`。本盘点针对已导入版本，不声称包含此后远端新增能力。
 
-## 结论与判定口径
+## v0.1.6 贯通范围与验收入口
+
+本轮按 [#29 规格](https://github.com/JTBlink/herdr-work/issues/29) 和 [K1–K7 任务图](../plans/sidebar-alignment.md) 贯通生产调用，复用来源业务实现。下表记录对应代码与可观察验收；发布状态、固定源码和三平台结果以 GitHub Issues / Actions 为准。
+
+| 范围 | 生产复用入口 | 验收断言 |
+| --- | --- | --- |
+| 文件导航与快捷操作（F04/F05/F09/F10） | 共享 `tree::navigate`、`file_view` / `scm_view`；TUI interaction / mouse / persistence | 左右展开、进入子项和返回父项；首尾/翻页按正文高度；窄栏隐藏动作不可点击；重启恢复目录、选择和固定文档。 |
+| 实时搜索与历史（S03–S06/S08、G14/G15） | Engine QuickIndex / shared search / scm::show_args；TUI search / scm | 无 Enter 的实时结果、防抖与过期请求拒绝；命中第80行正确定位；File History 按当前 SCM 文件查完整 patch。 |
+| 编辑补齐（E04–E06） | 原 Editor 的观察/保存/重载；Engine EditorSession；TUI editing | 滚轮不被光标绘制重置；clean 自动重载；dirty 不覆盖；冲突继续/重载/明确覆盖；保存等待期间输入保留。 |
+| 批量 Git 与多仓库（G02–G05/G07–G12/G18/G19） | 原 Git / BranchPicker / scm_tree / scm_input；Engine work_git；TUI scm / drafts | 文件、目录、整仓和嵌套仓库边界；stash 含 untracked；tracking、安全二次删除及同步；不同仓库草稿不串；Unknown 需证据核对，不自动重试。 |
+| 完整预览（P01–P07/P09） | 从 viewer 移动的共享 preview::Doc，来源 viewer 和产品共同调用 | 高亮、行号、换行、选择复制、固定/切换、图片；可选 glow 格式化和 ffmpeg 视频封面；大文本有界、不可用工具有回退。 |
+| 自动刷新与紧凑布局（P08/G20） | 单事件循环、合并式 worker refresh、共享 pane 几何 | 外部文件/索引变化无需 r 更新；手动刷新当前内容；旧请求不覆盖新视图；一个标题行，无绝对路径独占顶栏；80列、中文长标题和双侧停靠。 |
+| 产品设置及宿主入口（U02–U05/H01） | 产品 preferences / ui_state / activation；共享 FooterZones / activity | 设置字段合并、关闭装饰跳过可选扫描；活动仓库分支/同步；四种自有 action 分配 TTY 或核验后聚焦，编辑器/弹窗不被请求打断。 |
+
+可复现命令为根 `cargo test --workspace --locked`、来源 `reference-ui` 测试、Python 合约和 `scripts/smoke.py`。`scripts/ui_smoke.py` 使用私有 PTY，实际核对预览刷新、120行编辑滚轮、外部变化/保存冲突、Git索引、任务、第80行命中、Quick Open、80列和终端恢复。可选工具实测可显式运行 Engine 的 `installed_preview_tools_render_markdown_and_a_real_video_poster -- --ignored`，它生成临时视频并调用生产预览入口。
+
+保留的产品选择：E08 中的自定义外部终端编辑器仍待决定，内置编辑与文档复用已接入；H02–H05 的宿主布局/打开策略/cwd 跟随仍待定；H06–H08 不迁移。没有把这些项、完整九模块目录迁移或 VS Code Git Graph 的完整图形控件算作已完成能力。
+
+## v0.1.5 原始盘点（历史基线）
+
+以下状态与差异保留初始审计原文，用来说明本轮为何拆分任务；它们不是 v0.1.6 候选的当前状态。
+
+### 结论与判定口径
 
 当前已完成一批业务实现迁移和界面接入，**尚未与 Sidebar 全能力对齐**。最明显的缺口是自动刷新、完整预览、搜索结果定位、批量 Git/分支同步、多仓库交互、提交草稿和编辑冲突恢复。
 
