@@ -233,6 +233,9 @@ impl App {
                 if let Some(kind) = self.active_drawer {
                     self.load_drawer(kind)?;
                 }
+                let now = std::time::Instant::now();
+                self.last_background = now - std::time::Duration::from_secs(2);
+                self.tick_refresh(now)?;
             }
             KeyCode::Enter => match self.tab {
                 Tab::Tasks => self.choose_execution()?,
