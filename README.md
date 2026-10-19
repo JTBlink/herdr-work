@@ -44,8 +44,6 @@ herdr-work reconcile         # 查看未知操作，核对后可记录证据
 
 Herdr 插件入口使用稳定 ID `jtblink.herdr-work`。安装依赖 Python 3.12+，插件安装时按版本下载并校验归档；从源码开发可运行 `python3 scripts/plugin.py --from-source` 后 `herdr plugin link .`。插件的原 Projects hook 在独立数据目录运行。
 
-主命令为 `herdr-work`；升级会移除安装器管理的旧 `workdesk` 命令，并保留上一份安装，可用 `python3 install.py --prefix ~/.local --rollback` 恢复。
-
 ## 开发与验证
 
 依赖 Rust 1.99.0、Git、Python 3.12+ 和平台 C/C++ 构建工具。Linux CI 安装编译依赖，Windows 使用 MSVC。构建入口固定 Cargo 锁文件：
@@ -70,9 +68,3 @@ python3 scripts/smoke.py --archives dist
 - [Projects](https://github.com/eliasstravik/herdr-projects)：任务、尝试、执行流程与 keeper。
 - [Sidebar](https://github.com/alexarthurs/herdr-sidebar)：文件树、Git 状态和写操作。
 - [Reviewr](https://github.com/persiyanov/herdr-reviewr)：Diff、高亮、评论格式、宿主传输和有界进程运行。
-
-## 旧名称升级
-
-默认数据目录为 `~/.herdr-work`。配置优先级为 `--home`、`HERDR_WORK_HOME`、兼容变量 `WORKDESK_HOME`、默认目录。首次使用默认目录时，旧 `~/.workdesk` 的资料经锁和内容校验后复制到新目录，旧目录保留；已经存在的新目录不被覆盖。迁移前须退出旧界面并结束旧目录中关联的 Agent 任务。
-
-插件 ID 更新为 `jtblink.herdr-work`。从源码链接插件时，使用新版清单重新执行 `herdr plugin link .`。安装器读取旧收据，使用新收据 `herdr-work-install.json`；升级时仅为原来已托管的 `workdesk-projects` 保留兼容后端入口，已有 Agent 脚本仍能调用。回滚恢复原文件名和原收据。上游原始项目名保持原样。
