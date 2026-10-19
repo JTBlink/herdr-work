@@ -85,7 +85,7 @@ impl App {
         {
             return Ok(());
         }
-        let Some((request, path, line)) = self.preview_pending.take() else {
+        let Some((request, path, line)) = self.preview_pending.clone() else {
             return Ok(());
         };
         let root = self.root.clone();
@@ -98,6 +98,7 @@ impl App {
                 desk.preview_file(&root, &file, line, width),
             ))
         })?;
+        self.preview_pending = None;
         self.preview_loading = Some((self.context.epoch, request));
         Ok(())
     }

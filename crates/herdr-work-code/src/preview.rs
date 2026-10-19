@@ -505,7 +505,7 @@ pub(crate) fn load_show(root: &Path, spec: &str, path: Option<&str>) -> Doc {
 /// Pipes via stdin (`-`) to avoid treating filenames starting with `-` as
 /// flags. The first render uses the most recently drawn body width; the event
 /// loop schedules one background reload if the actual body width differs.
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(test)]
 pub(crate) fn glow_markdown(text: &str, width: u16) -> Option<Vec<Line<'static>>> {
     glow_markdown_outside(text, width, None)
 }
@@ -629,7 +629,7 @@ pub(crate) fn decode_image_file(target: &Path) -> Result<image::RgbaImage, Strin
         .map_err(|error| error.to_string())
 }
 
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(test)]
 pub(crate) fn ffmpeg_in_path(path: &std::ffi::OsStr, cwd: Option<&Path>) -> Option<PathBuf> {
     program_in_path(path, cwd, "ffmpeg")
 }

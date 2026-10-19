@@ -15,6 +15,13 @@ pub struct DocumentState {
     pub pinned: bool,
     pub active: bool,
 }
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrawerState {
+    pub kind: String,
+    pub root: PathBuf,
+    pub instance: String,
+    pub file: Option<String>,
+}
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WorkspaceUiState {
@@ -28,6 +35,7 @@ pub struct WorkspaceUiState {
     pub repository_collapsed: Vec<PathBuf>,
     pub section_collapsed: Vec<(PathBuf, bool)>,
     pub documents: Vec<DocumentState>,
+    pub drawers: Vec<DrawerState>,
 }
 fn relative(root: &Path, path: &Path, allow_root: bool) -> Result<PathBuf> {
     if allow_root && path.as_os_str().is_empty() {
@@ -70,11 +78,50 @@ impl WorkspaceUiState {
                 .unwrap_or_else(|| root.to_path_buf());
             relative(&repository, Path::new(path), false)?;
         }
+        ensure!(self.drawers.len() <= 8, "抽屉状态数量无效");
+        for drawer in &self.drawers {
+            let repository = relative(root, &drawer.root, true)?;
+            if let Some(file) = &drawer.file {
+                relative(&repository, Path::new(file), false)?;
+            }
+            ensure!(
+                herdr_work_code::scm::Drawer::ALL
+                    .iter()
+                    .any(|kind| kind.title() == drawer.kind),
+                "抽屉类型无效"
+            );
+        }
         ensure!(self.documents.len() <= 64, "界面状态最多恢复64个文档");
         Ok(())
     }
 }
 impl HerdrWork {
+    /// Restore the exact saved query, never infer a repository from active UI state.
+    pub fn restore_ui_drawer(
+        &self,
+        scope: &Path,
+        saved: &DrawerState,
+    ) -> Result<crate::DrawerView> {
+        let scope = scope.canonicalize()?;
+        let repository = relative(&scope, &saved.root, true)?;
+        ensure!(
+            Self::worktree_identity(&repository)? == saved.instance,
+            "抽屉仓库实例已改变"
+        );
+        if let Some(file) = &saved.file {
+            relative(&repository, Path::new(file), false)?;
+        }
+        let kind = herdr_work_code::scm::Drawer::ALL
+            .into_iter()
+            .find(|kind| kind.title() == saved.kind)
+            .ok_or_else(|| anyhow::anyhow!("抽屉类型无效"))?;
+        let view = self.scm_drawer(&repository, kind, saved.file.as_deref())?;
+        ensure!(
+            view.root == repository && view.instance == saved.instance,
+            "抽屉查询身份已改变"
+        );
+        Ok(view)
+    }
     pub fn workspace_ui_state(&self, root: &Path) -> Result<WorkspaceUiState> {
         let root = root.canonicalize()?;
         let identity = Self::worktree_identity(&root)?;
@@ -97,6 +144,10 @@ impl HerdrWork {
             });
         }
         saved.validate(&root)?;
+        saved.drawers.retain(|drawer| {
+            Self::worktree_identity(&root.join(&drawer.root))
+                .is_ok_and(|instance| instance == drawer.instance)
+        });
         saved.tree.expanded.retain(|path| root.join(path).is_dir());
         saved.tree.selected = saved.tree.selected.filter(|path| root.join(path).exists());
         saved

@@ -75,9 +75,11 @@ impl App {
                 let view = index.matches(&self.search_query);
                 self.search_rows = view.rows;
                 self.search_state = LoadState::Ready;
-                self.selection = 0;
+                if self.tab == Tab::Search {
+                    self.selection = 0;
+                }
                 self.search_runtime.dirty_since = None;
-                if view.truncated {
+                if view.truncated && self.tab == Tab::Search {
                     self.status = "结果已截断，请缩小搜索范围".into();
                 }
                 return Ok(());

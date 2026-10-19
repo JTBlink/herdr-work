@@ -497,14 +497,6 @@ impl StateWriteLock {
     }
 }
 
-/// The shape of the tree a freshly opened sidebar should start with, so a
-/// new tab mirrors what the user was already looking at. Kept beside
-/// `state.json` rather than in [`State`], which stays `Copy` because it is
-/// passed by value everywhere.
-///
-/// Running sidebars periodically adopt the latest state for their root, so
-/// tabs looking at the same project stay aligned.
-
 fn tree_path() -> Option<PathBuf> {
     Some(state_dir()?.join("tree.json"))
 }
@@ -602,11 +594,6 @@ pub fn save_tree_state(root: &Path, state: &TreeState) {
 // sidebar is spawned with the clicked repo as its cwd, so the two share a
 // key when the originating sidebar already lived in that repo.
 // ---------------------------------------------------------------------------
-
-/// The SCM view state worth mirroring into a fresh sidebar: which drawers
-/// are expanded (by title), the active repo's root, a stable id for the
-/// selected row, the FILE HISTORY target, the scroll offset, and commit
-/// drafts keyed by repository root.
 
 fn scm_path() -> Option<PathBuf> {
     Some(state_dir()?.join("scm.json"))

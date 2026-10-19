@@ -20,7 +20,7 @@ use herdr_work_code::branch_ui::{BranchPicker, FooterZones, PickerAction, draw_g
 use herdr_work_code::file_view::*;
 use herdr_work_code::git::{Git, Status};
 use herdr_work_code::gitdeco::{Decorations, RepoStatus};
-use herdr_work_code::icons::{IconTheme, icon};
+use herdr_work_code::icons::IconTheme;
 use herdr_work_code::ipc;
 use herdr_work_code::search::*;
 use herdr_work_code::state::{self as sidebar, View};

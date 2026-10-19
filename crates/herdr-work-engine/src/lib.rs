@@ -14,7 +14,7 @@ mod tasks;
 mod ui_state;
 mod work_git;
 
-pub use activation::{ActivationRequest, InitialView, WorkbenchRegistration};
+pub use activation::{ActivationRequest, InitialView, UiRegistration};
 pub use code::{CodeSnapshot, CommitPlan, DiffView, FileRow, GitChange, RepositoryStatus};
 pub use editing::{EditorExternalObservation, EditorExternalRequest, EditorSession};
 pub use files::FilePlan;
@@ -24,7 +24,7 @@ pub use review::SendOutcome;
 pub use scm::{DrawerView, GitPlan};
 pub use search::{QuickIndex, SearchRow, SearchView};
 pub use storage::fingerprint;
-pub use ui_state::{DocumentState, WorkspaceUiState};
+pub use ui_state::{DocumentState, DrawerState, WorkspaceUiState};
 pub use work_git::{CommitDraft, WorkGitAction, WorkGitOutcome, WorkGitPlan};
 
 use anyhow::Result;
