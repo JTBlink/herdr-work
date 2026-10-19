@@ -1039,3 +1039,33 @@ fn workspace_state_does_not_follow_a_replaced_directory_instance() {
     assert_eq!(fresh.tree.selected, None);
     assert!(desk.save_workspace_ui_state(&root, &state).is_err());
 }
+
+#[test]
+fn saved_drawer_identity_rejects_a_replaced_nested_repository() {
+    use herdr_work_code::scm::Drawer;
+    use herdr_work_engine::DrawerState;
+    let (repo, _home, desk) = fixture();
+    let nested = repo.path().join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    git(&nested, &["init", "-q"]);
+    let view = desk.scm_drawer(&nested, Drawer::Branches, None).unwrap();
+    let saved = DrawerState {
+        kind: Drawer::Branches.title().into(),
+        root: "nested".into(),
+        instance: view.instance,
+        file: None,
+    };
+    let mut state = desk.workspace_ui_state(repo.path()).unwrap();
+    state.drawers.push(saved.clone());
+    desk.save_workspace_ui_state(repo.path(), &state).unwrap();
+    std::fs::rename(&nested, repo.path().join("previous-nested")).unwrap();
+    std::fs::create_dir(&nested).unwrap();
+    git(&nested, &["init", "-q"]);
+    assert!(desk.restore_ui_drawer(repo.path(), &saved).is_err());
+    assert!(
+        desk.workspace_ui_state(repo.path())
+            .unwrap()
+            .drawers
+            .is_empty()
+    );
+}

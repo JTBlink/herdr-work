@@ -534,9 +534,7 @@ impl App {
                     self.apply(epoch, Ok(Data::Business(text)))
                 }
                 Ok(herdr_work_engine::WorkGitOutcome::DeleteNotMerged(plan)) => {
-                    self.input.clear();
-                    self.prompt = Some(Prompt::WorkGit(plan));
-                    self.status = "分支尚未合并；强删会丢失提交，请再次明确确认".into();
+                    self.offer_force_delete(plan);
                 }
                 Err(error) => {
                     self.status = format!("{error:#}；结果未知时请从 Git 菜单选择核对恢复");
@@ -641,8 +639,10 @@ impl App {
                     Ok(view) => {
                         self.search_rows = view.rows;
                         self.search_state = LoadState::Ready;
-                        self.selection = 0;
-                        if view.truncated {
+                        if self.tab == Tab::Search {
+                            self.selection = 0;
+                        }
+                        if view.truncated && self.tab == Tab::Search {
                             self.status = "结果已截断，请缩小搜索范围".into();
                         }
                     }

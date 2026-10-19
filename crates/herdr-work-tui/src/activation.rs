@@ -1,11 +1,11 @@
 //! Typed own-host requests are polled on the existing worker, never injected as keys.
 use crate::state::*;
 use anyhow::Result;
-use herdr_work_engine::{ActivationRequest, InitialView, WorkbenchRegistration};
+use herdr_work_engine::{ActivationRequest, InitialView, UiRegistration};
 use std::time::{Duration, Instant};
 
 pub(crate) struct ActivationRuntime {
-    registration: WorkbenchRegistration,
+    registration: UiRegistration,
     seen: Option<String>,
     request: u64,
     pending: Option<(u64, u64)>,
@@ -28,11 +28,11 @@ impl App {
         }
     }
     pub(crate) fn start_activation(&mut self) -> Result<()> {
-        let Some(registration) = self.desk.workbench_registration() else {
+        let Some(registration) = self.desk.ui_registration() else {
             return Ok(());
         };
         let report = registration.clone();
-        self.job(move |desk| Ok(Data::ActivationReported(desk.report_workbench(&report))))?;
+        self.job(move |desk| Ok(Data::ActivationReported(desk.report_ui(&report))))?;
         self.activation = Some(ActivationRuntime {
             registration,
             seen: None,
@@ -55,18 +55,17 @@ impl App {
         let request = runtime.request;
         let registration = runtime.registration.clone();
         let seen = runtime.seen.clone();
-        runtime.pending = Some((self.context.epoch, request));
-        runtime.last_poll = now;
         let submitted = self.job(move |desk| {
             Ok(Data::ActivationRead(
                 request,
                 desk.pending_activation(&registration, seen.as_deref()),
             ))
         });
-        if submitted.is_err() {
-            self.activation.as_mut().unwrap().pending = None;
-        }
-        submitted
+        submitted?;
+        let runtime = self.activation.as_mut().unwrap();
+        runtime.pending = Some((self.context.epoch, request));
+        runtime.last_poll = now;
+        Ok(())
     }
     pub(crate) fn activation_read(
         &mut self,

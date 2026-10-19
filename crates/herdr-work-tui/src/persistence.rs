@@ -10,7 +10,7 @@ use herdr_work_code::{
     scm::Drawer,
     view_state::ScmState,
 };
-use herdr_work_engine::{DocumentState, WorkspaceUiState};
+use herdr_work_engine::{DocumentState, DrawerState, WorkspaceUiState};
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
@@ -115,10 +115,6 @@ impl App {
                 .map(|kind| kind.title().into())
                 .collect(),
             scroll: self.drawer_scroll as usize,
-            history_target: self
-                .drawers
-                .get(&Drawer::FileHistory)
-                .and_then(|view| view.file.clone()),
             collapsed_dirs: self
                 .git
                 .collapsed
@@ -136,6 +132,20 @@ impl App {
         };
         state.scm_tree = self.git.tree;
         state.active_drawer = self.active_drawer.map(|kind| kind.title().to_string());
+        state.drawers = self
+            .drawers
+            .iter()
+            .filter(|(kind, _)| self.drawer_open[kind.index()])
+            .filter_map(|(kind, view)| {
+                self.relative_ui_path(&view.root).map(|root| DrawerState {
+                    kind: kind.title().into(),
+                    root,
+                    instance: view.instance.clone(),
+                    file: view.file.clone(),
+                })
+            })
+            .collect();
+        state.drawers.sort_by(|a, b| a.kind.cmp(&b.kind));
         state.repository_collapsed = self
             .git
             .repository_collapsed
@@ -314,28 +324,28 @@ impl App {
         self.active_drawer = state
             .active_drawer
             .as_ref()
-            .and_then(|title| Drawer::ALL.into_iter().find(|kind| kind.title() == title));
+            .and_then(|title| Drawer::ALL.into_iter().find(|kind| kind.title() == title))
+            .filter(|kind| state.drawers.iter().any(|saved| saved.kind == kind.title()));
         self.drawer_scroll = state.scm.scroll.min(u16::MAX as usize) as u16;
-        let kinds = Drawer::ALL
-            .into_iter()
-            .filter(|kind| self.drawer_open[kind.index()])
-            .collect::<Vec<_>>();
-        if !kinds.is_empty() {
+        if !state.drawers.is_empty() {
             let root = self.root.clone();
-            let repository = self.selected_repository();
             let request = self.drawer_request;
+            let drawers = state.drawers.clone();
             if self.active_drawer.is_some() {
                 self.drawer_state = crate::loading::LoadState::Loading;
             }
-            let history = state.scm.history_target.clone();
             self.job(move |desk| {
+                let views = drawers
+                    .into_iter()
+                    .filter_map(|saved| {
+                        let kind = Drawer::ALL
+                            .into_iter()
+                            .find(|kind| kind.title() == saved.kind)?;
+                        Some((kind, desk.restore_ui_drawer(&root, &saved)))
+                    })
+                    .collect();
                 Ok(Data::Persistence(Box::new(Update::Drawers(
-                    root,
-                    request,
-                    kinds
-                        .into_iter()
-                        .map(|kind| (kind, desk.scm_drawer(&repository, kind, history.as_deref())))
-                        .collect(),
+                    root, request, views,
                 ))))
             })?;
         }

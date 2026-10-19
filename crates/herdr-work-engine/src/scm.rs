@@ -25,6 +25,7 @@ use crate::work_git::working_stamp;
 
 #[derive(Clone)]
 pub struct DrawerView {
+    pub instance: String,
     pub root: PathBuf,
     pub kind: Drawer,
     pub file: Option<String>,
@@ -153,8 +154,14 @@ impl HerdrWork {
     pub fn scm_drawer(&self, root: &Path, kind: Drawer, file: Option<&str>) -> Result<DrawerView> {
         bounded_git(|| {
             let git = Git::discover(root).map_err(anyhow::Error::msg)?;
+            let instance = Self::worktree_identity(git.root())?;
             let lines = kind.load(&git, file, 100).map_err(anyhow::Error::msg)?;
+            anyhow::ensure!(
+                Self::worktree_identity(git.root())? == instance,
+                "抽屉查询期间仓库实例已改变"
+            );
             Ok(DrawerView {
+                instance,
                 root: git.root().into(),
                 kind,
                 file: file.map(str::to_string),

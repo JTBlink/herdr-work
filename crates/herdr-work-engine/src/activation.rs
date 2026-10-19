@@ -11,9 +11,19 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 pub const PLUGIN_ID: &str = "jtblink.herdr-work";
+const PROFILE_TOKEN: &str = "herdr-work-profile";
+
+fn pane_metadata(pane: &str, profile: &str, instance: Option<&str>) -> Value {
+    let mut tokens = json!({PROFILE_TOKEN: profile});
+    if let Some(instance) = instance {
+        tokens["herdr-work-instance"] = json!(instance);
+        tokens["herdr-work-ready"] = json!("true");
+    }
+    json!({"pane_id":pane,"source":PLUGIN_ID,"tokens":tokens})
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WorkbenchRegistration {
+pub struct UiRegistration {
     pub socket: PathBuf,
     pub pane: String,
     pub profile: String,
@@ -160,14 +170,14 @@ impl HerdrWork {
         let panes = list["panes"].as_array().context("宿主未返回窗格列表")?;
         let own: Vec<_> = panes
             .iter()
-            .filter(|p| p["tokens"][PLUGIN_ID].as_str() == Some(token.as_str()))
+            .filter(|p| p["tokens"][PROFILE_TOKEN].as_str() == Some(token.as_str()))
             .collect();
         let mut verified = vec![];
         for pane in &own {
             let Some(id) = pane["pane_id"].as_str().filter(|id| !id.is_empty()) else {
                 continue;
             };
-            if pane["tokens"]["herdr-work-ready"].as_bool() != Some(true) {
+            if pane["tokens"]["herdr-work-ready"].as_str() != Some("true") {
                 continue;
             }
             let Some(instance) = pane["tokens"]["herdr-work-instance"]
@@ -229,12 +239,12 @@ impl HerdrWork {
             // Only mark ownership here: the UI may already have reported its fresh
             // instance and ready flag before plugin.pane.open returned. Metadata
             // merges, so do not replace that newer readiness information.
-            json!({"pane_id":pane,"source":PLUGIN_ID,"tokens":{PLUGIN_ID:token}}),
+            pane_metadata(pane, &token, None),
         )?;
         Ok(json!({"action":"opened","pane_id":pane,"view":view}))
     }
     /// Host-provided identity is accepted only for this product's entrypoint.
-    pub fn workbench_registration(&self) -> Option<WorkbenchRegistration> {
+    pub fn ui_registration(&self) -> Option<UiRegistration> {
         if std::env::var("HERDR_PLUGIN_ID").ok().as_deref() != Some(PLUGIN_ID) {
             return None;
         }
@@ -242,14 +252,14 @@ impl HerdrWork {
             .ok()
             .filter(|s| !s.is_empty())?;
         let socket = PathBuf::from(std::env::var_os("HERDR_SOCKET_PATH")?);
-        Some(WorkbenchRegistration {
+        Some(UiRegistration {
             socket,
             pane,
             profile: profile_token(self.root()),
             instance: nonce(),
         })
     }
-    pub fn report_workbench(&self, registration: &WorkbenchRegistration) -> Result<()> {
+    pub fn report_ui(&self, registration: &UiRegistration) -> Result<()> {
         ensure!(
             registration.profile == profile_token(self.root()),
             "工作台资料目录身份不匹配"
@@ -271,14 +281,17 @@ impl HerdrWork {
         rpc(
             &registration.socket,
             "pane.report_metadata",
-            json!({"pane_id":registration.pane,"source":PLUGIN_ID,
-            "tokens":{PLUGIN_ID:registration.profile,"herdr-work-instance":registration.instance,"herdr-work-ready":true}}),
+            pane_metadata(
+                &registration.pane,
+                &registration.profile,
+                Some(&registration.instance),
+            ),
         )?;
         Ok(())
     }
     pub fn pending_activation(
         &self,
-        registration: &WorkbenchRegistration,
+        registration: &UiRegistration,
         previous: Option<&str>,
     ) -> Result<Option<ActivationRequest>> {
         let path = request_path(self.root(), &registration.pane, &registration.instance);
@@ -295,5 +308,25 @@ impl HerdrWork {
             "活动请求身份不匹配"
         );
         Ok((previous != Some(request.nonce.as_str())).then_some(request))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn metadata_requests_use_host_token_keys_and_string_values() {
+        for instance in [None, Some("ui-instance")] {
+            let request = pane_metadata("own-pane", "profile-token", instance);
+            assert_eq!(request["source"], PLUGIN_ID);
+            let tokens = request["tokens"].as_object().unwrap();
+            for (key, value) in tokens {
+                assert!(!key.is_empty() && key.len() <= 32 && key.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte,b'_'|b'-')), "invalid token key: {key}");
+                assert!(
+                    value.is_string() || value.is_null(),
+                    "invalid token value: {value}"
+                );
+            }
+        }
     }
 }

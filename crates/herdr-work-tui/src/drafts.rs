@@ -43,15 +43,10 @@ impl App {
             .clone();
         let revision = runtime.revisions[&root];
         let target = root.clone();
-        if self
-            .job(move |desk| {
-                let result = desk.save_git_draft(&target, &draft);
-                Ok(Data::GitDraftSaved(target, revision, result))
-            })
-            .is_err()
-        {
-            return Ok(());
-        } // Keep dirty data and defer when the bounded queue is full.
+        self.job(move |desk| {
+            let result = desk.save_git_draft(&target, &draft);
+            Ok(Data::GitDraftSaved(target, revision, result))
+        })?; // Keep dirty data and defer when the bounded queue is full.
         self.git.draft_runtime.saving.insert(root, revision);
         Ok(())
     }

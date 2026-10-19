@@ -30,6 +30,7 @@ pub(crate) struct GitUi {
     pub repository_collapsed: BTreeSet<PathBuf>,
     pub section_collapsed: BTreeSet<(PathBuf, bool)>,
     pub request: u64,
+    pub pending_force: Option<herdr_work_engine::WorkGitPlan>,
     pub unresolved: Vec<(String, String)>,
     pub picker: Option<herdr_work_code::branch_ui::BranchPicker>,
     pub committing: BTreeSet<PathBuf>,
@@ -37,6 +38,36 @@ pub(crate) struct GitUi {
 }
 pub(crate) type ScmRow = (Option<usize>, String, char, ScmTarget);
 impl App {
+    fn force_delete_idle(&self) -> bool {
+        self.prompt.is_none()
+            && self.overlay.is_none()
+            && self.input.is_empty()
+            && self.editor.is_none()
+            && self.edit_request.is_none()
+            && self.git.editing.is_none()
+            && self.git.picker.is_none()
+    }
+    pub(crate) fn offer_force_delete(&mut self, plan: herdr_work_engine::WorkGitPlan) {
+        self.git.pending_force = Some(plan);
+        if self.force_delete_idle() {
+            let _ = self.resume_force_delete();
+        } else {
+            self.status = "分支尚未合并；已保留计划，完成当前输入后从 Git 菜单重开强删确认".into();
+        }
+    }
+    pub(crate) fn resume_force_delete(&mut self) -> Result<()> {
+        anyhow::ensure!(self.force_delete_idle(), "请先完成当前输入，再重开强删确认");
+        let plan = self
+            .git
+            .pending_force
+            .take()
+            .context("没有待确认的未合并分支")?;
+        self.git.active = Some(plan.root.clone());
+        self.prompt = Some(Prompt::WorkGit(plan));
+        self.status = "分支尚未合并；强删会丢失提交，请再次明确确认".into();
+        Ok(())
+    }
+
     pub(crate) fn load_drawer(&mut self, kind: Drawer) -> Result<()> {
         let preserve_context = self.active_drawer == Some(kind) && self.focus == Focus::Content;
         self.drawer_request += 1;

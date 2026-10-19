@@ -13,6 +13,20 @@ use std::{
     time::Duration,
 };
 
+// Herdr 0.9.3 PaneReportMetadataParams token contract: restricted keys and
+// String|null values. Enforce requests, independently of the pane-list fixtures.
+fn valid_metadata_tokens(params: &Value) -> bool {
+    params["tokens"].as_object().is_some_and(|tokens| {
+        tokens.iter().all(|(key, value)| {
+            !key.is_empty()
+                && key.len() <= 32
+                && key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+                && (value.is_string() || value.is_null())
+        })
+    })
+}
 fn git(root: &Path, args: &[&str]) {
     assert!(
         Command::new("git")
@@ -182,8 +196,8 @@ fn activate_reuses_only_verified_own_pane_even_while_profile_is_locked() {
             recorded.lock().unwrap().push(request.clone());
             let result = match request["method"].as_str().unwrap() {
                 "pane.list" => json!({"panes":[
-                    {"pane_id":"independent-sidebar","label":"HerdrWork","tokens":{"herdr-work-code-explorer":123}},
-                    {"pane_id":"own-pane","tokens":{"jtblink.herdr-work":token,"herdr-work-instance":"fixture-instance","herdr-work-ready":true}}
+                    {"pane_id":"independent-sidebar","label":"HerdrWork","tokens":{"herdr-work-code-explorer":"123"}},
+                    {"pane_id":"own-pane","tokens":{"herdr-work-profile":token,"herdr-work-instance":"fixture-instance","herdr-work-ready":"true"}}
                 ]}),
                 "pane.process_info" => {
                     json!({"process_info":{"pane_id":"own-pane","foreground_processes":[{"argv0":binary,"argv":[binary,"ui","."]}]}})
@@ -229,7 +243,7 @@ fn activate_reuses_only_verified_own_pane_even_while_profile_is_locked() {
         r["method"].as_str(),
         Some("pane.send_input" | "pane.close" | "pane.run" | "plugin.pane.open")
     )));
-    let registration = herdr_work_engine::WorkbenchRegistration {
+    let registration = herdr_work_engine::UiRegistration {
         socket,
         pane: "own-pane".into(),
         profile: herdr_work_engine::fingerprint(profile.to_string_lossy().as_bytes()),
@@ -246,7 +260,7 @@ fn activate_reuses_only_verified_own_pane_even_while_profile_is_locked() {
             .unwrap()
             .is_none()
     );
-    let restarted = herdr_work_engine::WorkbenchRegistration {
+    let restarted = herdr_work_engine::UiRegistration {
         instance: "new-ui-instance".into(),
         ..registration
     };
@@ -286,7 +300,7 @@ fn activation_case(
             recorded.lock().unwrap().push(request.clone());
             let result = match request["method"].as_str().unwrap() {
                 "pane.list" if forged_own_identity => {
-                    json!({"panes":[{"pane_id":"unverified","tokens":{"jtblink.herdr-work":token,"herdr-work-instance":"stale","herdr-work-ready":true}}]})
+                    json!({"panes":[{"pane_id":"unverified","tokens":{"herdr-work-profile":token,"herdr-work-instance":"stale","herdr-work-ready":"true"}}]})
                 }
                 "pane.list" => {
                     json!({"panes":[{"pane_id":"independent-projects","label":"HerdrWork","tokens":{"herdr-projects":"own-other-plugin"}}]})
@@ -297,7 +311,13 @@ fn activation_case(
                 "plugin.pane.open" if !forged_own_identity => {
                     json!({"plugin_pane":{"plugin_id":"jtblink.herdr-work","entrypoint":"pane","pane":{"pane_id":"created-own"}}})
                 }
-                "pane.report_metadata" if !forged_own_identity => json!({}),
+                "pane.report_metadata" if !forged_own_identity => {
+                    assert!(
+                        valid_metadata_tokens(&request["params"]),
+                        "invalid host metadata request: {request}"
+                    );
+                    json!({})
+                }
                 other => panic!("unexpected host mutation {other}"),
             };
             writeln!(stream, "{}", json!({"result":result})).unwrap();
@@ -473,4 +493,17 @@ for view,title in [('explorer','EXPLORER'),('search','SEARCH'),('source-control'
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn host_metadata_contract_rejects_dotted_keys_and_boolean_values() {
+    assert!(!valid_metadata_tokens(
+        &json!({"tokens":{"jtblink.herdr-work":"profile"}})
+    ));
+    assert!(!valid_metadata_tokens(
+        &json!({"tokens":{"herdr-work-ready":true}})
+    ));
+    assert!(valid_metadata_tokens(
+        &json!({"tokens":{"herdr-work-profile":"profile","herdr-work-ready":"true"}})
+    ));
 }

@@ -29,6 +29,7 @@ pub(crate) enum Command {
     FileAction(actions::MenuAction),
     Reference(herdr_work_code::scm::MenuAction),
     Recovery,
+    ResumeForceDelete,
 }
 pub(crate) enum Overlay {
     Settings(usize),
@@ -276,6 +277,9 @@ impl App {
                     ),
                     (Command::Recovery, "核对 Unknown 操作并显式恢复…"),
                 ]);
+                if self.git.pending_force.is_some() {
+                    rows.push((Command::ResumeForceDelete, "重开待确认的强制删除分支…"));
+                }
                 for kind in herdr_work_code::scm::Drawer::ALL {
                     rows.push((Command::Drawer(kind), kind.title()));
                 }
@@ -449,6 +453,7 @@ impl App {
                 }
                 self.action(key)?;
             }
+            Command::ResumeForceDelete => self.resume_force_delete()?,
             Command::Recovery => {
                 self.git.request += 1;
                 let request = self.git.request;

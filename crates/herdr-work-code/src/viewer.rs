@@ -14,11 +14,11 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
-    MouseButton, MouseEvent, MouseEventKind,
+    MouseButton, MouseEventKind,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Style, Stylize};
+use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
@@ -2691,6 +2691,8 @@ fn side_neighbor(layout_json: &str, pane_id: &str, on_the_left: bool) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::MouseEvent;
+    use ratatui::style::Color;
 
     fn doc_of(lines: Vec<Line<'static>>, numbered: bool) -> Doc {
         Doc {

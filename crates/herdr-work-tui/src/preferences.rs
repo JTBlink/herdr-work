@@ -22,10 +22,14 @@ impl App {
         let before = self.interaction.preference_base.clone();
         let after = self.preferences.clone();
         let sent = after.clone();
-        self.job(move |desk| {
+        if let Err(error) = self.job(move |desk| {
             let result = desk.update_ui_preferences(&before, &after);
             Ok(Data::Preferences(Update::Saved(request, after, result)))
-        })?;
+        }) {
+            self.interaction.preference_retry = true;
+            return Err(error);
+        }
+        self.interaction.preference_retry = false;
         self.interaction.preference_pending = Some(request);
         self.interaction.preference_sent = Some(sent);
         Ok(())
@@ -55,6 +59,9 @@ impl App {
         Ok(())
     }
     pub(crate) fn tick_preferences(&mut self) -> Result<()> {
+        if self.interaction.preference_retry {
+            self.save_preferences()?;
+        }
         let now = std::time::Instant::now();
         if !self.interaction.preference_poll_pending
             && now.saturating_duration_since(self.interaction.last_preference_poll)

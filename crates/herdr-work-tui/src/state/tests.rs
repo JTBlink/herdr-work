@@ -1846,8 +1846,10 @@ fn exit_flush_waits_for_a_full_worker_queue_and_saves_the_last_draft() {
     for _ in 0..32 {
         app.job(|_| Ok(Data::GitDraftFlush)).unwrap();
     }
-    app.tick_git_drafts(std::time::Instant::now() + Duration::from_secs(1))
-        .unwrap();
+    assert!(
+        app.tick_git_drafts(std::time::Instant::now() + Duration::from_secs(1))
+            .is_err()
+    );
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(20));
         release_tx.send(()).unwrap();
@@ -2277,6 +2279,8 @@ fn saved_drawer_queries_complete_after_unrelated_tree_navigation_without_resetti
     let (_temp, mut app) = loaded_app();
     for kind in [Drawer::Branches, Drawer::Remotes] {
         app.drawer_open[kind.index()] = true;
+        app.drawers
+            .insert(kind, app.desk.scm_drawer(&app.root, kind, None).unwrap());
     }
     app.active_drawer = Some(Drawer::Remotes);
     app.drawer_scroll = 3;
@@ -2382,4 +2386,281 @@ fn failed_old_draft_save_keeps_new_text_and_allows_the_new_revision_to_save() {
     let saved = app.desk.git_draft(&app.root).unwrap();
     assert_eq!(saved.message.iter().collect::<String>(), "first新");
     assert_eq!(saved.cursor, 6);
+}
+
+#[test]
+fn full_worker_queue_keeps_dirty_editor_and_timer_work_retries_after_capacity_returns() {
+    let (_temp, mut app) = loaded_app();
+    app.editor = Some(app.desk.edit_file(&app.root, "visible.txt").unwrap());
+    app.editor.as_mut().unwrap().editor.insert_text("local ");
+    let text = app.editor.as_ref().unwrap().editor.text();
+    let (started, ready) = std::sync::mpsc::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    app.job(move |_| {
+        started.send(()).unwrap();
+        let _ = wait.recv();
+        Ok(Data::GitDraftFlush)
+    })
+    .unwrap();
+    ready.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
+    for _ in 0..32 {
+        app.job(|_| Ok(Data::GitDraftFlush)).unwrap();
+    }
+    app.preferences.show_hotkeys = false;
+    assert!(app.save_preferences().is_err());
+    let now = std::time::Instant::now() + Duration::from_secs(3);
+    let mut last_poll = now - Duration::from_secs(3);
+    assert!(app.tick_background(now, &mut last_poll));
+    assert_eq!(app.editor.as_ref().unwrap().editor.text(), text);
+    assert!(app.editor.as_ref().unwrap().editor.dirty);
+    assert!(app.status.contains("重试"));
+    assert!(app.editor_poll.is_none());
+    assert!(app.background_pending.is_none());
+    assert!(app.interaction.save_pending.is_none());
+    assert!(app.interaction.preference_pending.is_none());
+    assert_eq!(last_poll, now - Duration::from_secs(3));
+    let screen = screen(&mut app);
+    assert!(screen.contains("未保存"));
+    release.send(()).unwrap();
+    for _ in 0..33 {
+        let _ = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
+    }
+    app.tick_background(now + Duration::from_millis(100), &mut last_poll);
+    assert!(app.editor_poll.is_some());
+    assert!(app.background_pending.is_some());
+    assert!(app.interaction.save_pending.is_some());
+    assert!(app.interaction.preference_pending.is_some());
+    assert_eq!(app.editor.as_ref().unwrap().editor.text(), text);
+}
+
+#[test]
+fn preview_enqueue_backpressure_preserves_the_pending_file_until_retry() {
+    let (_temp, mut app) = loaded_app();
+    let (started, ready) = std::sync::mpsc::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    app.job(move |_| {
+        started.send(()).unwrap();
+        let _ = wait.recv();
+        Ok(Data::GitDraftFlush)
+    })
+    .unwrap();
+    ready.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
+    for _ in 0..32 {
+        app.job(|_| Ok(Data::GitDraftFlush)).unwrap();
+    }
+    let path = app.root.join("visible.txt");
+    assert!(app.open_preview(path.clone(), None).is_err());
+    assert!(app.preview_loading.is_none());
+    assert!(app.preview_pending.is_some());
+    release.send(()).unwrap();
+    for _ in 0..33 {
+        let _ = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
+    }
+    app.tick_preview();
+    receive(&mut app);
+    assert_eq!(app.preview_path, Some(path));
+    assert_eq!(app.preview_doc.as_ref().unwrap().plain_text(), "fixture\n");
+}
+
+#[test]
+fn late_unmerged_branch_result_keeps_new_task_comment_and_path_input() {
+    use herdr_work_engine::WorkGitAction;
+    for kind in 0..3 {
+        let (_temp, mut app) = loaded_app();
+        for args in [
+            vec!["add", "visible.txt"],
+            vec![
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "-qm",
+                "initial",
+            ],
+            vec!["checkout", "-qb", "topic"],
+            vec![
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "topic",
+            ],
+            vec!["checkout", "-q", "-"],
+        ] {
+            assert!(
+                Command::new("git")
+                    .args(args)
+                    .current_dir(&app.root)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        let plan = app
+            .desk
+            .prepare_work_git(&app.root, WorkGitAction::DeleteBranch("topic".into()))
+            .unwrap();
+        let result = app.desk.execute_work_git(&plan);
+        app.prompt = Some(match kind {
+            0 => Prompt::NewTask,
+            1 => Prompt::Folder,
+            _ => Prompt::Comment {
+                review: herdr_work_core::ReviewId("review".into()),
+                anchor: herdr_work_core::CommentAnchor {
+                    file: "visible.txt".into(),
+                    side: herdr_work_core::Side::New,
+                    start: 1,
+                    end: 1,
+                    fingerprint: "fixture".into(),
+                },
+            },
+        });
+        app.input = "new text / 工作目录".into();
+        app.apply(app.context.epoch, Ok(Data::WorkGitDone(result)));
+        assert_eq!(app.input, "new text / 工作目录");
+        assert!(match kind {
+            0 => matches!(app.prompt, Some(Prompt::NewTask)),
+            1 => matches!(app.prompt, Some(Prompt::Folder)),
+            _ => matches!(app.prompt, Some(Prompt::Comment { .. })),
+        });
+        assert!(app.git.pending_force.is_some());
+        app.prompt = None;
+        app.input.clear();
+        app.switch_tab(Tab::Scm);
+        app.open_menu(false);
+        let Some(crate::menus::Overlay::Menu { rows, selected, .. }) = &mut app.overlay else {
+            panic!("missing Git menu");
+        };
+        *selected = rows
+            .iter()
+            .position(|(command, _)| matches!(command, crate::menus::Command::ResumeForceDelete))
+            .unwrap();
+        app.overlay_key(crossterm::event::KeyCode::Enter).unwrap();
+        assert!(
+            matches!(&app.prompt, Some(Prompt::WorkGit(plan)) if plan.root == app.root && matches!(plan.action(), WorkGitAction::ForceDeleteBranch(name) if name == "topic"))
+        );
+        assert!(
+            Command::new("git")
+                .args(["show-ref", "--verify", "refs/heads/topic"])
+                .current_dir(&app.root)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    }
+}
+
+#[test]
+fn inactive_content_search_and_quick_open_results_keep_the_explorer_selection() {
+    for quick in [false, true] {
+        let (_temp, mut app) = loaded_app();
+        std::fs::write(app.root.join("a.txt"), "fixture").unwrap();
+        app.refresh().unwrap();
+        receive(&mut app);
+        app.selection = app
+            .code
+            .as_ref()
+            .unwrap()
+            .files
+            .iter()
+            .position(|f| f.name == "visible.txt")
+            .unwrap();
+        let selected = app.selection;
+        assert!(selected > 0);
+        app.search_query = "fixture".into();
+        app.query_prompt(quick);
+        if quick {
+            app.input = "visible".into();
+            app.search_input_changed().unwrap();
+        }
+        app.switch_tab(Tab::Files);
+        app.prompt = None;
+        receive(&mut app);
+        assert!(app.tab == Tab::Files);
+        assert_eq!(app.selection, selected);
+        assert!(!app.search_rows.is_empty());
+    }
+}
+
+#[test]
+fn restored_file_history_keeps_its_query_repository_when_another_repository_is_active() {
+    use crate::scm::ScmTarget;
+    use herdr_work_code::scm::Drawer;
+    let (_temp, mut app) = loaded_app();
+    let second = app.root.join("nested");
+    std::fs::create_dir(&second).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .arg(&second)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(second.join("visible.txt"), "second repository\n").unwrap();
+    for (repo, message) in [(&app.root, "history A"), (&second, "history B")] {
+        for args in [
+            vec!["add", "visible.txt"],
+            vec![
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "-qm",
+                message,
+            ],
+        ] {
+            assert!(
+                Command::new("git")
+                    .args(args)
+                    .current_dir(repo)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+    }
+    app.refresh().unwrap();
+    receive(&mut app);
+    app.switch_tab(Tab::Scm);
+    let history = app
+        .desk
+        .scm_drawer(&app.root, Drawer::FileHistory, Some("visible.txt"))
+        .unwrap();
+    app.drawers.insert(Drawer::FileHistory, history);
+    app.drawers.insert(
+        Drawer::Branches,
+        app.desk
+            .scm_drawer(&second, Drawer::Branches, None)
+            .unwrap(),
+    );
+    app.drawer_open[Drawer::Branches.index()] = true;
+    app.drawer_open[Drawer::FileHistory.index()] = true;
+    app.active_drawer = Some(Drawer::FileHistory);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(
+            |r| matches!(r.3,ScmTarget::Repository(i) if app.repository_root(i).unwrap()==second),
+        )
+        .unwrap();
+    app.git.active = Some(second.clone());
+    app.persist_workspace_on_exit().unwrap();
+    let mut restored = App::new(app.desk.clone(), app.root.clone(), Context::default()).unwrap();
+    restored.refresh().unwrap();
+    receive(&mut restored);
+    receive(&mut restored);
+    let history = &restored.drawers[&Drawer::FileHistory];
+    assert_eq!(history.root, app.root);
+    assert_eq!(history.file.as_deref(), Some("visible.txt"));
+    assert!(history.lines.iter().any(|line| line.contains("history A")));
+    assert!(history.lines.iter().all(|line| !line.contains("history B")));
+    assert_eq!(restored.selected_repository(), second);
+    assert_eq!(restored.drawers[&Drawer::Branches].root, second);
 }

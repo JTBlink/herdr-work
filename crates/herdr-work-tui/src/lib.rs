@@ -39,6 +39,7 @@ mod search;
 mod sidebar_view;
 mod state;
 mod task_view;
+mod timers;
 mod view;
 pub use herdr_work_engine::InitialView;
 use state::*;
@@ -185,21 +186,7 @@ pub fn run_with_initial(
             }
             let now = Instant::now();
             if now.duration_since(last_tick) >= Duration::from_millis(100) {
-                if let Err(error) = app.tick_activation(now) {
-                    app.status = format!("活动请求排队失败：{error:#}");
-                    redraw = true;
-                }
-                app.tick_search(now)?;
-                app.tick_git_drafts(now)?;
-                redraw |= app.tick_preview();
-                redraw |= app.tick_hover();
-                app.tick_persistence(now)?;
-                app.tick_preferences()?;
-                app.tick_refresh(now)?;
-                if now.duration_since(last_editor_poll) >= Duration::from_secs(2) {
-                    app.poll_editor()?;
-                    last_editor_poll = now;
-                }
+                redraw |= app.tick_background(now, &mut last_editor_poll);
                 last_tick = now;
             }
         }
