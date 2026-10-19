@@ -128,7 +128,9 @@ impl App {
                     let _ = self.tick_search(Instant::now());
                 }
             }
-            Err(error) => self.search_state = LoadState::Failed(error.to_string()),
+            Err(error) if self.search_quick => {
+                self.search_state = LoadState::Failed(error.to_string())
+            }
             _ => {}
         }
     }
