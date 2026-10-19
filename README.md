@@ -29,6 +29,8 @@ Windows 使用 `python install.py --prefix "$env:LOCALAPPDATA/HerdrWork"`，运�
 
 默认页面是文件树与预览区，左侧为文件、搜索、Git、任务、审查图标，底部齿轮打开设置。`1`–`4` 分别进入任务、文件、SCM、审查，`5` 进入搜索；`m` 或右键打开菜单，`,` 打开设置，`Tab` 切换焦点，`r` 刷新，`q` 退出。
 
+顶部只保留同层的视图标题和文档标签，完整目录通过菜单查看；底栏提供活动仓库的分支和同步入口。文件树支持左右、首尾及翻页，展开、选中和固定文档按目录恢复；外部文件和 Git 变化自动刷新。
+
 文件页按 `e` 使用内置编辑器，`Ctrl+S` 保存，`Ctrl+Z/Y` 撤销/重做，`Esc` 返回并处理未保存内容；`Ctrl+P` 快速打开文件，`/` 搜索文本。SCM 按 `s/u` 暂存/取消暂存，`C` 提交，并可展开 Graph、Commits、File History、Branches、Worktrees、Remotes、Stashes、Tags；任务页按 `n` 创建任务。
 
 只读预览支持代码高亮、行号、Markdown 和常见图片；可选 `glow` 提供 Markdown 排版，可选 `ffmpeg` 提供视频封面。长文本有界截断。内容区按 `w` 切换换行，首尾键和翻页键导航，拖选或 `Ctrl/Cmd+A` 全选后按 `Ctrl/Cmd+C` 复制；设置中可关闭选区自动复制。按 `p` 或双击文件固定文档，`[` / `]` 切换固定文档，`Esc` 关闭当前预览。
@@ -37,6 +39,8 @@ Agent 定位和发送需要 Herdr 0.9.3+ 提供的宿主连接。独立启动时
 
 ```sh
 herdr-work --help                 # 中文命令帮助
+herdr-work ui . --initial-view source-control # 直接进入 Git
+herdr-work activate quick-open    # 在 Herdr 中打开或聚焦自有 Quick Open
 herdr-work review open --help     # 子命令的详细参数
 herdr-work scheduler status
 herdr-work scheduler pause   # 暂停工作台后端自动调度，不停止 Agent
