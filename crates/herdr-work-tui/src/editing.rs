@@ -269,6 +269,31 @@ impl App {
             self.picker_action(action)?;
             return Ok(false);
         }
+        if self.editor.is_none()
+            && self.overlay.is_none()
+            && (self.prompt.is_none() || self.search_prompt())
+            && key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER)
+        {
+            match key.code {
+                KeyCode::Char('p' | 'P' | 'f' | 'F') => {
+                    self.query_prompt(matches!(key.code, KeyCode::Char('p' | 'P')));
+                    return Ok(false);
+                }
+                KeyCode::Char('h' | 'H') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                    self.query_prompt(false);
+                    self.search_replace_visible = true;
+                    self.prompt = Some(Prompt::SearchReplace);
+                    self.input = self.search_replacement.clone();
+                    return Ok(false);
+                }
+                _ => {}
+            }
+        }
+        if self.overlay.is_none() && self.search_key_event(key)? {
+            return Ok(false);
+        }
         if self.overlay.is_some() || self.prompt.is_some() {
             return self.key(key.code);
         }

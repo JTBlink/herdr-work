@@ -10,7 +10,7 @@ herdr-work-engine.workspace = true
 anyhow.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
-herdr-work-code.workspace = true
+herdr-work-code = { workspace = true, features = ["sidebar-ui"] }
 serde_json.workspace = true
 
 [dev-dependencies]

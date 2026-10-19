@@ -13,7 +13,7 @@ use herdr_work_code::scm_widgets::{
     BodyGeom, MESSAGE_MAX_ROWS, inline_field_width, message_placeholder, message_window,
     row_hit_with_heights, wrap_message,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "reference-ui"))]
 use herdr_work_code::{
     scm::{drawer_checkout_args, drawer_reset_args},
     scm_view::{changes_header_action_zones, file_hover_action_start},
@@ -273,7 +273,9 @@ enum Overlay {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Setting {
     Version,
+    #[cfg(feature = "reference-ui")]
     Update,
+    #[cfg(feature = "reference-ui")]
     UnifiedSidebar,
     DockRight,
     SidebarWidth,
@@ -322,6 +324,9 @@ struct PaneCtl {
 
 impl PaneCtl {
     fn from_env() -> Option<Self> {
+        if cfg!(test) {
+            return None;
+        }
         let pane_id = std::env::var("HERDR_PANE_ID")
             .ok()
             .filter(|id| !id.is_empty())?;
@@ -487,6 +492,13 @@ pub struct App {
 const MY_VIEW: View = View::SourceControl;
 
 impl App {
+    pub fn host_request_busy(&self) -> bool {
+        self.overlay.is_some() || matches!(self.focus, Focus::Message)
+    }
+    pub fn host_notice(&mut self, message: String) {
+        self.flash = Some((message, false));
+    }
+
     pub fn new(
         cwd: PathBuf,
         cwd_follower: std::rc::Rc<std::cell::RefCell<herdr_work_code::launch::CwdFollower>>,
@@ -500,11 +512,7 @@ impl App {
             String::new()
         };
         let theme = IconTheme::resolve(
-            std::env::var("HERDR_WORK_CODE_ICONS")
-                .or_else(|_| std::env::var("HERDR_AA_GIT_ICONS"))
-                .or_else(|_| std::env::var("HERDR_AA_FILETREE_ICONS"))
-                .ok()
-                .as_deref(),
+            std::env::var("HERDR_WORK_CODE_ICONS").ok().as_deref(),
             sidebar::load_state().icons,
         );
         // The other view ships in this same binary — always available.
@@ -1887,6 +1895,7 @@ impl App {
     // ---- Settings modal ----
 
     fn open_settings(&mut self) {
+        #[cfg(feature = "reference-ui")]
         herdr_work_code::updates::check();
         self.overlay = Some(Overlay::Settings {
             selected: 0,
@@ -1897,15 +1906,18 @@ impl App {
 
     /// The modal's rows for the current state.
     fn settings_rows(&self) -> Vec<SettingRow> {
+        #[cfg(feature = "reference-ui")]
         let update = herdr_work_code::updates::row();
         vec![
             (
                 Setting::Version,
                 "Sidebar version",
-                herdr_work_code::updates::VERSION.into(),
+                env!("CARGO_PKG_VERSION").into(),
                 false,
             ),
+            #[cfg(feature = "reference-ui")]
             (Setting::Update, update.0, update.1, update.2),
+            #[cfg(feature = "reference-ui")]
             (
                 Setting::UnifiedSidebar,
                 "Unified sidebar",
@@ -2050,6 +2062,7 @@ impl App {
         }
         match setting {
             Setting::Version => {}
+            #[cfg(feature = "reference-ui")]
             Setting::Update => {
                 self.flash = Some(match herdr_work_code::updates::activate() {
                     Ok(()) => ("Update requested".into(), false),
@@ -2057,6 +2070,7 @@ impl App {
                 });
             }
             Setting::ScmViewMode => self.toggle_tree_view(),
+            #[cfg(feature = "reference-ui")]
             Setting::UnifiedSidebar => {
                 // The pane layout changes underneath the modal; close it.
                 self.overlay = None;
@@ -2846,6 +2860,7 @@ impl App {
     /// close the other panel's standalone pane in this tab. Off: split the
     /// other view back out into its own pane. Deliberately silent — the
     /// layout change is its own feedback.
+    #[cfg(feature = "reference-ui")]
     fn set_unified(&mut self, on: bool) {
         if on == self.merged() || self.other_exe.is_none() {
             return;
@@ -2900,6 +2915,7 @@ impl App {
     }
 
     /// Close the other panel's standalone pane in our tab, if one is open.
+    #[cfg(feature = "reference-ui")]
     fn close_other_standalone_pane(&self) -> std::io::Result<bool> {
         let Some(ctl) = &self.pane_ctl else {
             return Ok(false);
@@ -2919,6 +2935,7 @@ impl App {
     }
 
     /// Open the other view in a fresh pane beside this one (detach).
+    #[cfg(feature = "reference-ui")]
     fn spawn_other_pane(&self) {
         let (Some(ctl), Some(_)) = (&self.pane_ctl, &self.other_exe) else {
             return;
@@ -3628,6 +3645,22 @@ impl App {
         line.push(Span::raw(" ".repeat(pad)));
         line.push(gear);
         frame.render_widget(Paragraph::new(Line::from(line)), area);
+        herdr_work_code::ui::draw_activity_badge(
+            frame,
+            bounds[5],
+            area.y,
+            self.repos
+                .iter()
+                .flat_map(|repo| {
+                    repo.status
+                        .staged
+                        .iter()
+                        .chain(repo.status.unstaged.iter())
+                        .map(move |file| (repo.git.root().to_owned(), file.path.clone()))
+                })
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+        );
     }
 
     fn draw_header(&mut self, frame: &mut Frame, area: Rect) {
@@ -4366,7 +4399,7 @@ fn no_repo_layout(area: Rect, merged: bool) -> [Rect; 2] {
     .areas(area)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reference-ui"))]
 mod tests {
     use super::*;
 

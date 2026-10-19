@@ -44,12 +44,27 @@ impl App {
         }
         let scm = matches!(self.tab, Tab::Scm | Tab::Review);
         let title = if scm {
-            "SOURCE CONTROL".into()
+            Line::from("SOURCE CONTROL")
         } else {
-            "EXPLORER".into()
+            let (_, zones) = self.sidebar_title_actions(area);
+            let inner = self.sidebar_block(String::new()).inner(area);
+            let end = zones
+                .first()
+                .map_or(inner.right().saturating_sub(3), |z| z.0.x);
+            let name = self
+                .root
+                .file_name()
+                .unwrap_or(self.root.as_os_str())
+                .to_string_lossy();
+            Line::from(herdr_work_code::file_view::workspace_folder_span(
+                &name,
+                self.file_root_collapsed,
+                usize::from(end.saturating_sub(inner.x)),
+            ))
         };
         let block = self
-            .sidebar_block(title)
+            .sidebar_block(String::new())
+            .title(title)
             .title_top(Line::from(" ⋯ ").alignment(ratatui::layout::Alignment::Right));
         let body = block.inner(area);
         let code = match (&self.code_state, &self.code) {
@@ -138,6 +153,11 @@ impl App {
                 }
             }
         } else {
+            if self.file_root_collapsed {
+                f.render_widget(block, area);
+                self.draw_sidebar_actions(f, area);
+                return;
+            }
             let items = code
                 .files
                 .iter()
@@ -173,6 +193,13 @@ impl App {
                 })
                 .collect::<Vec<_>>();
             f.render_widget(List::new(items).block(block), area);
+            herdr_work_code::ui::draw_scrollbar(
+                f,
+                body,
+                code.files.len(),
+                usize::from(body.height),
+                offset(self.selection, body.height),
+            );
         }
         self.draw_sidebar_actions(f, area);
     }

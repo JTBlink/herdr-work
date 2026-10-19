@@ -40,6 +40,14 @@ impl App {
         if self.footer_mouse(&event)? {
             return Ok(());
         }
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && self.search_toolbar_click(
+                self.panes(area).sidebar,
+                Position::new(event.column, event.row),
+            )?
+        {
+            return Ok(());
+        }
         let old_hover = self.hover.point;
         let title_zones = self.sidebar_title_actions(self.panes(area).sidebar).1;
         self.track_sidebar_mouse(Position::new(event.column, event.row), area);
@@ -97,6 +105,15 @@ impl App {
                     self.switch_tab(*tab);
                 }
             } else if layout.sidebar.contains(point) {
+                if event.row == layout.sidebar.y
+                    && self.tab == Tab::Files
+                    && !right
+                    && point.x < layout.sidebar.right().saturating_sub(4)
+                {
+                    self.file_root_collapsed = !self.file_root_collapsed;
+                    self.focus = Focus::Sidebar;
+                    return Ok(());
+                }
                 if event.row == layout.sidebar.y {
                     self.open_menu(false);
                     return Ok(());
@@ -104,6 +121,9 @@ impl App {
                 self.focus = Focus::Sidebar;
                 if self.tab == Tab::Review {
                     self.switch_tab(Tab::Scm);
+                }
+                if self.tab == Tab::Files && self.file_root_collapsed {
+                    return Ok(());
                 }
                 let mut body = self.sidebar_block(String::new()).inner(layout.sidebar);
                 if !body.contains(point) {
@@ -113,11 +133,9 @@ impl App {
                 if self.tab == Tab::Search {
                     let search = self.search_layout(layout.sidebar);
                     if search.header.contains(point) {
-                        if !self.search_quick && search.details.contains(point) {
-                            self.search_details = !self.search_filters_visible();
-                            self.prompt = None;
-                            self.input.clear();
-                        } else if let Some(index) =
+                        self.search_cursor = usize::MAX;
+                        self.search_select_all = false;
+                        if let Some(index) =
                             search.options.iter().position(|rect| rect.contains(point))
                         {
                             match index {
@@ -144,6 +162,9 @@ impl App {
                             } else {
                                 self.search_exclude.clone()
                             };
+                        } else if search.replace_box.contains(point) {
+                            self.prompt = Some(Prompt::SearchReplace);
+                            self.input = self.search_replacement.clone();
                         } else if search.query_box.contains(point) {
                             self.query_prompt(self.search_quick);
                         }
@@ -152,6 +173,12 @@ impl App {
                     self.prompt = None;
                     self.input.clear();
                     body = search.body;
+                    if !self.search_quick {
+                        if !body.contains(point) {
+                            return Ok(());
+                        }
+                        return self.search_result_click(body, point);
+                    }
                     row = event.row.saturating_sub(body.y) as usize;
                 }
                 if self.tab == Tab::Scm {

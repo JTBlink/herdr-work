@@ -40,6 +40,8 @@ pub(crate) enum Data {
     Show(u64, Result<String>),
     QuickIndex(u64, Result<herdr_work_engine::QuickIndex>),
     Search(u64, Result<herdr_work_engine::SearchView>),
+    ReplaceReady(u64, u64, Result<herdr_work_engine::ReplacePlan>),
+    ReplaceDone(u64, PathBuf, Result<String>),
     FileReady(herdr_work_engine::FilePlan),
     Folder(Option<PathBuf>),
     GitReady(u64, Result<herdr_work_engine::GitPlan>),
@@ -79,6 +81,8 @@ pub(crate) enum Prompt {
     NewTask,
     Stop(TaskId),
     Search(bool),
+    SearchReplace,
+    ReplaceConfirm(std::sync::Arc<herdr_work_engine::ReplacePlan>),
     SearchInclude,
     SearchExclude,
     File(herdr_work_engine::FilePlan),
@@ -88,6 +92,7 @@ pub(crate) enum Prompt {
     Resolve(String),
 }
 pub(crate) struct App {
+    pub(crate) sidebar_mode: bool,
     pub(crate) background_pending: Option<(u64, u64)>,
     pub(crate) last_background: std::time::Instant,
     pub(crate) activation: Option<crate::activation::ActivationRuntime>,
@@ -149,6 +154,17 @@ pub(crate) struct App {
     pub(crate) preview_target: Option<(PathBuf, usize)>,
     pub(crate) edit_line: Option<usize>,
     pub(crate) search_query: String,
+    pub(crate) file_root_collapsed: bool,
+    pub(crate) search_replacement: String,
+    pub(crate) search_cursor: usize,
+    pub(crate) search_select_all: bool,
+    pub(crate) search_replace_visible: bool,
+    pub(crate) search_preserve_case: bool,
+    pub(crate) search_replace_pending: bool,
+    pub(crate) search_replace_request: u64,
+    pub(crate) search_truncated: bool,
+    pub(crate) search_results_collapsed: bool,
+    pub(crate) search_collapsed_files: std::collections::HashSet<PathBuf>,
     pub(crate) search_quick: bool,
     pub(crate) search_details: bool,
     pub(crate) search_options: herdr_work_code::search::SearchOptions,
@@ -181,6 +197,7 @@ impl App {
             _ => Tab::Files,
         };
         Ok(Self {
+            sidebar_mode: false,
             background_pending: None,
             last_background: std::time::Instant::now(),
             desk,
@@ -248,6 +265,17 @@ impl App {
             preview_target: None,
             edit_line: None,
             search_query: String::new(),
+            file_root_collapsed: false,
+            search_replacement: String::new(),
+            search_cursor: usize::MAX,
+            search_select_all: false,
+            search_replace_visible: true,
+            search_preserve_case: false,
+            search_replace_pending: false,
+            search_replace_request: 0,
+            search_truncated: false,
+            search_results_collapsed: false,
+            search_collapsed_files: Default::default(),
             search_quick: false,
             search_details: false,
             search_options: Default::default(),
@@ -316,6 +344,7 @@ impl App {
                     | Data::Persistence(..)
                     | Data::ActivationRead(..)
                     | Data::CommitDone(..)
+                    | Data::ReplaceDone(..)
                     | Data::GitDraftSaved(..)
                     | Data::GitDraftFlush
                     | Data::EditorObserved(..)
@@ -635,6 +664,41 @@ impl App {
                 self.search_finished(request);
                 self.receive_quick_index(result);
             }
+            Ok(Data::ReplaceReady(request, search, result)) => {
+                if request != self.search_replace_request {
+                    return;
+                }
+                self.search_replace_pending = false;
+                if search != self.search_request
+                    || self.tab != Tab::Search
+                    || self.overlay.is_some()
+                    || self.editor.is_some()
+                    || (self.prompt.is_some() && !self.search_prompt())
+                {
+                    return;
+                }
+                match result {
+                    Ok(plan)
+                        if plan.replacement == self.search_replacement
+                            && plan.preserve_case == self.search_preserve_case =>
+                    {
+                        self.prompt = Some(Prompt::ReplaceConfirm(std::sync::Arc::new(plan)));
+                        self.input.clear();
+                    }
+                    Ok(_) => {}
+                    Err(error) => self.status = error.to_string(),
+                }
+            }
+            Ok(Data::ReplaceDone(request, root, result)) => {
+                if request == self.search_replace_request {
+                    self.search_replace_pending = false;
+                }
+                self.status = result.unwrap_or_else(|e| format!("{e:#}"));
+                if root == self.root {
+                    let _ = self.search();
+                    let _ = self.refresh();
+                }
+            }
             Ok(Data::Search(request, result)) => {
                 self.search_finished(request);
                 if request != self.search_request {
@@ -642,6 +706,7 @@ impl App {
                 }
                 match result {
                     Ok(view) => {
+                        self.search_truncated = view.truncated;
                         self.search_rows = view.rows;
                         self.search_state = LoadState::Ready;
                         if self.tab == Tab::Search {
@@ -720,6 +785,11 @@ impl App {
         self.diff = None;
         self.clear_previews();
         self.search_runtime = Default::default();
+        self.search_replace_request += 1;
+        self.search_replace_pending = false;
+        self.file_root_collapsed = false;
+        self.search_collapsed_files.clear();
+        self.search_results_collapsed = false;
         self.preview_target = None;
         self.search_request += 1;
         self.search_rows.clear();
@@ -760,6 +830,11 @@ impl App {
         self.expanded.clear();
         self.clear_previews();
         self.search_runtime = Default::default();
+        self.search_replace_request += 1;
+        self.search_replace_pending = false;
+        self.file_root_collapsed = false;
+        self.search_collapsed_files.clear();
+        self.search_results_collapsed = false;
         self.preview_target = None;
         self.search_request += 1;
         self.search_rows.clear();

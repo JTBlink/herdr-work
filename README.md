@@ -27,19 +27,18 @@ Windows 使用 `python install.py --prefix "$env:LOCALAPPDATA/HerdrWork"`，运�
 | Linux x86_64 | HerdrWork 与固定 Projects 后端 |
 | Windows x86_64 | 原生文件、Git、Diff 与评论界面；Projects 后端仍依赖 Unix，不提供原生任务执行 |
 
-默认页面是文件树与预览区，左侧为文件、搜索、Git、任务、审查图标，底部齿轮打开设置。图标复用 Sidebar 的 Material/Emoji，默认自动检测字体，可在设置中明确选择。`1`–`4` 分别进入任务、文件、SCM、审查，`5` 进入搜索；`m` 或右键打开菜单，`,` 打开设置，`Tab` 切换焦点，`r` 刷新，`q` 退出。
+在 Herdr 中执行 `herdr-work ui` 默认打开约 32 列的 Sidebar，右侧保留原终端或 Agent；已有自有实例会直接聚焦。默认界面直接复用迁入的 Sidebar 文件树、搜索、Git、设置和键鼠处理。`1`、`2`、`3` 分别进入文件、搜索和 Git，`Ctrl+P` 快速打开文件，`m` 或右键打开菜单，`,` 打开设置。图标使用原有固定占位，Git 数量角标紧贴图标右下角。
 
-顶部只保留同层的视图标题和文档标签，完整目录通过菜单查看；底栏提供活动仓库的分支和同步入口。文件树支持左右、首尾及翻页，展开、选中和固定文档按目录恢复；外部文件和 Git 变化自动刷新。
+打开文件或 Diff 时，viewer 默认接管右侧实际布局空间：原 pane 暂存于停车标签页，进程继续运行，Sidebar 保留。关闭 viewer 后恢复原 pane、分栏方向与比例；未保存编辑继续使用来源确认流程。预览、编辑器、固定文档、搜索过滤条件和 Git 面板沿用 Sidebar 的原交互。设置和恢复记录独立保存在 HerdrWork 资料目录的 `sidebar/` 下。
 
-文件页按 `e` 使用内置编辑器，`Ctrl+S` 保存，`Ctrl+Z/Y` 撤销/重做，`Esc` 返回并处理未保存内容；`Ctrl+P` 快速打开文件，`/` 搜索文本。SCM 按 `s/u` 暂存/取消暂存，`C` 提交，并可展开 Graph、Commits、File History、Branches、Worktrees、Remotes、Stashes、Tags；任务页按 `n` 创建任务。
-
-只读预览支持代码高亮、行号、Markdown 和常见图片；可选 `glow` 提供 Markdown 排版，可选 `ffmpeg` 提供视频封面。长文本有界截断。内容区按 `w` 切换换行，首尾键和翻页键导航，拖选或 `Ctrl/Cmd+A` 全选后按 `Ctrl/Cmd+C` 复制；设置中可关闭选区自动复制。按 `p` 或双击文件固定文档，`[` / `]` 切换固定文档，`Esc` 或右上角 `×` 关闭当前预览；编辑时关闭会保留未保存确认与冲突保护。
+`herdr-work ui --standalone` 打开包含任务、审查和内部文件预览的完整工作台。在 Herdr 外，普通 `ui` 在当前终端显示 Sidebar；宿主分栏和接管需要 Herdr 连接。完整工作台的搜索支持搜索/替换、大小写/整词/正则匹配、包含/排除条件和保留大小写；替换先预览确认，并检查文件是否发生外部变化。
 
 Agent 定位和发送需要 Herdr 0.9.3+ 提供的宿主连接。独立启动时仍可浏览 Git 和保存评论。关闭界面不会停止已委派的 Agent。
 
 ```sh
 herdr-work --help                 # 中文命令帮助
-herdr-work ui . --initial-view source-control # 直接进入 Git
+herdr-work ui . --initial-view source-control # 在 Herdr 侧栏直接进入 Git
+herdr-work ui --standalone .     # 在当前终端打开完整工作台
 herdr-work activate quick-open    # 在 Herdr 中打开或聚焦自有 Quick Open
 herdr-work review open --help     # 子命令的详细参数
 herdr-work scheduler status
@@ -59,7 +58,7 @@ sh install-plugin.sh --release  # 下载 VERSION 对应的发行包，校验后�
 
 脚本支持 macOS Apple Silicon 和 Linux x86_64，可从任意目录通过脚本路径调用。底层入口为 `scripts/plugin.py`，安装完成后自动执行 `herdr plugin link .`；插件链接依赖当前仓库目录，请保留该目录。插件的原 Projects hook 在独立数据目录运行。
 
-插件动作提供 Show HerdrWork Explorer、Search、Source Control 和 Quick Open；宿主为自有工作台分配终端，已有实例通过身份核验后聚焦。也可在宿主环境执行 `herdr-work activate show-search --root /path/to/repository`，其余动作名为 `show-explorer`、`show-git`、`quick-open`。编辑器或输入弹窗打开时，动作只聚焦并提示保留当前输入；结束输入后可再次选择活动。
+插件动作提供 Show HerdrWork Explorer、Search、Source Control 和 Quick Open；宿主为自有工作台分配侧边栏终端，已有实例通过身份核验后聚焦。也可在宿主环境执行 `herdr-work activate show-search --root /path/to/repository`，其余动作名为 `show-explorer`、`show-git`、`quick-open`。编辑器或输入弹窗打开时，动作只聚焦并提示保留当前输入；结束输入后可再次选择活动。
 
 ## 开发与验证
 

@@ -65,6 +65,9 @@ pub struct Decorations {
 }
 
 impl Decorations {
+    pub fn changed_file_count(&self) -> usize {
+        self.files.len()
+    }
     /// No decorations at all — the "Git decorations: off" and no-repo cases.
     pub fn empty() -> Self {
         Self::default()

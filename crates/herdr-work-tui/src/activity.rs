@@ -1,6 +1,9 @@
 //! Compact navigation using the shared Codicon family and palette.
 use crate::{
-    layout::{ACTIVITIES, activity_button, settings_button},
+    layout::{
+        ACTIVITIES, activity_badge, activity_button, activity_glyph, horizontal_activity,
+        settings_button,
+    },
     state::{App, Tab},
 };
 use herdr_work_code::ui::{self, ActivityIcon, palette};
@@ -39,7 +42,7 @@ impl App {
                                 .fg(palette().button_fg)
                                 .bg(palette().button_bg),
                         ),
-                        Rect::new(rect.right().saturating_sub(width), rect.y, width, 1),
+                        activity_badge(rect, width, self.preferences.dock_right),
                     );
                 }
             }
@@ -68,15 +71,15 @@ impl App {
             ui::activity_button_style(false, hovered)
         };
         frame.render_widget(Paragraph::new("").style(style), rect);
-        // Leave one cell after a Nerd Font glyph for non-Mono font variants.
+        // Fixed two-cell glyph slot for both Material and Emoji themes.
         let glyph = ui::activity_icon(self.icon_theme(), icon);
         frame.render_widget(
-            Paragraph::new(format!("{glyph} "))
+            Paragraph::new(glyph)
                 .alignment(Alignment::Center)
                 .style(style),
-            Rect::new(rect.x, rect.y + rect.height / 2, rect.width, 1),
+            activity_glyph(rect),
         );
-        if active {
+        if active && !self.sidebar_mode {
             let x = if self.preferences.dock_right {
                 rect.right() - 1
             } else {
@@ -109,16 +112,32 @@ impl App {
             return;
         };
         let line = Line::from(format!(" {label} · {key} "));
-        let width = (line.width() as u16).min(frame.area().width.saturating_sub(rail.width));
+        let horizontal = horizontal_activity(rail);
+        let width = (line.width() as u16).min(if horizontal {
+            frame.area().width
+        } else {
+            frame.area().width.saturating_sub(rail.width)
+        });
         if width == 0 {
             return;
         }
-        let x = if self.preferences.dock_right {
+        let x = if horizontal {
+            rect.x.min(frame.area().right().saturating_sub(width))
+        } else if self.preferences.dock_right {
             rail.x.saturating_sub(width)
         } else {
             rail.right()
         };
-        let tip = Rect::new(x, rect.y + rect.height / 2, width, 1);
+        let tip = Rect::new(
+            x,
+            if horizontal {
+                rail.bottom().min(frame.area().bottom().saturating_sub(1))
+            } else {
+                rect.y + rect.height / 2
+            },
+            width,
+            1,
+        );
         frame.render_widget(Clear, tip);
         frame.render_widget(
             Paragraph::new(line).style(

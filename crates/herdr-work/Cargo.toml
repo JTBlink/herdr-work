@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 herdr-work-core.workspace = true
+herdr-work-code.workspace = true
 herdr-work-engine.workspace = true
 herdr-work-tui.workspace = true
 anyhow.workspace = true

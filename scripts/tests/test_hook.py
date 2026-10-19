@@ -12,7 +12,8 @@ class HookProfile(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         manifest = tomllib.loads((root / 'herdr-plugin.toml').read_text())
         self.assertEqual(manifest['id'], 'jtblink.herdr-work')
-        self.assertEqual(manifest['panes'][0]['command'], ['bin/herdr-work', 'ui'])
+        self.assertEqual(manifest['panes'][0]['command'], ['bin/herdr-work', 'ui', '--sidebar'])
+        self.assertEqual(manifest['panes'][0]['placement'], 'split')
         actions = {action['id']: action['command'] for action in manifest['actions']}
         self.assertEqual(set(actions), {'show-explorer', 'show-search', 'show-git', 'quick-open'})
         for name, command in actions.items():

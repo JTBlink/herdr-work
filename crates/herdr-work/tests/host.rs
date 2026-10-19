@@ -200,7 +200,7 @@ fn activate_reuses_only_verified_own_pane_even_while_profile_is_locked() {
                     {"pane_id":"own-pane","tokens":{"herdr-work-profile":token,"herdr-work-instance":"fixture-instance","herdr-work-ready":"true"}}
                 ]}),
                 "pane.process_info" => {
-                    json!({"process_info":{"pane_id":"own-pane","foreground_processes":[{"argv0":binary,"argv":[binary,"ui","."]}]}})
+                    json!({"process_info":{"pane_id":"own-pane","foreground_processes":[{"argv0":"herdr-work","argv":[binary,"ui","."]}]}})
                 }
                 "pane.focus" => json!({}),
                 other => panic!("unexpected host operation: {other}"),
@@ -271,6 +271,13 @@ fn activation_case(
     forged_own_identity: bool,
     foreground: Option<Value>,
 ) -> (std::process::Output, Vec<Value>) {
+    activation_command_case(forged_own_identity, foreground, false)
+}
+fn activation_command_case(
+    forged_own_identity: bool,
+    foreground: Option<Value>,
+    default_ui: bool,
+) -> (std::process::Output, Vec<Value>) {
     use std::sync::Mutex;
     let temp = tempfile::tempdir_in("/tmp").unwrap();
     let profile = temp.path().join("profile");
@@ -303,11 +310,15 @@ fn activation_case(
                     json!({"panes":[{"pane_id":"unverified","tokens":{"herdr-work-profile":token,"herdr-work-instance":"stale","herdr-work-ready":"true"}}]})
                 }
                 "pane.list" => {
-                    json!({"panes":[{"pane_id":"independent-projects","label":"HerdrWork","tokens":{"herdr-projects":"own-other-plugin"}}]})
+                    json!({"panes":[{"pane_id":"original-terminal","focused":true,"tokens":{}},{"pane_id":"independent-projects","label":"HerdrWork","tokens":{"herdr-projects":"own-other-plugin"}}]})
                 }
                 "pane.process_info" if forged_own_identity => {
                     json!({"process_info":{"pane_id":"unverified","foreground_processes":[foreground.clone().unwrap_or_else(|| json!({"argv0":"/bin/sh","argv":["/bin/sh","ui"]}))]}})
                 }
+                "pane.layout" if !forged_own_identity => {
+                    json!({"layout":{"tab_id":"workspace-fixture:t1","area":{"x":0,"y":0,"width":160,"height":40},"panes":[{"pane_id":"original-terminal","rect":{"x":0,"y":0,"width":160,"height":40}}],"splits":[]}})
+                }
+                "pane.swap" | "pane.resize" if !forged_own_identity => json!({}),
                 "plugin.pane.open" if !forged_own_identity => {
                     json!({"plugin_pane":{"plugin_id":"jtblink.herdr-work","entrypoint":"pane","pane":{"pane_id":"created-own"}}})
                 }
@@ -327,13 +338,14 @@ fn activation_case(
         .args([
             "--home",
             profile.to_str().unwrap(),
-            "activate",
-            "quick-open",
         ])
+        .args(if default_ui { vec!["ui", "--initial-view", "quick-open"] } else { vec!["activate", "quick-open"] })
+        .env("HERDR_ENV", "1")
+        .env_remove("HERDR_PLUGIN_ID")
         .env("HERDR_SOCKET_PATH", &socket)
         .env(
             "HERDR_PLUGIN_CONTEXT_JSON",
-            json!({"workspace_id":"workspace-fixture","focused_pane_cwd":root}).to_string(),
+            json!({"workspace_id":"workspace-fixture","focused_pane_id":"original-terminal","focused_pane_cwd":root}).to_string(),
         )
         .output()
         .unwrap();
@@ -356,8 +368,23 @@ fn activate_allocates_a_tty_only_through_its_own_host_entrypoint() {
         .unwrap();
     assert_eq!(open["params"]["plugin_id"], "jtblink.herdr-work");
     assert_eq!(open["params"]["entrypoint"], "pane");
-    assert_eq!(open["params"]["placement"], "tab");
-    assert_eq!(open["params"]["workspace_id"], "workspace-fixture");
+    assert_eq!(open["params"]["placement"], "split");
+    assert_eq!(open["params"]["target_pane_id"], "original-terminal");
+    assert_eq!(open["params"]["direction"], "right");
+    let swap = requests
+        .iter()
+        .find(|r| r["method"] == "pane.swap")
+        .unwrap();
+    assert_eq!(swap["params"]["source_pane_id"], "created-own");
+    assert_eq!(swap["params"]["target_pane_id"], "original-terminal");
+    let resize = requests
+        .iter()
+        .find(|r| r["method"] == "pane.resize")
+        .unwrap();
+    assert_eq!(resize["params"]["pane_id"], "created-own");
+    assert_eq!(resize["params"]["direction"], "left");
+    assert!((resize["params"]["amount"].as_f64().unwrap() - 0.3).abs() < 0.0001);
+    assert!(open["params"].get("workspace_id").is_none());
     assert_eq!(
         open["params"]["env"]["HERDR_WORK_INITIAL_VIEW"],
         "quick-open"
@@ -375,7 +402,14 @@ fn activate_allocates_a_tty_only_through_its_own_host_entrypoint() {
     );
     assert!(requests.iter().all(|r| matches!(
         r["method"].as_str(),
-        Some("pane.list" | "plugin.pane.open" | "pane.report_metadata")
+        Some(
+            "pane.list"
+                | "pane.layout"
+                | "plugin.pane.open"
+                | "pane.report_metadata"
+                | "pane.swap"
+                | "pane.resize"
+        )
     )));
     assert!(
         requests
@@ -445,9 +479,16 @@ fn explicit_initial_activity_and_root_win_over_an_unrelated_saved_binding_in_pri
     let script = r#"
 import os,pty,fcntl,termios,struct,subprocess,sys,time,select,re,signal
 binary,profile,root=sys.argv[1:]
+from pathlib import Path
+foreign=Path(profile).parent/'independent-sidebar'
+foreign.mkdir()
+foreign_state=foreign/'state.json'
+foreign_bytes=b'{"sidebar_width":72,"active":"source-control","colors":"light"}'
+foreign_state.write_bytes(foreign_bytes)
 env={k:v for k,v in os.environ.items() if not k.startswith('HERDR_')}
+env['HERDR_PLUGIN_STATE_DIR']=str(foreign)
 env.update(TERM='xterm-256color',HERDR_PROJECTS_NO_KEEPER='1',HERDR_PROJECTS_INLINE='1')
-for view,title in [('explorer','EXPLORER'),('search','SEARCH'),('source-control','SOURCECONTROL'),('quick-open','QUICKOPEN')]:
+for view,title in [('explorer','NEW-WORKSPACE'),('search','Search'),('source-control','Notagitrepository.'),('quick-open','QuickOpen')]:
     master,slave=pty.openpty(); fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',32,120,0,0))
     def seat():
         os.setsid(); fcntl.ioctl(0,termios.TIOCSCTTY,0)
@@ -462,8 +503,8 @@ for view,title in [('explorer','EXPLORER'),('search','SEARCH'),('source-control'
             if select.select([master],[],[],.05)[0]:
                 captured+=os.read(master,65536)
             text=''.join(re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]',b'',captured).decode(errors='replace').split())
-            if title in text and 'new-workspace' in text: break
-        assert title in text and 'new-workspace' in text,(view,text[-1600:])
+            if title in text and (view != 'explorer' or 'NEW-WORKSPACE' in text): break
+        assert title in text and (view != 'explorer' or 'NEW-WORKSPACE' in text),(view,text[-1600:])
         assert 'old-workspace' not in text,(view,text[-1600:])
         # Allow the first worker results to settle before dismissing the search prompt.
         deadline=time.monotonic()+.4
@@ -477,6 +518,9 @@ for view,title in [('explorer','EXPLORER'),('search','SEARCH'),('source-control'
     finally:
         if process.poll() is None: os.killpg(process.pid,signal.SIGTERM); process.wait(timeout=5)
         os.close(master); os.close(slave)
+assert foreign_state.read_bytes()==foreign_bytes
+assert list(foreign.iterdir())==[foreign_state]
+assert (Path(profile)/'sidebar'/'state.json').is_file()
 "#;
     let output = Command::new("python3")
         .args([
@@ -506,4 +550,24 @@ fn host_metadata_contract_rejects_dotted_keys_and_boolean_values() {
     assert!(valid_metadata_tokens(
         &json!({"tokens":{"herdr-work-profile":"profile","herdr-work-ready":"true"}})
     ));
+}
+
+#[test]
+fn default_ui_in_herdr_opens_sidebar_without_taking_the_original_terminal() {
+    let (output, requests) = activation_command_case(false, None, true);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let open = requests
+        .iter()
+        .find(|r| r["method"] == "plugin.pane.open")
+        .unwrap();
+    assert_eq!(open["params"]["placement"], "split");
+    assert_eq!(open["params"]["target_pane_id"], "original-terminal");
+    assert!(!requests.iter().any(|r| matches!(
+        r["method"].as_str(),
+        Some("pane.close" | "pane.send_keys" | "pane.run" | "tab.create")
+    )));
 }

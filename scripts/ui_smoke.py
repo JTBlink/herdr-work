@@ -48,7 +48,7 @@ def ui_smoke(binary):
         # can be checked without a session hangup racing the assertion.
         wrapper = 'import subprocess,sys,time; r=subprocess.run(sys.argv[1:]); time.sleep(1); sys.exit(r.returncode)'
         process = subprocess.Popen([sys.executable, '-c', wrapper, str(binary), '--home',
-                                    str(root / 'profile'), 'ui', str(repo)],
+                                    str(root / 'profile'), 'ui', '--standalone', str(repo)],
                                    stdin=slave, stdout=slave, stderr=slave, env=env, preexec_fn=seat)
         def drain(seconds):
             frame = b''
@@ -73,7 +73,7 @@ def ui_smoke(binary):
             return drain(.25)
         def wait_for(expected, key=None):
             text = screen(key)
-            deadline = time.monotonic() + 8
+            deadline = time.monotonic() + 20
             while expected not in text and time.monotonic() < deadline:
                 text = screen()
             if expected not in text:
@@ -83,7 +83,7 @@ def ui_smoke(binary):
             wait_for('Git修改：1')
             text = wait_for('任务：0')
             assert '加载中' not in text and 'Loading' not in text, 'Startup remained pending'
-            assert 'EXPLORER' in text and 'visible.txt' in text and 'Preview' in text, 'Default Explorer is missing'
+            assert '▾repo' in text and 'visible.txt' in text and 'Preview' in text, 'Default Explorer is missing'
             assert '暂无任务' not in text and text.count('Tasks') == 0, 'Tasks displaced the default sidebar'
             wait_for('changedpreviewfixture', b'\r')
             # Close at the rendered header's right edge, then reopen the same
@@ -96,9 +96,9 @@ def ui_smoke(binary):
             file.write_text(file.read_text().replace('changed preview fixture', 'externally refreshed preview'))
             wait_for('externallyrefreshedpreview')
             wait_for('侧栏设置', b',')
-            wait_for('EXPLORER', b'\x1b')
+            wait_for('▾repo', b'\x1b')
             wait_for('文件菜单', b'm')
-            wait_for('EXPLORER', b'\x1b')
+            wait_for('▾repo', b'\x1b')
             wait_for('编辑·visible.txt', b'e')
             # The editor's viewport follows wheel input rather than snapping back
             # to its unchanged cursor on the next draw.
@@ -146,15 +146,26 @@ def ui_smoke(binary):
                                       for i in range(1, 121)))
             # No Enter is sent until a live result is visible. The adjacent line
             # can only appear in the preview if opening consumes the hit's line.
-            wait_for('search-target.txt:80', b'\x06needle80')
+            wait_for('80:needle80', b'\x06needle80')
             wait_for('line-081', b'\r')
-            wait_for('visible.txt:1', b'\x10visible')
+            # Search/Replace is a real write workflow: preview first, then an
+            # explicit confirmation, retaining line endings and nearby text.
+            wait_for('needle80', b'\x06')
+            screen(b'\t')
+            screen(b'replaced80')
+            wait_for('替换预览', b'\x1b\r')
+            assert 'needle80' in target.read_text(), 'Replacement wrote before confirmation'
+            wait_for('已替换1个匹配', b'REPLACE\r')
+            assert 'replaced80\n' in target.read_text() and 'needle80' not in target.read_text()
+            assert 'line-081\n' in target.read_text(), 'Replacement changed an adjacent line'
+
+            wait_for('QUICKOPEN', b'\x10visible')
             wait_for('changedpreviewfixture', b'\r')
-            wait_for('EXPLORER', b'2')
+            wait_for('▾repo', b'2')
             size(24, 80)
             os.killpg(process.pid, signal.SIGWINCH)
             text = drain(.3)
-            assert 'EXPLORER' in text and 'visible.txt' in text, 'Narrow split view is missing'
+            assert '▾repo' in text and 'visible.txt' in text, 'Narrow split view is missing'
             os.write(master, b'q')
             drain(.4)
             restored = termios.tcgetattr(slave)

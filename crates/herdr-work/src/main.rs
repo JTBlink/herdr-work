@@ -71,12 +71,52 @@ fn run() -> Result<()> {
         };
         return print(&HerdrWork::activate(&root, worktree.as_deref(), view)?);
     }
-    let desk = HerdrWork::open(&root, cli.projects_backend)?;
-    match cli.command.unwrap_or(Command::Ui {
+    if let Some(Command::SidebarViewer { control }) = &cli.command {
+        herdr_work_code::state::configure_product_profile(&root)?;
+        let control = control
+            .clone()
+            .or_else(|| {
+                std::env::var_os(herdr_work_code::state::PREVIEW_CONTROL_ENV)
+                    .map(std::path::PathBuf::from)
+            })
+            .context("缺少 viewer 控制路径")?;
+        return herdr_work_code::viewer::run(&control).map_err(Into::into);
+    }
+    if matches!(&cli.command, Some(Command::SidebarEditor)) {
+        herdr_work_code::state::configure_product_profile(&root)?;
+        return herdr_work_code::actions::run_configured_editor().map_err(Into::into);
+    }
+    let command = cli.command.unwrap_or(Command::Ui {
         root: None,
         initial_view: None,
-    }) {
-        Command::Ui { root, initial_view } => {
+        sidebar: false,
+        standalone: false,
+    });
+    if let Command::Ui {
+        root: worktree,
+        initial_view,
+        sidebar: false,
+        standalone: false,
+    } = &command
+        && std::env::var("HERDR_ENV").ok().as_deref() == Some("1")
+        && std::env::var("HERDR_PLUGIN_ID").ok().as_deref() != Some("jtblink.herdr-work")
+    {
+        let view = match initial_view.as_deref() {
+            Some(value) => {
+                herdr_work_tui::InitialView::from_env_value(value).context("无效的初始活动")?
+            }
+            None => herdr_work_tui::InitialView::Explorer,
+        };
+        return print(&HerdrWork::activate(&root, worktree.as_deref(), view)?);
+    }
+    let desk = HerdrWork::open(&root, cli.projects_backend)?;
+    match command {
+        Command::Ui {
+            root,
+            initial_view,
+            sidebar,
+            standalone,
+        } => {
             let initial_view =
                 initial_view.or_else(|| std::env::var("HERDR_WORK_INITIAL_VIEW").ok());
             let initial = initial_view
@@ -92,7 +132,10 @@ fn run() -> Result<()> {
                     })
                 })
                 .unwrap_or(std::env::current_dir()?);
-            herdr_work_tui::run_with_initial(desk, root, initial)
+            herdr_work_tui::run_with_mode(desk, root, initial, sidebar || !standalone)
+        }
+        Command::SidebarViewer { .. } | Command::SidebarEditor => {
+            unreachable!("internal viewer is dispatched before the profile lock")
         }
         Command::Activate { .. } => {
             unreachable!("host activity is dispatched before the profile lock")

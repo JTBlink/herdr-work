@@ -24,6 +24,9 @@ impl App {
     fn paste_input(&mut self, text: &str) -> Result<()> {
         if self.prompt.is_some() {
             if self.input.len() + text.len() <= 1024 * 1024 {
+                if self.search_prompt() {
+                    return self.insert_search_text(text);
+                }
                 self.input.push_str(text);
                 self.persist_commit_prompt()?;
                 self.search_input_changed()?;

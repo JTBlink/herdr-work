@@ -22,7 +22,7 @@ pub use herdr_work_core as model;
 pub use preferences::UiPreferences;
 pub use review::SendOutcome;
 pub use scm::{DrawerView, GitPlan};
-pub use search::{QuickIndex, SearchRow, SearchView};
+pub use search::{QuickIndex, ReplacePlan, ReplaceRequest, SearchRow, SearchView};
 pub use storage::fingerprint;
 pub use ui_state::{DocumentState, DrawerRoot, DrawerState, WorkspaceUiState};
 pub use work_git::{CommitDraft, WorkGitAction, WorkGitOutcome, WorkGitPlan};

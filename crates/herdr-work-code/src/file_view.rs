@@ -10,6 +10,28 @@ use ratatui::{
     widgets::ListItem,
 };
 
+/// Workspace title moved from Sidebar's `ExplorerApp::draw_header`.
+/// The name yields to title actions rather than drawing underneath them.
+pub fn workspace_name_span(name: &str, available: usize) -> Span<'static> {
+    Span::styled(
+        truncate_to(format!(" {}", name.to_uppercase()), available),
+        Style::default()
+            .add_modifier(Modifier::BOLD)
+            .fg(crate::ui::palette().header_accent),
+    )
+}
+
+/// Workbench root folder: retain its spelling and show its disclosure state.
+pub fn workspace_folder_span(name: &str, collapsed: bool, available: usize) -> Span<'static> {
+    Span::styled(
+        truncate_to(
+            format!("{} {name}", if collapsed { "▸" } else { "▾" }),
+            available,
+        ),
+        Style::default().add_modifier(Modifier::BOLD),
+    )
+}
+
 /// The right-aligned decoration for a status letter (issue #19): the letter
 /// itself for a file, a filled dot for a directory whose DESCENDANTS changed
 /// (VS Code's dirty-folder badge), and nothing at all for ignored paths —

@@ -21,6 +21,11 @@ pub(crate) struct Cli {
 }
 #[derive(Subcommand)]
 pub(crate) enum Command {
+    #[command(hide = true)]
+    SidebarViewer { control: Option<PathBuf> },
+    #[command(hide = true)]
+    SidebarEditor,
+
     /// 启动终端界面，默认浏览当前目录
     Ui {
         /// 仓库或浏览目录，默认当前目录
@@ -28,6 +33,12 @@ pub(crate) enum Command {
         #[arg(long, value_parser = ["explorer", "search", "source-control", "quick-open"])]
         /// 初始活动；显式目录优先于保存的执行绑定
         initial_view: Option<String>,
+        #[arg(long, conflicts_with = "standalone")]
+        /// 侧边栏布局（插件内部入口）
+        sidebar: bool,
+        #[arg(long)]
+        /// 在当前终端打开完整工作台，不通过宿主创建侧边栏
+        standalone: bool,
     },
     /// 通过 Herdr 宿主打开或聚焦自有工作台活动
     Activate {

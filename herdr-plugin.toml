@@ -11,8 +11,8 @@ command = ["python3", "scripts/plugin.py"]
 [[panes]]
 id = "pane"
 title = "HerdrWork"
-placement = "tab"
-command = ["bin/herdr-work", "ui"]
+placement = "split"
+command = ["bin/herdr-work", "ui", "--sidebar"]
 
 [[startup]]
 command = ["python3", "scripts/hook.py"]

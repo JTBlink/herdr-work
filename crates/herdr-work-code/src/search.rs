@@ -352,3 +352,147 @@ pub fn fuzzy_score_lowercased(query: &str, candidate: &str) -> Option<i64> {
     }
     None
 }
+
+/// Uses the same line matcher as content search. Regex replacements support
+/// `$1` / `${name}` captures; literal replacement text is never expanded.
+pub fn replace_content(
+    text: &str,
+    query: &str,
+    replacement: &str,
+    options: SearchOptions,
+    preserve_case: bool,
+    only_line: Option<usize>,
+) -> Result<(String, usize), String> {
+    if query.is_empty() {
+        return Err("搜索内容不能为空".into());
+    }
+    let pattern = if options.regex {
+        let pattern = if options.whole_word {
+            format!(r"\b(?:{query})\b")
+        } else {
+            query.to_owned()
+        };
+        Some(
+            RegexBuilder::new(&pattern)
+                .case_insensitive(!options.match_case)
+                .build()
+                .map_err(|e| e.to_string())?,
+        )
+    } else {
+        None
+    };
+    let mut output = String::new();
+    let mut count = 0;
+    for (index, part) in text.split_inclusive('\n').enumerate() {
+        if only_line.is_some_and(|line| line != index + 1) {
+            output.push_str(part);
+            continue;
+        }
+        let line = part.trim_end_matches(['\r', '\n']);
+        let mut at = 0;
+        let mut changes = Vec::new();
+        if let Some(pattern) = &pattern {
+            for captures in pattern.captures_iter(line) {
+                let found = captures.get(0).unwrap();
+                if found.is_empty() {
+                    continue;
+                }
+                let mut expanded = String::new();
+                captures.expand(replacement, &mut expanded);
+                changes.push((found.start(), found.end(), expanded));
+            }
+        } else {
+            changes.extend(
+                literal_match_ranges(line, query, options)
+                    .into_iter()
+                    .map(|(a, b)| (a, b, replacement.to_owned())),
+            );
+        }
+        if only_line.is_some() {
+            changes.truncate(1);
+        }
+        for (start, end, mut value) in changes {
+            output.push_str(&line[at..start]);
+            if preserve_case {
+                value = replacement_case(&line[start..end], &value);
+            }
+            output.push_str(&value);
+            at = end;
+            count += 1;
+        }
+        output.push_str(&part[at..]);
+    }
+    Ok((output, count))
+}
+
+fn replacement_case(matched: &str, replacement: &str) -> String {
+    let letters: Vec<_> = matched
+        .chars()
+        .filter(|c| {
+            c.is_alphabetic() && c.to_lowercase().to_string() != c.to_uppercase().to_string()
+        })
+        .collect();
+    if letters.is_empty() {
+        return replacement.to_owned();
+    }
+    if letters.iter().all(|c| c.is_uppercase()) {
+        return replacement.to_uppercase();
+    }
+    if letters.iter().all(|c| c.is_lowercase()) {
+        return replacement.to_lowercase();
+    }
+    if letters[0].is_uppercase() && letters[1..].iter().all(|c| c.is_lowercase()) {
+        let mut chars = replacement.chars();
+        return chars
+            .next()
+            .map(|c| c.to_uppercase().to_string() + &chars.as_str().to_lowercase())
+            .unwrap_or_default();
+    }
+    replacement.to_owned()
+}
+
+#[cfg(test)]
+mod replacement_tests {
+    use super::*;
+    #[test]
+    fn literal_unicode_case_and_line_endings_follow_search_matches() {
+        let (text, count) = replace_content(
+            "Foo FOO foo food 中文\r\nfoo\r\n",
+            "foo",
+            "bar",
+            SearchOptions {
+                whole_word: true,
+                ..Default::default()
+            },
+            true,
+            None,
+        )
+        .unwrap();
+        assert_eq!(text, "Bar BAR bar food 中文\r\nbar\r\n");
+        assert_eq!(count, 4);
+        assert_eq!(
+            replace_content(
+                "中文中文",
+                "中文",
+                "$1",
+                SearchOptions::default(),
+                false,
+                None
+            )
+            .unwrap(),
+            ("$1$1".into(), 2)
+        );
+    }
+    #[test]
+    fn regex_captures_and_invalid_patterns() {
+        let options = SearchOptions {
+            regex: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            replace_content("item-12", r"item-(\d+)", "value-$1", options, false, None).unwrap(),
+            ("value-12".into(), 1)
+        );
+        assert!(replace_content("text", "[", "", options, false, None).is_err());
+    }
+}

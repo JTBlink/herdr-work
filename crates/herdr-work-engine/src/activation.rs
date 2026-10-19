@@ -57,6 +57,32 @@ fn request_path(profile: &Path, pane: &str, instance: &str) -> PathBuf {
         storage::key(&format!("{pane}:{instance}"))
     ))
 }
+#[derive(Serialize, Deserialize)]
+struct UiBinaryIdentity {
+    pane: String,
+    instance: String,
+    profile: String,
+    binary: PathBuf,
+    fingerprint: String,
+}
+fn identity_path(profile: &Path, pane: &str, instance: &str) -> PathBuf {
+    request_path(profile, pane, instance).with_extension("identity.json")
+}
+fn registered_binary(profile: &Path, pane: &str, instance: &str, token: &str) -> Option<PathBuf> {
+    let path = identity_path(profile, pane, instance);
+    if path.metadata().ok()?.len() > 65536 {
+        return None;
+    }
+    let identity: UiBinaryIdentity = storage::load(&path).ok()?;
+    if identity.pane != pane || identity.instance != instance || identity.profile != token {
+        return None;
+    }
+    let binary = identity.binary.canonicalize().ok()?;
+    if storage::fingerprint(&std::fs::read(&binary).ok()?) != identity.fingerprint {
+        return None;
+    }
+    Some(binary)
+}
 fn rpc(socket: &Path, method: &str, params: Value) -> Result<Value> {
     herdr_reviewr::herdr::herdr_work_request(socket.as_os_str(), method, params)
 }
@@ -69,14 +95,35 @@ fn ui_process(value: &Value, pane: &str, binary: &Path, profile: &Path) -> bool 
         .as_array()
         .is_some_and(|processes| {
             processes.iter().any(|process| {
-                let executable = process["argv0"]
-                    .as_str()
-                    .or_else(|| process["argv"][0].as_str());
-                if executable
-                    .and_then(|p| Path::new(p).canonicalize().ok())
-                    .as_deref()
-                    != Some(binary)
-                {
+                // macOS reports argv0 as a process name even when argv[0]
+                // contains the executable's absolute path. Keep an explicit
+                // conflicting executable authoritative; resolve only bare names
+                // through the matching absolute argv[0].
+                let executable = process["argv0"].as_str();
+                let path = executable
+                    .and_then(|p| {
+                        let path = Path::new(p);
+                        if path.is_absolute() || path.components().count() > 1 {
+                            path.canonicalize().ok()
+                        } else if path.file_name() == binary.file_name() {
+                            process["argv"][0]
+                                .as_str()
+                                .and_then(|p| Path::new(p).canonicalize().ok())
+                        } else {
+                            None
+                        }
+                    })
+                    .or_else(|| {
+                        executable
+                            .is_none()
+                            .then(|| {
+                                process["argv"][0]
+                                    .as_str()
+                                    .and_then(|p| Path::new(p).canonicalize().ok())
+                            })
+                            .flatten()
+                    });
+                if path.as_deref() != Some(binary) {
                     return false;
                 }
                 let Some(argv) = process["argv"].as_array() else {
@@ -187,7 +234,9 @@ impl HerdrWork {
                 continue;
             };
             let info = rpc(&socket, "pane.process_info", json!({"pane_id":id}))?;
-            if ui_process(&info, id, &binary, &profile) {
+            let candidate =
+                registered_binary(&profile, id, instance, &token).unwrap_or_else(|| binary.clone());
+            if ui_process(&info, id, &candidate, &profile) {
                 verified.push((id.to_string(), instance.to_string()));
             }
         }
@@ -218,19 +267,52 @@ impl HerdrWork {
             crate::profile::profile_lock(&profile)
                 .context("资料目录正被使用，但宿主没有可核实的自有工作台")?,
         );
-        let mut params = json!({"plugin_id":PLUGIN_ID,"entrypoint":"pane","placement":"tab","focus":true,"cwd":root,
-            "env":{"HERDR_WORK_HOME":profile,"HERDR_WORK_ROOT":root,"HERDR_WORK_INITIAL_VIEW":view.env_value()}});
-        if let Some(workspace) = context
+        let target = context
             .as_ref()
-            .and_then(|v| v["workspace_id"].as_str())
+            .and_then(|v| v["focused_pane_id"].as_str())
+            .or_else(|| context.as_ref().and_then(|v| v["pane_id"].as_str()))
+            .map(str::to_owned)
+            .or_else(|| std::env::var("HERDR_PANE_ID").ok())
             .or_else(|| {
-                context
-                    .as_ref()
-                    .and_then(|v| v["focused_workspace_id"].as_str())
+                panes
+                    .iter()
+                    .find(|p| p["focused"].as_bool() == Some(true))
+                    .and_then(|p| p["pane_id"].as_str())
+                    .map(str::to_owned)
             })
-        {
-            params["workspace_id"] = json!(workspace);
+            .context("宿主没有提供要保留的原终端窗格，无法打开侧边栏")?;
+        ensure!(
+            panes.iter().any(|p| p["pane_id"].as_str() == Some(&target)),
+            "原终端窗格已关闭"
+        );
+        let mut layout = rpc(&socket, "pane.layout", json!({"pane_id":target}))?;
+        // Keep the caller's existing pane. Never split or adopt another plugin.
+        if let Some(entries) = layout["layout"]["panes"].as_array_mut() {
+            entries.retain(|p| p["pane_id"].as_str() == Some(&target));
         }
+        let preferences = if profile.join("sidebar/state.json").exists() {
+            storage::load::<crate::UiPreferences>(&profile.join("sidebar/state.json"))?
+        } else {
+            crate::UiPreferences::default()
+        };
+        preferences.validate()?;
+        let geometry = json!({"result":layout});
+        let plan = herdr_work_code::dock::open_plan(
+            &geometry.to_string(),
+            preferences.dock_right,
+            preferences.sidebar_width,
+        );
+        let mut fields = plan.split('\t');
+        ensure!(
+            fields.next() == Some(target.as_str()),
+            "无法核实原终端窗格的布局"
+        );
+        let ratio: f64 = fields.next().context("无法计算侧边栏宽度")?.parse()?;
+        let swap: bool = fields.next().context("无法计算侧边栏位置")?.parse()?;
+        let params = json!({"plugin_id":PLUGIN_ID,"entrypoint":"pane","placement":"split","target_pane_id":target,"direction":"right","focus":true,"cwd":root,
+            "env":{"HERDR_WORK_HOME":profile,"HERDR_WORK_ROOT":root,"HERDR_WORK_INITIAL_VIEW":view.env_value()}});
+        // Split placement is scoped by its target pane. The host rejects a
+        // workspace selector alongside target_pane_id.
         let opened = rpc(&socket, "plugin.pane.open", params)?;
         let pane = opened_pane(&opened).context("宿主没有返回新建的自有窗格")?;
         rpc(
@@ -241,6 +323,21 @@ impl HerdrWork {
             // merges, so do not replace that newer readiness information.
             pane_metadata(pane, &token, None),
         )?;
+        if swap {
+            rpc(
+                &socket,
+                "pane.swap",
+                json!({"source_pane_id":pane,"target_pane_id":target}),
+            )?;
+        }
+        let amount = (ratio - 0.5).abs();
+        if amount >= 0.005 {
+            rpc(
+                &socket,
+                "pane.resize",
+                json!({"pane_id":pane,"direction":if preferences.dock_right {"right"} else {"left"},"amount":amount}),
+            )?;
+        }
         Ok(json!({"action":"opened","pane_id":pane,"view":view}))
     }
     /// Host-provided identity is accepted only for this product's entrypoint.
@@ -278,6 +375,17 @@ impl HerdrWork {
             ),
             "工作台前台程序身份无法核实"
         );
+        let binary = std::env::current_exe()?.canonicalize()?;
+        storage::save(
+            &identity_path(self.root(), &registration.pane, &registration.instance),
+            &UiBinaryIdentity {
+                pane: registration.pane.clone(),
+                instance: registration.instance.clone(),
+                profile: registration.profile.clone(),
+                fingerprint: storage::fingerprint(&std::fs::read(&binary)?),
+                binary,
+            },
+        )?;
         rpc(
             &registration.socket,
             "pane.report_metadata",

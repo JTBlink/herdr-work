@@ -1233,6 +1233,7 @@ version = "0.1.6"
 dependencies = [
  "anyhow",
  "clap",
+ "herdr-work-code",
  "herdr-work-core",
  "herdr-work-engine",
  "herdr-work-tui",
