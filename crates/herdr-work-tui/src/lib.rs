@@ -1,10 +1,7 @@
 //! One terminal owner, with background jobs and upstream-backed views.
 use anyhow::Result;
 use crossterm::{
-    event::{
-        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-        Event, KeyEventKind,
-    },
+    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
     execute,
 };
 use herdr_work_engine::HerdrWork;
@@ -25,6 +22,7 @@ mod drafts;
 mod editing;
 mod footer;
 mod hover;
+mod input;
 mod interaction;
 mod layout;
 mod loading;
@@ -140,48 +138,16 @@ pub fn run_with_initial(
             // redraw. Idle debounce ticks must not repaint a large document.
             redraw = message.is_some();
             match message {
-                Some(Message::Input(Event::Key(key))) if key.kind == KeyEventKind::Press => {
+                Some(Message::Input(event)) => {
                     let size = terminal.size()?;
-                    if app.input_key(
-                        key,
+                    if app.input_event(
+                        event,
                         ratatui::layout::Rect::new(0, 0, size.width, size.height),
-                    )? {
+                    ) {
                         break;
                     }
                 }
                 Some(Message::Result(epoch, data)) => app.apply(epoch, *data),
-                Some(Message::Input(Event::Paste(text))) if app.overlay.is_none() => {
-                    if app.prompt.is_some() {
-                        if app.input.len() + text.len() <= 1024 * 1024 {
-                            app.input.push_str(&text);
-                            if let Err(error) = app.persist_commit_prompt() {
-                                app.status = error.to_string();
-                            }
-                            app.search_input_changed()?;
-                        } else {
-                            app.status = "粘贴内容过长".into();
-                        }
-                    } else if app.git.editing.is_some() {
-                        if let Err(error) = app.paste_commit(&text) {
-                            app.status = error.to_string();
-                        }
-                    } else if let Some(session) = &mut app.editor {
-                        if text.len() + session.editor.text().len() <= 1024 * 1024 {
-                            session.editor.insert_text(&text);
-                        } else {
-                            app.status = "粘贴后文本超过 1 MiB".into();
-                        }
-                    }
-                }
-                Some(Message::Input(Event::Mouse(mouse))) => {
-                    let area = terminal.size()?;
-                    if let Err(error) = app.mouse(
-                        mouse,
-                        ratatui::layout::Rect::new(0, 0, area.width, area.height),
-                    ) {
-                        app.status = error.to_string();
-                    }
-                }
                 _ => {}
             }
             let now = Instant::now();

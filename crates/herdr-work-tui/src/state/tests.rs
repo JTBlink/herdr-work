@@ -2771,3 +2771,64 @@ fn modal_submission_backpressure_keeps_text_and_never_marks_an_unqueued_commit_p
         }
     }
 }
+
+#[test]
+fn quick_open_typing_backspace_and_paste_survive_full_queue_and_retry_with_latest_input() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = loaded_app();
+    let (started, ready) = std::sync::mpsc::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    app.job(move |_| {
+        started.send(()).unwrap();
+        let _ = wait.recv();
+        Ok(Data::GitDraftFlush)
+    })
+    .unwrap();
+    ready.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
+    for _ in 0..32 {
+        app.job(|_| Ok(Data::GitDraftFlush)).unwrap();
+    }
+    app.query_prompt(true);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for (event, expected) in [
+        (
+            Event::Key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE)),
+            "v",
+        ),
+        (
+            Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+            "",
+        ),
+        (Event::Paste("visible".into()), "visible"),
+    ] {
+        assert!(
+            !app.input_event(event, area),
+            "recoverable input error requested exit"
+        );
+        assert_eq!(app.input, expected);
+        assert_eq!(app.search_query, expected);
+        assert!(matches!(app.prompt, Some(Prompt::Search(true))));
+        assert!(matches!(app.search_state, LoadState::Loading));
+        assert!(app.status.contains("保留"));
+    }
+    release.send(()).unwrap();
+    for _ in 0..33 {
+        let _ = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
+    }
+    let now = std::time::Instant::now() + Duration::from_secs(3);
+    let mut last_poll = now - Duration::from_secs(3);
+    app.tick_background(now, &mut last_poll);
+    receive(&mut app);
+    assert!(matches!(app.search_state, LoadState::Ready));
+    assert_eq!(app.input, "visible");
+    assert_eq!(app.search_rows[0].path, app.root.join("visible.txt"));
+    assert!(screen(&mut app).contains("visible.txt"));
+    assert!(!app.input_event(
+        Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+        area
+    ));
+    assert!(app.input_event(
+        Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+        area
+    ));
+}
