@@ -502,3 +502,240 @@ fn search_and_eight_git_drawers_use_original_queries() {
     app.drawers.get_mut(&Drawer::Graph).unwrap().root = "/example/herdr-work".into();
     capture_fixture(&mut app, "source-control");
 }
+
+#[test]
+fn quick_open_filters_while_typing_and_keeps_results_navigable() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = app();
+    std::fs::write(app.root.join("other.rs"), "other\n").unwrap();
+    let area = ratatui::layout::Rect::new(0, 0, 160, 32);
+    app.input_key(
+        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
+        area,
+    )
+    .unwrap();
+    for _ in 0..1 {
+        let (epoch, data) = app
+            .jobs
+            .results
+            .recv_timeout(Duration::from_secs(3))
+            .unwrap();
+        app.apply(epoch, data);
+    }
+    for c in "visible".chars() {
+        app.key(KeyCode::Char(c)).unwrap();
+    }
+    assert_eq!(app.search_rows.len(), 1);
+    assert_eq!(app.search_rows[0].label, "visible.txt");
+    assert!(screen(&mut app).contains("visible.txt"));
+    app.key(KeyCode::Down).unwrap();
+    app.key(KeyCode::Enter).unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.apply(epoch, data);
+    assert_eq!(app.text, "fixture\n");
+}
+
+#[test]
+fn content_search_debounces_and_hit_line_survives_result_navigation() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::time::Instant;
+    let (_temp, mut app) = app();
+    let text = format!(
+        "{}needle\n{}needle\n",
+        "line\n".repeat(79),
+        "line\n".repeat(19)
+    );
+    std::fs::write(app.root.join("visible.txt"), text).unwrap();
+    let area = ratatui::layout::Rect::new(0, 0, 160, 32);
+    app.input_key(
+        KeyEvent::new(
+            KeyCode::Char('F'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        ),
+        area,
+    )
+    .unwrap();
+    // Drain the initial empty query; subsequent input stays quiet for 300 ms.
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.apply(epoch, data);
+    for c in "needle".chars() {
+        app.key(KeyCode::Char(c)).unwrap();
+    }
+    let now = Instant::now();
+    app.tick_search(now + Duration::from_millis(299)).unwrap();
+    assert!(app.jobs.results.try_recv().is_err());
+    app.tick_search(now + Duration::from_millis(301)).unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.apply(epoch, data);
+    app.key(KeyCode::Down).unwrap(); // query -> results
+    app.key(KeyCode::Enter).unwrap();
+    app.key(KeyCode::Down).unwrap(); // selection changes while file is loading
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.apply(epoch, data);
+    assert_eq!(app.preview_scroll, 79);
+    app.key(KeyCode::Up).unwrap();
+    app.start_editor().unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.apply(epoch, data);
+    assert_eq!(app.editor.as_ref().unwrap().editor.cursor().line, 79);
+}
+
+#[test]
+fn file_history_uses_current_change_even_with_another_preview() {
+    use herdr_work_code::scm::Drawer;
+    let (_temp, mut app) = app();
+    for args in [
+        vec!["config", "user.name", "Fixture"],
+        vec!["config", "user.email", "fixture@example.invalid"],
+        vec!["add", "."],
+        vec!["commit", "-qm", "visible history"],
+    ] {
+        assert!(
+            Command::new("git")
+                .args(args)
+                .current_dir(&app.root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    std::fs::write(app.root.join("visible.txt"), "changed\n").unwrap();
+    std::fs::write(app.root.join("other.txt"), "other\n").unwrap();
+    app.refresh().unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.apply(epoch, data);
+    app.switch_tab(Tab::Scm);
+    app.selection = app
+        .code
+        .as_ref()
+        .unwrap()
+        .changes
+        .iter()
+        .position(|r| r.path == "visible.txt")
+        .unwrap();
+    app.preview_path = Some(app.root.join("other.txt"));
+    app.load_drawer(Drawer::FileHistory).unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.apply(epoch, data);
+    assert!(
+        app.drawers[&Drawer::FileHistory]
+            .lines
+            .iter()
+            .any(|r| r.contains("visible history"))
+    );
+}
+
+#[test]
+fn search_mouse_filter_and_include_field_remain_live() {
+    use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = app();
+    app.query_prompt(false);
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.apply(epoch, data);
+    let area = ratatui::layout::Rect::new(0, 0, 160, 32);
+    let sidebar = app.panes(area).sidebar;
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: sidebar.x + 2,
+            row: sidebar.y + 2,
+            modifiers: KeyModifiers::NONE,
+        },
+        area,
+    )
+    .unwrap();
+    assert!(app.search_options.match_case);
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: sidebar.x + 2,
+            row: sidebar.y + 3,
+            modifiers: KeyModifiers::NONE,
+        },
+        area,
+    )
+    .unwrap();
+    for c in "*.txt".chars() {
+        app.key(KeyCode::Char(c)).unwrap();
+    }
+    assert_eq!(app.search_include, "*.txt");
+    app.key(KeyCode::Tab).unwrap();
+    assert!(matches!(app.prompt, Some(Prompt::SearchExclude)));
+}
+
+#[test]
+fn fast_content_query_changes_coalesce_and_old_query_never_renders() {
+    use crossterm::event::KeyCode;
+    use std::time::Instant;
+    let (_temp, mut app) = app();
+    app.query_prompt(false); // Leave this request in flight, even if the worker finishes.
+    for c in "missing".chars() {
+        app.key(KeyCode::Char(c)).unwrap();
+    }
+    app.tick_search(Instant::now() + Duration::from_secs(1))
+        .unwrap();
+    for _ in 0..7 {
+        app.key(KeyCode::Backspace).unwrap();
+    }
+    for c in "fixture".chars() {
+        app.key(KeyCode::Char(c)).unwrap();
+    }
+    app.tick_search(Instant::now() + Duration::from_secs(1))
+        .unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.apply(epoch, data);
+    assert!(
+        app.jobs.results.try_recv().is_err(),
+        "queries queued while an older one was in flight"
+    );
+    assert!(matches!(
+        app.search_state,
+        crate::loading::LoadState::Loading
+    ));
+    app.tick_search(Instant::now() + Duration::from_secs(1))
+        .unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    app.apply(epoch, data);
+    assert_eq!(app.search_rows.len(), 1);
+    assert_eq!(app.search_rows[0].context, "fixture");
+}

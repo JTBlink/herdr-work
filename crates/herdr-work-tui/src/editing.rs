@@ -24,6 +24,11 @@ impl App {
         let file = path.strip_prefix(&root)?.to_string_lossy().into_owned();
         let request = path.clone();
         self.job(move |d| Ok(Data::Editor(path, d.edit_file(&root, &file))))?;
+        self.edit_line = if self.tab == Tab::Search {
+            self.search_rows.get(self.selection).map(|r| r.line)
+        } else {
+            None
+        };
         self.edit_request = Some(request);
         self.status = "正在打开编辑器… Esc 取消".into();
         Ok(())
@@ -92,9 +97,13 @@ impl App {
             return Ok(false);
         }
         if key.modifiers.contains(KeyModifiers::CONTROL)
-            && matches!(key.code, KeyCode::Char('p' | 'f'))
+            && matches!(key.code, KeyCode::Char('p' | 'P' | 'f' | 'F'))
         {
-            self.query_prompt(key.code == KeyCode::Char('p'));
+            self.query_prompt(matches!(key.code, KeyCode::Char('p' | 'P')));
+            return Ok(false);
+        }
+        if key.code == KeyCode::F(12) {
+            self.query_prompt(false);
             return Ok(false);
         }
         self.key(key.code)

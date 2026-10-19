@@ -1233,21 +1233,7 @@ fn restore_current_control(control: &Path, current: &Option<Request>) {
 /// tag, or branch line renders. Immutable content: no refresh loop needed.
 fn load_show(root: &Path, spec: &str, path: Option<&str>) -> Doc {
     let display_spec = spec.strip_prefix("refs/tags/").unwrap_or(spec);
-    let mut args: Vec<String> = vec![
-        "-c".into(),
-        "color.ui=always".into(),
-        "show".into(),
-        "--color=always".into(),
-        "--stat".into(),
-        "--patch".into(),
-        "--no-ext-diff".into(),
-        "--end-of-options".into(),
-        spec.to_string(),
-    ];
-    if let Some(p) = path {
-        args.push("--".into());
-        args.push(p.replace('/', std::path::MAIN_SEPARATOR_STR));
-    }
+    let args = crate::scm::show_args(spec, path);
     let output = std::process::Command::new("git")
         .args(&args)
         .current_dir(root)

@@ -414,3 +414,23 @@ pub fn reference_menu(dref: &DrawerRef) -> Vec<MenuEntry> {
         DrawerRef::None => vec![],
     }
 }
+
+/// Source viewer git-show query, shared by both frontends.
+pub fn show_args(spec: &str, path: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "-c".into(),
+        "color.ui=always".into(),
+        "show".into(),
+        "--color=always".into(),
+        "--stat".into(),
+        "--patch".into(),
+        "--no-ext-diff".into(),
+        "--end-of-options".into(),
+        spec.to_string(),
+    ];
+    if let Some(p) = path {
+        args.push("--".into());
+        args.push(p.replace('/', std::path::MAIN_SEPARATOR_STR));
+    }
+    args
+}
