@@ -130,6 +130,16 @@ def ui_smoke(binary):
 
             wait_for('Newtask', b'1n')
             wait_for('UIsmoketask', b'UI smoke task\r')
+
+            target = repo / 'search-target.txt'
+            target.write_text(''.join('needle80\n' if i == 80 else f'line-{i:03d}\n'
+                                      for i in range(1, 121)))
+            # No Enter is sent until a live result is visible. The adjacent line
+            # can only appear in the preview if opening consumes the hit's line.
+            wait_for('search-target.txt:80', b'\x06needle80')
+            wait_for('line-081', b'\r')
+            wait_for('visible.txt:1', b'\x10visible')
+            wait_for('changedpreviewfixture', b'\r')
             wait_for('EXPLORER', b'2')
             size(24, 80)
             os.killpg(process.pid, signal.SIGWINCH)
@@ -147,7 +157,7 @@ def ui_smoke(binary):
                 process.wait(timeout=5)
             os.close(master)
             os.close(slave)
-    print('UI loaded: compact Explorer, passive preview refresh, settings/menu, editor wheel/save/reload/conflict, mouse navigation, stage/unstage, real Diff, task creation, 80-column split and clean exit')
+    print('UI loaded: compact Explorer, passive preview refresh, settings/menu, editor wheel/save/reload/conflict, mouse navigation, stage/unstage, real Diff, tasks, live search at line 80, live Quick Open, 80-column split and clean exit')
 
 
 if __name__ == '__main__':
