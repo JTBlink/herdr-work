@@ -886,6 +886,59 @@ fn large_untracked_sparse_file_keeps_read_only_lists_usable_and_refuses_incomple
 }
 
 #[test]
+#[ignore = "requires the optional glow and ffmpeg executables"]
+fn installed_preview_tools_render_markdown_and_a_real_video_poster() {
+    let (repo, _home, desk) = fixture();
+    std::fs::write(
+        repo.path().join("note.md"),
+        "# Preview fixture\n\n**formatted body**\n",
+    )
+    .unwrap();
+    let markdown = desk.preview_file(repo.path(), "note.md", None, 60).unwrap();
+    assert!(
+        !markdown.numbered(),
+        "glow output must replace numbered source"
+    );
+    let rendered = markdown
+        .lines()
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("formatted body"));
+    assert!(!rendered.contains("**formatted body**"));
+
+    let video = repo.path().join("poster.mp4");
+    let output = Command::new("ffmpeg")
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=48x32:d=0.2",
+            "-c:v",
+            "mpeg4",
+            "-y",
+        ])
+        .arg(&video)
+        .output()
+        .expect("ffmpeg must be installed to run this opt-in test");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let poster = desk
+        .preview_file(repo.path(), "poster.mp4", None, 60)
+        .unwrap();
+    assert!(poster.is_media(), "{}", poster.plain_text());
+    assert_eq!(poster.media_hint(), Some("视频封面"));
+}
+
+#[test]
 fn product_workspace_state_is_root_scoped_and_rejects_escaped_paths() {
     use std::path::PathBuf;
     let (repo, _home, desk) = fixture();

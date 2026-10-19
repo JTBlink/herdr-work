@@ -19,8 +19,10 @@ use std::{
 };
 
 mod actions;
+mod drafts;
 mod editing;
 mod footer;
+mod hover;
 mod interaction;
 mod layout;
 mod loading;
@@ -86,7 +88,7 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
     let results = std::mem::replace(&mut app.jobs.results, empty_rx);
     std::thread::spawn(move || {
         while let Ok((epoch, result)) = results.recv() {
-            if tx.send(Message::Result(epoch, result)).is_err() {
+            if tx.send(Message::Result(epoch, Box::new(result))).is_err() {
                 break;
             }
         }
@@ -119,7 +121,7 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
                         break;
                     }
                 }
-                Some(Message::Result(epoch, data)) => app.apply(epoch, data),
+                Some(Message::Result(epoch, data)) => app.apply(epoch, *data),
                 Some(Message::Input(Event::Paste(text))) if app.overlay.is_none() => {
                     if app.prompt.is_some() {
                         if app.input.len() + text.len() <= 1024 * 1024 {
@@ -157,7 +159,9 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
             let now = Instant::now();
             if now.duration_since(last_tick) >= Duration::from_millis(100) {
                 app.tick_search(now)?;
-                app.tick_preview();
+                app.tick_git_drafts(now)?;
+                redraw |= app.tick_preview();
+                redraw |= app.tick_hover();
                 app.tick_persistence(now)?;
                 app.tick_preferences()?;
                 app.tick_refresh(now)?;
@@ -174,5 +178,6 @@ pub fn run(desk: HerdrWork, root: PathBuf) -> Result<()> {
     let saved = app.persist_workspace_on_exit();
     stop.store(true, Ordering::Relaxed);
     let _ = input.join();
-    result.and(saved)
+    let draft_flush = app.flush_git_drafts();
+    result.and(saved).and(draft_flush)
 }
