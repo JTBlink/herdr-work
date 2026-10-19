@@ -970,6 +970,56 @@ fn fast_content_query_changes_coalesce_and_old_query_never_renders() {
 }
 
 #[test]
+fn passive_refresh_updates_external_changes_without_resetting_reader() {
+    let (_temp, mut app) = loaded_app();
+    let original = (0..30).map(|n| format!("old {n}\n")).collect::<String>();
+    std::fs::write(app.root.join("visible.txt"), original).unwrap();
+    app.key(crossterm::event::KeyCode::Enter).unwrap();
+    receive(&mut app);
+    app.focus = Focus::Content;
+    app.preview_scroll = 8;
+    std::fs::write(app.root.join("visible.txt"), "external change\n".repeat(30)).unwrap();
+    std::fs::write(app.root.join("new-agent-file.txt"), "new file\n").unwrap();
+    app.tick_refresh(std::time::Instant::now() + Duration::from_secs(3))
+        .unwrap();
+    receive(&mut app);
+    assert!(app.text.starts_with("external change"));
+    assert_eq!(app.preview_scroll, 8);
+    assert!(app.focus == Focus::Content);
+    assert_eq!(
+        app.code.as_ref().unwrap().files[app.selection].name,
+        "visible.txt"
+    );
+    assert!(
+        app.code
+            .as_ref()
+            .unwrap()
+            .files
+            .iter()
+            .any(|f| f.name == "new-agent-file.txt")
+    );
+}
+
+#[test]
+fn periodic_refresh_coalesces_and_preserves_active_input() {
+    let (_temp, mut app) = loaded_app();
+    app.prompt = Some(Prompt::Search(false));
+    app.input = "保留输入".into();
+    let start = std::time::Instant::now();
+    for n in 1..10 {
+        app.tick_refresh(start + Duration::from_secs(n * 3))
+            .unwrap();
+    }
+    receive(&mut app);
+    assert_eq!(app.input, "保留输入");
+    assert!(app.prompt.is_some());
+    assert!(
+        app.jobs.results.try_recv().is_err(),
+        "Passive refresh flooded the worker queue"
+    );
+}
+
+#[test]
 fn scm_repository_inputs_survive_refresh_and_failed_commit_without_crossing_roots() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let (_temp, mut app) = app();
