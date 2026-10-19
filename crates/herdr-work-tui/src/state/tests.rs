@@ -502,3 +502,262 @@ fn search_and_eight_git_drawers_use_original_queries() {
     app.drawers.get_mut(&Drawer::Graph).unwrap().root = "/example/herdr-work".into();
     capture_fixture(&mut app, "source-control");
 }
+
+#[test]
+fn scm_repository_inputs_survive_refresh_and_failed_commit_without_crossing_roots() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = app();
+    let nested = app.root.join("inner");
+    std::fs::create_dir(&nested).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .arg(&nested)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(nested.join("visible.txt"), "inner").unwrap();
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 1).unwrap());
+    app.code_state = LoadState::Ready;
+    app.switch_tab(Tab::Scm);
+    let rows = app.scm_rows();
+    assert!(
+        rows.iter()
+            .any(|r| matches!(r.3, crate::scm::ScmTarget::Message(0)))
+    );
+    assert!(
+        rows.iter()
+            .any(|r| matches!(r.3, crate::scm::ScmTarget::Message(1)))
+    );
+    app.scm_cursor = rows
+        .iter()
+        .position(|r| matches!(r.3, crate::scm::ScmTarget::Message(1)))
+        .unwrap();
+    app.activate_scm_row().unwrap();
+    app.input_key(
+        KeyEvent::new(KeyCode::Char('中'), KeyModifiers::NONE),
+        ratatui::layout::Rect::new(0, 0, 160, 32),
+    )
+    .unwrap();
+    app.input_key(
+        KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+        ratatui::layout::Rect::new(0, 0, 160, 32),
+    )
+    .unwrap();
+    let draft = app.desk.git_draft(&nested).unwrap();
+    assert_eq!(draft.message.iter().collect::<String>(), "中");
+    assert_eq!(draft.cursor, 0);
+    assert!(app.desk.git_draft(&app.root).unwrap().message.is_empty());
+    app.apply(
+        0,
+        Ok(Data::Code(
+            app.generation,
+            Ok(app.desk.code_snapshot(&app.root, &[], 2).unwrap()),
+        )),
+    );
+    assert_eq!(
+        app.git.drafts[&nested].message.iter().collect::<String>(),
+        "中"
+    );
+    // Failing before a commit has staged changes must keep the inline input.
+    app.input_key(
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        ratatui::layout::Rect::new(0, 0, 160, 32),
+    )
+    .unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    assert_eq!(
+        app.git.drafts[&nested].message.iter().collect::<String>(),
+        "中"
+    );
+}
+
+#[test]
+fn scm_folder_action_requires_its_snapshot_confirmation_and_never_stages_another_root() {
+    use crate::scm::ScmTarget;
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = app();
+    std::fs::create_dir(app.root.join("dir")).unwrap();
+    std::fs::write(app.root.join("dir/new.txt"), "new").unwrap();
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 1).unwrap());
+    app.code_state = LoadState::Ready;
+    app.switch_tab(Tab::Scm);
+    app.action(KeyCode::Char('t')).unwrap();
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| matches!(&r.3, ScmTarget::Directory(_, false, path) if path == "dir"))
+        .unwrap();
+    app.action(KeyCode::Char('s')).unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    assert!(matches!(app.prompt, Some(Prompt::WorkGit(_))));
+    assert!(screen(&mut app).contains("StageUnder"));
+    app.input = "wrong".into();
+    assert!(app.submit_prompt().is_err());
+    assert!(matches!(app.prompt, Some(Prompt::WorkGit(_))));
+    app.input = "APPLY".into();
+    app.submit_prompt().unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    let snapshot = app.desk.code_snapshot(&app.root, &[], 2).unwrap();
+    assert!(
+        snapshot
+            .changes
+            .iter()
+            .any(|c| c.path == "dir/new.txt" && c.staged)
+    );
+    assert!(
+        !snapshot
+            .changes
+            .iter()
+            .any(|c| c.path == "visible.txt" && c.staged)
+    );
+}
+
+#[test]
+fn late_git_preparation_cannot_replace_a_more_recent_modal() {
+    use herdr_work_engine::WorkGitAction;
+    let (_temp, mut app) = app();
+    let plan = app
+        .desk
+        .prepare_work_git(&app.root, WorkGitAction::StageAll)
+        .unwrap();
+    app.git.request = 2;
+    app.prompt = Some(Prompt::Folder);
+    app.input = "user input".into();
+    app.apply(0, Ok(Data::WorkGitReady(1, Ok(plan))));
+    assert!(matches!(app.prompt, Some(Prompt::Folder)));
+    assert_eq!(app.input, "user input");
+    let plan = app
+        .desk
+        .prepare_work_git(&app.root, WorkGitAction::StageAll)
+        .unwrap();
+    app.apply(0, Ok(Data::WorkGitReady(2, Ok(plan))));
+    assert!(matches!(app.prompt, Some(Prompt::Folder)));
+    assert_eq!(app.input, "user input");
+}
+
+#[test]
+fn failed_commit_keeps_the_edited_message_and_repository_draft() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let (_temp, mut app) = app();
+    for args in [
+        ["config", "user.name", "Fixture"],
+        ["config", "user.email", "fixture@example.invalid"],
+    ] {
+        assert!(
+            Command::new("git")
+                .args(args)
+                .current_dir(&app.root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    let snapshot = app.desk.code_snapshot(&app.root, &[], 1).unwrap();
+    app.desk.stage(&snapshot.changes[0], true).unwrap();
+    app.code = Some(app.desk.code_snapshot(&app.root, &[], 2).unwrap());
+    app.switch_tab(Tab::Scm);
+    app.scm_cursor = app
+        .scm_rows()
+        .iter()
+        .position(|r| matches!(r.3, crate::scm::ScmTarget::Message(0)))
+        .unwrap();
+    app.activate_scm_row().unwrap();
+    app.paste_commit("keep my 中文 message").unwrap();
+    app.edit_commit_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    assert!(matches!(app.prompt, Some(Prompt::Commit(_))));
+    // Change HEAD/index after preparation: the commit must fail, preserving input.
+    std::fs::write(app.root.join("other.txt"), "external index edit").unwrap();
+    assert!(
+        Command::new("git")
+            .args(["add", "other.txt"])
+            .current_dir(&app.root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    app.submit_prompt().unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    assert!(app.status.contains("草稿已保留"));
+    assert_eq!(
+        app.git.drafts[&app.root].message.iter().collect::<String>(),
+        "keep my 中文 message"
+    );
+    assert_eq!(
+        app.desk.git_draft(&app.root).unwrap(),
+        app.git.drafts[&app.root]
+    );
+}
+
+#[test]
+fn unknown_git_operation_has_an_explicit_tui_evidence_flow_without_automatic_retry() {
+    use crate::menus::{Command as MenuCommand, Overlay};
+    use crossterm::event::KeyCode;
+    let (_temp, mut app) = app();
+    let plan = app
+        .desk
+        .prepare_work_git(
+            &app.root,
+            herdr_work_engine::WorkGitAction::CreateBranch("bad..name".into()),
+        )
+        .unwrap();
+    assert!(app.desk.execute_work_git(&plan).is_err());
+    app.switch_tab(Tab::Scm);
+    app.open_menu(false);
+    let Some(Overlay::Menu { rows, selected, .. }) = app.overlay.as_mut() else {
+        panic!("missing Git menu")
+    };
+    *selected = rows
+        .iter()
+        .position(|(cmd, _)| matches!(cmd, MenuCommand::Recovery))
+        .unwrap();
+    app.overlay_key(KeyCode::Enter).unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    assert!(matches!(app.overlay, Some(Overlay::Recovery(_))));
+    app.overlay_key(KeyCode::Enter).unwrap();
+    assert!(matches!(app.prompt, Some(Prompt::Resolve(_))));
+    assert!(screen(&mut app).contains("当前HEAD"));
+    app.input = "Inspected HEAD and refs: invalid name was never created".into();
+    app.submit_prompt().unwrap();
+    let (epoch, data) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    app.apply(epoch, data);
+    assert!(app.status.contains("没有自动重试"));
+    assert!(app.desk.unresolved_git_operations().unwrap().is_empty());
+}

@@ -48,8 +48,16 @@ impl App {
         Ok(())
     }
     pub(crate) fn input_key(&mut self, key: KeyEvent, area: Rect) -> Result<bool> {
+        if let Some(picker) = self.git.picker.as_mut() {
+            let action = picker.key(key);
+            self.picker_action(action)?;
+            return Ok(false);
+        }
         if self.overlay.is_some() || self.prompt.is_some() {
             return self.key(key.code);
+        }
+        if self.edit_commit_key(key)? {
+            return Ok(false);
         }
         if self.editor.is_some() {
             let layout = self.panes(area);

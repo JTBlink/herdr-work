@@ -9,6 +9,10 @@ use ratatui::layout::{Position, Rect};
 
 impl App {
     pub(crate) fn mouse(&mut self, event: MouseEvent, area: Rect) -> Result<()> {
+        if let Some(picker) = self.git.picker.as_mut() {
+            let action = picker.mouse(event);
+            return self.picker_action(action);
+        }
         if self.overlay.is_some() {
             return self.overlay_mouse(event, area);
         }
@@ -62,7 +66,9 @@ impl App {
                     if row < layout.sidebar.height.saturating_sub(2) as usize
                         && let Some(entry) = rows.get(index)
                     {
+                        self.git.editing = None;
                         self.scm_cursor = index;
+                        self.git.active = Some(self.selected_repository());
                         if let Some(selected) = entry.0 {
                             self.selection = selected;
                             self.scm_selection = selected;

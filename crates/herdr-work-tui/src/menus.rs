@@ -25,9 +25,11 @@ pub(crate) enum Command {
     Search(bool),
     FileAction(actions::MenuAction),
     Reference(herdr_work_code::scm::MenuAction),
+    Recovery,
 }
 pub(crate) enum Overlay {
     Settings(usize),
+    Recovery(usize),
     Menu {
         title: &'static str,
         rows: Vec<(Command, &'static str)>,
@@ -75,7 +77,7 @@ impl App {
         if row
             && self.tab == Tab::Scm
             && let Some(entry) = self.scm_rows().get(self.scm_cursor)
-            && let crate::scm::ScmTarget::History(kind, index) = entry.3
+            && let crate::scm::ScmTarget::History(kind, index) = entry.3.clone()
             && let Some(view) = self.drawers.get(&kind)
             && let Some(line) = view.lines.get(index)
         {
@@ -117,9 +119,12 @@ impl App {
                         rows.push((Command::Edit, "编辑文本"));
                     }
                     // The original menu model and platform actions remain authoritative.
-                    for entry in actions::menu_entries(Some(file.directory), false) {
+                    for entry in actions::menu_entries(Some(file.directory), true) {
                         if let actions::MenuEntry::Action(action, label) = entry {
                             let mapped = match action {
+                                actions::MenuAction::Stage => {
+                                    Some((Command::Key(KeyCode::Char('s')), "暂存文件/目录更改"))
+                                }
                                 actions::MenuAction::CopyPath => {
                                     Some((Command::Copy(false), "复制绝对路径"))
                                 }
@@ -150,7 +155,6 @@ impl App {
                                 actions::MenuAction::ChangeFolderTyped => {
                                     Some((Command::FileAction(action), "输入文件夹路径…"))
                                 }
-                                _ => None,
                             };
                             let _ = label;
                             if let Some(item) = mapped {
@@ -179,7 +183,12 @@ impl App {
                 "文件菜单"
             }
             Tab::Scm | Tab::Review => {
-                if row {
+                if row
+                    && self
+                        .scm_rows()
+                        .get(self.scm_cursor)
+                        .is_some_and(|r| matches!(r.3, crate::scm::ScmTarget::Change(_)))
+                {
                     rows.push((Command::Key(KeyCode::Enter), "查看差异"));
                     if let Some(change) = self
                         .code
@@ -194,10 +203,51 @@ impl App {
                                 "暂存更改"
                             },
                         ));
-                        rows.push((Command::Copy(true), "复制相对路径"));
+                        if !change.staged {
+                            rows.push((Command::Key(KeyCode::Char('d')), "丢弃文件更改…"));
+                        }
+                        rows.extend([
+                            (Command::External, "使用默认应用打开"),
+                            (Command::Reveal, "在文件管理器显示"),
+                            (Command::Copy(false), "复制绝对路径"),
+                            (Command::Copy(true), "复制相对路径"),
+                        ]);
                     }
                 }
-                rows.push((Command::Key(KeyCode::Char('C')), "提交暂存更改"));
+                if row
+                    && self.scm_rows().get(self.scm_cursor).is_some_and(|r| {
+                        matches!(
+                            r.3,
+                            crate::scm::ScmTarget::Directory(..)
+                                | crate::scm::ScmTarget::Section(..)
+                                | crate::scm::ScmTarget::Repository(_)
+                        )
+                    })
+                {
+                    rows.push((Command::Key(KeyCode::Char('s')), "暂存此目录/分组"));
+                    rows.push((Command::Key(KeyCode::Char('u')), "取消暂存此目录/分组"));
+                }
+                rows.extend([
+                    (Command::Key(KeyCode::Char('C')), "提交暂存更改"),
+                    (Command::Key(KeyCode::Char('A')), "生成提交消息建议"),
+                    (Command::Key(KeyCode::Char('a')), "暂存当前仓库全部更改…"),
+                    (Command::Key(KeyCode::Char('U')), "取消当前仓库全部暂存…"),
+                    (
+                        Command::Key(KeyCode::Char('D')),
+                        "丢弃当前仓库全部未暂存更改…",
+                    ),
+                    (
+                        Command::Key(KeyCode::Char('z')),
+                        "创建 Stash（包含 untracked）…",
+                    ),
+                    (Command::Key(KeyCode::Char('t')), "切换列表/目录树"),
+                    (Command::Key(KeyCode::Char('B')), "选择/创建分支…"),
+                    (
+                        Command::Key(KeyCode::Char('S')),
+                        "同步当前仓库（pull rebase + push）…",
+                    ),
+                    (Command::Recovery, "核对 Unknown 操作并显式恢复…"),
+                ]);
                 for kind in herdr_work_code::scm::Drawer::ALL {
                     rows.push((Command::Drawer(kind), kind.title()));
                 }
@@ -260,6 +310,23 @@ impl App {
             return Ok(());
         }
         match overlay {
+            Overlay::Recovery(mut index) => {
+                match key {
+                    KeyCode::Up => index = index.saturating_sub(1),
+                    KeyCode::Down => {
+                        index = (index + 1).min(self.git.unresolved.len().saturating_sub(1))
+                    }
+                    KeyCode::Enter => {
+                        if let Some((name, _)) = self.git.unresolved.get(index) {
+                            self.prompt = Some(Prompt::Resolve(name.clone()));
+                            self.input.clear();
+                            return Ok(());
+                        }
+                    }
+                    _ => {}
+                }
+                self.overlay = Some(Overlay::Recovery(index));
+            }
             Overlay::Settings(mut index) => {
                 match key {
                     KeyCode::Up => index = index.saturating_sub(1),
@@ -332,6 +399,11 @@ impl App {
                 }
                 self.action(key)?;
             }
+            Command::Recovery => {
+                self.git.request += 1;
+                let request = self.git.request;
+                self.job(move |d| Ok(Data::Reconcile(request, d.unresolved_git_operations())))?;
+            }
             Command::Settings => self.open_settings(),
             Command::Collapse => {
                 self.expanded.clear();
@@ -389,9 +461,35 @@ impl App {
                         let path = drawer_spec(&reference).context("没有工作目录路径")?;
                         actions::reveal(std::path::Path::new(&path), true);
                     }
-                    _ => self.job(move |d| {
-                        Ok(Data::GitReady(d.prepare_scm_action(&view, index, action)?))
-                    })?,
+                    MenuAction::DeleteBranch => {
+                        if let DrawerRef::Branch { name, .. } = reference {
+                            self.git.active = Some(view.root.clone());
+                            self.work_git(herdr_work_engine::WorkGitAction::DeleteBranch(name))?;
+                        }
+                    }
+                    MenuAction::Checkout if matches!(reference, DrawerRef::Branch { .. }) => {
+                        if let DrawerRef::Branch { name, .. } = reference {
+                            self.git.active = Some(view.root.clone());
+                            self.git.request += 1;
+                            let request = self.git.request;
+                            self.job(move |d| {
+                                Ok(Data::WorkGitReady(
+                                    request,
+                                    d.prepare_branch_checkout(&view.root, &name),
+                                ))
+                            })?;
+                        }
+                    }
+                    _ => {
+                        self.git.request += 1;
+                        let request = self.git.request;
+                        self.job(move |d| {
+                            Ok(Data::GitReady(
+                                request,
+                                d.prepare_scm_action(&view, index, action),
+                            ))
+                        })?;
+                    }
                 }
             }
             Command::Search(quick) => self.query_prompt(quick),
@@ -440,6 +538,19 @@ impl App {
             return;
         };
         let (title, rows, selected) = match overlay {
+            Overlay::Recovery(i) => (
+                "Unknown 核对（Enter 填写证据；不会重试）",
+                if self.git.unresolved.is_empty() {
+                    vec!["没有待核对的操作".into()]
+                } else {
+                    self.git
+                        .unresolved
+                        .iter()
+                        .map(|(name, _)| name.clone())
+                        .collect()
+                },
+                *i,
+            ),
             Overlay::Settings(i) => ("侧栏设置", self.settings_rows(), *i),
             Overlay::Menu {
                 title,
@@ -495,6 +606,7 @@ impl App {
             return Ok(());
         };
         let (count, selected) = match overlay {
+            Overlay::Recovery(i) => (self.git.unresolved.len(), *i),
             Overlay::Settings(i) => (self.settings_rows().len(), *i),
             Overlay::Menu { rows, selected, .. } => (rows.len(), *selected),
         };
@@ -509,6 +621,7 @@ impl App {
             let index = event.row.saturating_sub(inner.y) as usize + offset;
             if index < count {
                 match self.overlay.as_mut().unwrap() {
+                    Overlay::Recovery(i) => *i = index,
                     Overlay::Settings(i) => *i = index,
                     Overlay::Menu { selected, .. } => *selected = index,
                 }
