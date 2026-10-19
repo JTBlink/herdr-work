@@ -968,3 +968,232 @@ fn fast_content_query_changes_coalesce_and_old_query_never_renders() {
     assert_eq!(app.search_rows.len(), 1);
     assert_eq!(app.search_rows[0].context, "fixture");
 }
+
+#[test]
+fn compact_top_aligns_titles_and_uses_one_row_of_footer_without_hotkeys() {
+    let (_temp, mut app) = loaded_app();
+    app.preferences.show_hotkeys = false;
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        let panes = app.panes(area);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let row = |y| {
+            (0..80)
+                .map(|x| terminal.backend().buffer()[(x, y)].symbol())
+                .collect::<String>()
+        };
+        assert!(row(0).contains("EXPLORER") && row(0).contains("Preview"));
+        assert!(
+            !row(0).contains("HerdrWork")
+                && !row(0).contains(&app.root.to_string_lossy().to_string())
+        );
+        assert_eq!(panes.content.y, 0);
+        assert_eq!(panes.footer.height, 1);
+        assert!(row(1).contains("visible.txt"));
+        assert!(row(23).contains("repo"));
+    }
+}
+
+#[test]
+fn compact_scrolled_file_rows_use_the_rendered_body_on_both_dock_sides() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    for n in 0..34 {
+        std::fs::write(app.root.join(format!("f{n:02}.txt")), "selected file\n").unwrap();
+    }
+    app.refresh().unwrap();
+    receive(&mut app);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        app.selection = app
+            .code
+            .as_ref()
+            .unwrap()
+            .files
+            .iter()
+            .position(|f| f.name == "f33.txt")
+            .unwrap();
+        let panes = app.panes(area);
+        let body = app.sidebar_block(String::new()).inner(panes.sidebar);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let first = (body.x..body.right())
+            .map(|x| terminal.backend().buffer()[(x, body.y)].symbol())
+            .collect::<String>();
+        assert!(first.contains("f13.txt"), "First displayed row was {first}");
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: body.x + 4,
+                row: body.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        receive(&mut app);
+        assert_eq!(
+            app.code.as_ref().unwrap().files[app.selection].name,
+            "f13.txt"
+        );
+        // With f13 selected the list starts at f00, making f20 the final visible row.
+        terminal.draw(|f| app.draw(f)).unwrap();
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: body.x + 4,
+                row: body.bottom() - 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        receive(&mut app);
+        assert_eq!(
+            app.code.as_ref().unwrap().files[app.selection].name,
+            "f20.txt"
+        );
+    }
+}
+
+#[test]
+fn compact_long_unicode_document_keeps_one_divider_and_status_when_editing() {
+    let (_temp, mut app) = loaded_app();
+    let file = format!("{}.txt", "很长的中文文件名".repeat(8));
+    std::fs::write(app.root.join(&file), "文档正文\n第二行\n").unwrap();
+    app.preview_path = Some(app.root.join(&file));
+    app.text = "文档正文\n第二行\n".into();
+    app.code.as_mut().unwrap().branch = "feature/layout".into();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        let panes = app.panes(area);
+        let divider = if dock_right {
+            panes.sidebar.x
+        } else {
+            panes.sidebar.right() - 1
+        };
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        for y in 0..panes.footer.y {
+            assert_eq!(terminal.backend().buffer()[(divider, y)].symbol(), "│");
+        }
+        let body = app.content_block(String::new()).inner(panes.content);
+        assert_eq!(body.y, 1);
+        assert_eq!(terminal.backend().buffer()[(body.x, body.y)].symbol(), "文");
+        assert_eq!(body.bottom(), panes.footer.y);
+    }
+    app.editor = Some(app.desk.edit_file(&app.root, &file).unwrap());
+    app.status = "编辑中".into();
+    app.preferences.show_hotkeys = false;
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal.draw(|f| app.draw(f)).unwrap();
+    let status = (0..80)
+        .map(|x| terminal.backend().buffer()[(x, 23)].symbol())
+        .collect::<String>();
+    assert!(
+        status.contains("repo")
+            && status.contains("feature/layout")
+            && status.replace(' ', "").contains("编辑中"),
+        "Actual status: {status}"
+    );
+    assert!(!status.contains("Ctrl+S"));
+    capture_fixture(&mut app, "compact-editor");
+}
+
+#[test]
+fn compact_quick_open_uses_only_its_query_row_and_clicks_the_first_result() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    app.switch_tab(Tab::Search);
+    app.search_quick = true;
+    app.search_state = LoadState::Ready;
+    app.search_rows = vec![herdr_work_engine::SearchRow {
+        path: app.root.join("visible.txt"),
+        label: "visible.txt".into(),
+        line: 1,
+        context: "fixture".into(),
+    }];
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        let (header, body) = app.search_regions(app.panes(area).sidebar);
+        assert_eq!(header.height, 1);
+        assert_eq!(body.y, 2);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let first = (body.x..body.right())
+            .map(|x| terminal.backend().buffer()[(x, body.y)].symbol())
+            .collect::<String>();
+        assert!(first.contains("visible.txt"));
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: body.x + 2,
+                row: body.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        receive(&mut app);
+        assert_eq!(app.text, "fixture\n");
+    }
+}
+
+#[test]
+fn compact_task_rows_keep_two_line_items_and_ignore_unused_last_row() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let (_temp, mut app) = loaded_app();
+    app.tasks = (0..20)
+        .map(|n| Task {
+            id: TaskId(format!("task-{n}")),
+            title: format!("Task {n}"),
+            stage: "planned".into(),
+            executions: vec![],
+        })
+        .collect();
+    app.tasks_state = LoadState::Ready;
+    app.switch_tab(Tab::Tasks);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        app.task = 19;
+        let body = app
+            .sidebar_block(String::new())
+            .inner(app.panes(area).sidebar);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| app.draw(f)).unwrap();
+        let row = (body.x..body.right())
+            .map(|x| terminal.backend().buffer()[(x, body.y)].symbol())
+            .collect::<String>();
+        assert!(row.contains("Task 10"));
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: body.x + 2,
+                row: body.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        assert_eq!(app.task, 10);
+        app.overlay = None;
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: body.x + 2,
+                row: body.bottom() - 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        assert_eq!(app.task, 10);
+        assert!(app.overlay.is_none(), "Blank row opened a task menu");
+    }
+}
