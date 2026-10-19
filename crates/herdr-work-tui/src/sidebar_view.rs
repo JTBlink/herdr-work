@@ -153,9 +153,14 @@ impl App {
                 rows.push((
                     None,
                     format!(
-                        "{}{} {name} · {} ↑{} ↓{}{}",
+                        "{}{} {}{name} · {} ↑{} ↓{}{}",
                         if collapsed { "▸" } else { "▾" },
                         if active { "●" } else { "○" },
+                        if repo.write_error.is_some() {
+                            "⚠只读 "
+                        } else {
+                            ""
+                        },
                         repo.branch,
                         repo.ahead,
                         repo.behind,

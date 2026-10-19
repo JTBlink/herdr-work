@@ -762,3 +762,58 @@ fn folder_stage_and_unstage_keep_both_sides_of_a_detected_rename_together() {
             .all(|c| !c.staged)
     );
 }
+
+#[test]
+fn large_untracked_sparse_file_keeps_read_only_lists_usable_and_refuses_incomplete_write_plans() {
+    use herdr_work_engine::WorkGitAction;
+    let (repo, _home, desk) = fixture();
+    let path = repo.path().join("large-untracked.bin");
+    std::fs::File::create(&path)
+        .unwrap()
+        .set_len(256 * 1024 * 1024 + 1)
+        .unwrap();
+    let snapshot = desk
+        .code_snapshot(repo.path(), &[], 1)
+        .expect("large changes must not hide Explorer or SCM");
+    assert!(
+        snapshot
+            .files
+            .iter()
+            .any(|row| row.path.ends_with("large-untracked.bin"))
+    );
+    assert!(
+        snapshot
+            .files
+            .iter()
+            .any(|row| row.path.ends_with("file.txt"))
+    );
+    assert!(
+        snapshot.repositories[0]
+            .write_error
+            .as_deref()
+            .is_some_and(|error| error.contains("256 MiB"))
+    );
+    assert_eq!(desk.file(repo.path(), "file.txt").unwrap(), "after\n");
+    let large = snapshot
+        .changes
+        .iter()
+        .find(|c| c.path == "large-untracked.bin")
+        .unwrap();
+    assert!(!large.staged);
+    assert!(large.write_error.is_some());
+    assert!(
+        desk.stage(large, true).is_err(),
+        "a read-only snapshot must never authorize a write"
+    );
+    assert!(
+        desk.prepare_work_git(repo.path(), WorkGitAction::StageAll)
+            .is_err()
+    );
+    assert!(
+        desk.prepare_work_git(repo.path(), WorkGitAction::Stash)
+            .is_err()
+    );
+    assert!(desk.prepare_explorer_stage(&path).is_err());
+    assert_eq!(path.metadata().unwrap().len(), 256 * 1024 * 1024 + 1);
+    git(repo.path(), &["diff", "--cached", "--exit-code"]);
+}

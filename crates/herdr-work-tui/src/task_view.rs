@@ -54,9 +54,14 @@ impl App {
                 .as_ref()
                 .map(|code| {
                     format!(
-                        "文件：{} · Git 修改：{}",
+                        "文件：{} · Git 修改：{}{}",
                         code.files.len(),
-                        code.changes.len()
+                        code.changes.len(),
+                        if code.repositories.iter().any(|r| r.write_error.is_some()) {
+                            " · Git 安全快照只读"
+                        } else {
+                            ""
+                        }
                     )
                 })
                 .unwrap_or_default(),
