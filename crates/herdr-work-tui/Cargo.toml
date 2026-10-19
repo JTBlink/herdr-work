@@ -1,0 +1,15 @@
+[package]
+name = "herdr-work-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+herdr-work-core.workspace = true
+herdr-work-engine.workspace = true
+anyhow.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

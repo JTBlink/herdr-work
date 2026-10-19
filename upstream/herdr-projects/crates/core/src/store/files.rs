@@ -36,12 +36,16 @@ pub fn config_dir() -> PathBuf { env("HERDR_PROJECTS_CONFIG_DIR").map(PathBuf::f
 pub fn reports_dir() -> PathBuf { env("HERDR_PROJECTS_REPORTS_DIR").map(PathBuf::from).unwrap_or_else(|| home_dir().join("reports")) }
 /// The board's own folders as resolved here, for a process started somewhere that does not inherit this
 /// environment (an agent's herdr space).
+pub fn herdr_work_managed() -> bool {
+    std::env::var("HERDR_WORK_MANAGED").as_deref() == Ok("1")
+        || std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1")
+}
 pub fn board_env() -> Vec<(String, String)> {
     let mut pairs = vec![("HERDR_PROJECTS_DATA_DIR".into(), absolute(&data_dir()).display().to_string()),
          ("HERDR_PROJECTS_CONFIG_DIR".into(), absolute(&config_dir()).display().to_string())];
-    if std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1") {
+    if herdr_work_managed() {
         pairs.extend([
-            ("WORKDESK_MANAGED".into(), "1".into()),
+            ("HERDR_WORK_MANAGED".into(), "1".into()),
             ("HERDR_PROJECTS_HOME".into(), absolute(&home_dir()).display().to_string()),
             ("HERDR_PROJECTS_REPORTS_DIR".into(), absolute(&reports_dir()).display().to_string()),
         ]);

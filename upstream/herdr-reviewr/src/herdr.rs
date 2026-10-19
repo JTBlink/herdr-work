@@ -619,13 +619,13 @@ pub fn send_text(pane: &str, text: &str) -> Result<(), SendError> {
     Ok(socket_call(socket, request)?)
 }
 
-/// Explicit-endpoint transport used by Workdesk; retains this crate's bounded socket exchange.
-pub fn workdesk_request(
+/// Explicit-endpoint transport used by HerdrWork; retains this crate's bounded socket exchange.
+pub fn herdr_work_request(
     socket: &std::ffi::OsStr,
     method: &str,
     params: serde_json::Value,
 ) -> anyhow::Result<serde_json::Value> {
-    let request = serde_json::json!({"id": "workdesk", "method": method, "params": params});
+    let request = serde_json::json!({"id": "herdr-work", "method": method, "params": params});
     let line = socket_exchange(socket.to_os_string(), request.to_string(), SEND_BOUND)?;
     let reply: serde_json::Value = serde_json::from_str(&line)?;
     if reply.get("error").is_some() {

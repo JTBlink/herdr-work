@@ -610,22 +610,22 @@ fn lines(out: String) -> Result<Vec<String>, String> {
         .collect())
 }
 
-type WorkdeskRunner = fn(Command, Duration) -> Result<String, String>;
-thread_local! { static WORKDESK_RUNNER: std::cell::Cell<Option<WorkdeskRunner>> = const { std::cell::Cell::new(None) }; }
+type HerdrWorkRunner = fn(Command, Duration) -> Result<String, String>;
+thread_local! { static HERDR_WORK_RUNNER: std::cell::Cell<Option<HerdrWorkRunner>> = const { std::cell::Cell::new(None) }; }
 /// Retain original Git operations with the caller's bounded process-tree transport.
-pub fn workdesk_bounded<T>(runner: WorkdeskRunner, job: impl FnOnce() -> T) -> T {
-    struct Restore(Option<WorkdeskRunner>);
+pub fn herdr_work_bounded<T>(runner: HerdrWorkRunner, job: impl FnOnce() -> T) -> T {
+    struct Restore(Option<HerdrWorkRunner>);
     impl Drop for Restore {
         fn drop(&mut self) {
-            WORKDESK_RUNNER.set(self.0);
+            HERDR_WORK_RUNNER.set(self.0);
         }
     }
-    let _restore = Restore(WORKDESK_RUNNER.replace(Some(runner)));
+    let _restore = Restore(HERDR_WORK_RUNNER.replace(Some(runner)));
     job()
 }
 
 fn run_in(dir: &Path, args: &[&str]) -> Result<String, String> {
-    if let Some(run) = WORKDESK_RUNNER.get() {
+    if let Some(run) = HERDR_WORK_RUNNER.get() {
         return run(git_command(dir, args), Duration::from_secs(60));
     }
     let out = git_command(dir, args)
@@ -663,7 +663,7 @@ fn parse_branch_choices(out: &str) -> Vec<Branch> {
 /// tool is trying to write it. `GIT_OPTIONAL_LOCKS=0` asks Git to skip those
 /// optional index writes without changing the result of these read-only calls.
 fn run_read_in(dir: &Path, args: &[&str]) -> Result<String, String> {
-    if let Some(run) = WORKDESK_RUNNER.get() {
+    if let Some(run) = HERDR_WORK_RUNNER.get() {
         let mut command = git_command(dir, args);
         command.env("GIT_OPTIONAL_LOCKS", "0");
         return run(command, Duration::from_secs(60));

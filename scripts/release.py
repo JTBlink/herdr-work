@@ -15,6 +15,8 @@ def publish(assets, tag, sha, repo):
     manifests = [verify(p) for p in archives]
     if len(manifests) != len(TARGETS) or {m['target'] for m in manifests} != set(TARGETS):
         raise ValueError('Every declared platform is required before publishing')
+    if any(m.get('product') != 'HerdrWork' for m in manifests):
+        raise ValueError('Release product identity differs')
     if any(m['sha'] != sha or f'v{m["version"]}' != tag for m in manifests):
         raise ValueError('Mixed commits or versions in release assets')
     def gh(*args):
@@ -26,13 +28,13 @@ def publish(assets, tag, sha, repo):
     else:
         # A failed network request must not be treated as proof the release is absent.
         subprocess.run(['gh','api',f'repos/{repo}/git/ref/tags/{tag}'],check=True,capture_output=True)
-        notes = ('Workdesk '+tag+'\n\nSource: '+sha+'\n\n'
-                 'macOS/Linux include the original Projects execution backend. Windows includes the native files/Git/review workdesk; Projects task execution remains Unix-only.\n'
+        notes = ('HerdrWork '+tag+'\n\nSource: '+sha+'\n\n'
+                 'macOS/Linux include the original Projects execution backend. Windows includes the native files/Git/review HerdrWork; Projects task execution remains Unix-only.\n'
                  'Each archive includes original licenses, MANIFEST.json and a user-prefix installer. SHA256SUMS covers all assets.\n\n'
                  + (ROOT/'CHANGELOG.md').read_text())
         with tempfile.TemporaryDirectory() as temp:
             p=Path(temp)/'notes.md';p.write_text(notes)
-            command=['gh','release','create',tag,'--repo',repo,'--verify-tag','--draft','--title','Workdesk '+tag,'--notes-file',str(p)]
+            command=['gh','release','create',tag,'--repo',repo,'--verify-tag','--draft','--title','HerdrWork '+tag,'--notes-file',str(p)]
             if '-' in tag:command.append('--prerelease')
             subprocess.run(command,check=True)
         current={'assets':[]}

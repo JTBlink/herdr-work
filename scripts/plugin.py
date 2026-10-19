@@ -1,4 +1,4 @@
-"""Fetch and verify this exact Workdesk release for Herdr plugin installation."""
+"""Fetch and verify this exact HerdrWork release for Herdr plugin installation."""
 import argparse
 from pathlib import Path
 import platform
@@ -18,9 +18,9 @@ def fetch():
     if not target:
         raise ValueError('No release archive for this host; build explicitly from source')
     version = (ROOT / 'VERSION').read_text().strip()
-    name = f'workdesk-{version}-{target}.tar.gz'
+    name = f'herdr-work-{version}-{target}.tar.gz'
     base = f'https://github.com/JTBlink/herdr-work/releases/download/v{version}/'
-    with tempfile.TemporaryDirectory(prefix='workdesk-plugin-') as temp:
+    with tempfile.TemporaryDirectory(prefix='herdr-work-plugin-') as temp:
         temp = Path(temp)
         for file in (name, name + '.sha256'):
             urllib.request.urlretrieve(base + file, temp / file)
@@ -43,7 +43,7 @@ if __name__ == '__main__':
             raise ValueError('Unsupported plugin host')
         subprocess.run([sys.executable, str(ROOT / 'scripts/build.py'), '--target', target], check=True)
         from package import package
-        with tempfile.TemporaryDirectory(prefix='workdesk-source-') as temp:
+        with tempfile.TemporaryDirectory(prefix='herdr-work-source-') as temp:
             archive = package(target, Path(temp))
             extract = Path(temp) / 'extract'
             extract.mkdir()

@@ -11,7 +11,7 @@ tags:
 # Herdr 工作台插件合并可行性调研
 
 > 本文记录固定版本的插件打包与组合风险，保留作为源码证据。项目目标已明确为 Rust Agent 工作台；
-> 界面、共享上下文和能力重构的候选设计见 [工作台技术方案](workbench-refactoring-plan.md)，实施方式待评审。
+> 界面、共享上下文和能力重构的候选设计见 [工作台技术方案](herdr-work-refactoring-plan.md)，实施方式待评审。
 
 ## 结论
 

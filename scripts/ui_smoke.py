@@ -20,7 +20,7 @@ def ui_smoke(binary):
     import termios
 
     binary = Path(binary).resolve()
-    with tempfile.TemporaryDirectory(prefix='workdesk-ui-smoke-') as name:
+    with tempfile.TemporaryDirectory(prefix='herdr-work-ui-smoke-') as name:
         root = Path(name).resolve()
         repo = root / 'repo'
         repo.mkdir()
@@ -95,7 +95,7 @@ def ui_smoke(binary):
             size(24, 80)
             os.killpg(process.pid, signal.SIGWINCH)
             text = drain(.3)
-            assert 'Workdesk' in text, 'No narrow terminal redraw'
+            assert 'HerdrWork' in text, 'No narrow terminal redraw'
             os.write(master, b'q')
             drain(.4)
             restored = termios.tcgetattr(slave)

@@ -36,11 +36,11 @@ def projects_smoke(binary, backend, profile, root):
     if not any(row['title'] == 'Installation smoke task' for row in tasks):
         raise ValueError('Original Projects create/list flow failed')
 
-    managed = dict(env, WORKDESK_MANAGED='1', HERDR_PLUGIN_ID='jtblink.workdesk',
+    managed = dict(env, HERDR_WORK_MANAGED='1', HERDR_PLUGIN_ID='jtblink.herdr-work',
                    HERDR_PROJECTS_HOME=str(projects), HERDR_PROJECTS_DATA_DIR=str(projects / 'data'),
                    HERDR_PROJECTS_CONFIG_DIR=str(projects / 'settings'),
                    HERDR_PROJECTS_REPORTS_DIR=str(projects / 'reports'))
-    launcher = json.loads(output([backend, 'workdesk-launcher'], env=managed))['launcher']
+    launcher = json.loads(output([backend, 'herdr-work-launcher'], env=managed))['launcher']
     socket = str(root / 'private-missing.sock')
     task.update(link={'pane': 'fixture-pane', 'socket': socket, 'terminal': 'fixture-terminal'},
                 agent='codex', stage='working')
@@ -49,7 +49,7 @@ def projects_smoke(binary, backend, profile, root):
     callback = dict(env, HERDR_SOCKET_PATH=socket, HERDR_PANE_ID='fixture-pane',
                     HERDR_PLUGIN_ID='stale.plugin.ui',
                     HERDR_PLUGIN_CONTEXT_JSON=json.dumps({'focused_pane_cwd': str(root)}))
-    observed = json.loads(output([launcher, 'workdesk-environment'], env=callback, cwd=fixture))
+    observed = json.loads(output([launcher, 'herdr-work-environment'], env=callback, cwd=fixture))
     expected = {'home': str(projects), 'data': str(projects / 'data'),
                 'config': str(projects / 'settings'), 'reports': str(projects / 'reports'),
                 'managed': True, 'plugin': '', 'context': str(fixture.resolve()),
@@ -95,7 +95,7 @@ def rename_smoke(stage, prefix, manifest):
 
 def smoke(archive):
     manifest = verify(archive)
-    with tempfile.TemporaryDirectory(prefix='workdesk-install-test-') as temp:
+    with tempfile.TemporaryDirectory(prefix='herdr-work-install-test-') as temp:
         root = Path(temp)
         extract = root / 'archive'
         extract.mkdir()
@@ -114,12 +114,12 @@ def smoke(archive):
             raise ValueError('Installed binary version differs')
         profile = root / 'profile'
         result = json.loads(output([binary, '--home', profile, 'doctor']))
-        if result['product'] != 'Workdesk':
+        if result['product'] != 'HerdrWork':
             raise ValueError('Installed application identity differs')
         if manifest['projects_backend']:
             if not result['projects_backend_installed']:
                 raise ValueError('Installed backend missing')
-            projects_smoke(binary, prefix / 'bin' / 'workdesk-projects', profile, root)
+            projects_smoke(binary, prefix / 'bin' / 'herdr-work-projects', profile, root)
         ui_smoke(binary)
         install(stage, prefix)
         rollback(prefix)

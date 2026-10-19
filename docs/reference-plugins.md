@@ -43,7 +43,7 @@ tar -xzf reference-plugins/reviewr.tar.gz --strip-components=1 -C reference-plug
 
 ## 后续重构约定
 
-- 工作台根 workspace 的四个成员为 `crates/workdesk-core/`、`crates/workdesk-engine/`、`crates/workdesk-tui/`、`crates/workdesk/`；来源源码放入 `upstream/` 并保留原仓库结构、workspace 和锁文件，通过统一构建入口接入；详见[复用优先架构](architecture/workdesk-architecture.md)。这些源码目录尚未创建。
+- 工作台根 workspace 的四个成员为 `crates/herdr-work-core/`、`crates/herdr-work-engine/`、`crates/herdr-work-tui/`、`crates/herdr-work/`；来源源码放入 `upstream/` 并保留原仓库结构、workspace 和锁文件，通过统一构建入口接入；详见[复用优先架构](architecture/herdr-work-architecture.md)。这些源码目录已纳入仓库。
 - 参考副本保留原貌。需长期保留的提取、适配和重构代码进入本仓库正常跟踪的目录，不能只留在被忽略的副本中。
 - 提取代码时记录来源 commit，保留相关版权与 MIT 许可文本，并移植对应行为测试。
 - 参考源码中的插件清单与启动器用于分析；下载不会安装、注册或启用插件，也不代表工作台已完成合并。

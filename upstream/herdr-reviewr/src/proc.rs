@@ -153,8 +153,8 @@ pub(crate) fn run_tree(cmd: Command, stop: impl Fn() -> bool) -> Result<String, 
     Err(RunError::Failed { stderr: String::from_utf8_lossy(&stderr).into_owned() })
 }
 
-/// Workdesk reuses this bounded process-tree runner rather than introducing another supervisor.
-pub fn workdesk_run(command: Command, timeout: Duration) -> anyhow::Result<String> {
+/// HerdrWork reuses this bounded process-tree runner rather than introducing another supervisor.
+pub fn herdr_work_run(command: Command, timeout: Duration) -> anyhow::Result<String> {
     let began = std::time::Instant::now();
     run_tree(command, || began.elapsed() >= timeout).map_err(|error| match error {
         RunError::NotFound => anyhow::anyhow!("Backend executable not found"),

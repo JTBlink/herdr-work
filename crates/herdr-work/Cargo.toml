@@ -1,0 +1,22 @@
+[package]
+name = "herdr-work"
+autobins = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "herdr-work"
+path = "src/main.rs"
+
+[dependencies]
+herdr-work-core.workspace = true
+herdr-work-engine.workspace = true
+herdr-work-tui.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
