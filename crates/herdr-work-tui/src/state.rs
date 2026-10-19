@@ -17,6 +17,20 @@ pub(crate) enum Data {
     Bound(Execution),
     Business(String),
     Editor(PathBuf, Result<herdr_work_engine::EditorSession>),
+    EditorObserved(
+        u64,
+        u64,
+        Result<herdr_work_engine::EditorExternalObservation>,
+    ),
+    EditorSaved(
+        u64,
+        u64,
+        Result<(
+            herdr_work_engine::EditorSession,
+            herdr_work_code::editor::SaveOutcome,
+        )>,
+    ),
+    EditorReloaded(u64, u64, String, Result<herdr_work_engine::EditorSession>),
     Drawer(u64, Result<herdr_work_engine::DrawerView>),
     Show(u64, Result<String>),
     QuickIndex(u64, Result<herdr_work_engine::QuickIndex>),
@@ -85,6 +99,10 @@ pub(crate) struct App {
     pub(crate) overlay: Option<crate::menus::Overlay>,
     pub(crate) editor: Option<herdr_work_engine::EditorSession>,
     pub(crate) edit_request: Option<PathBuf>,
+    pub(crate) editor_request: u64,
+    pub(crate) editor_poll: Option<(u64, u64)>,
+    pub(crate) editor_write: Option<(u64, u64)>,
+    pub(crate) editor_leave_after_save: bool,
     pub(crate) scm_cursor: usize,
     pub(crate) active_drawer: Option<herdr_work_code::scm::Drawer>,
     pub(crate) drawer_open: [bool; 8],
@@ -141,6 +159,10 @@ impl App {
             overlay: None,
             editor: None,
             edit_request: None,
+            editor_request: 0,
+            editor_poll: None,
+            editor_write: None,
+            editor_leave_after_save: false,
             scm_cursor: 0,
             active_drawer: None,
             drawer_open: [false; 8],
@@ -210,7 +232,17 @@ impl App {
             })
     }
     pub(crate) fn apply(&mut self, epoch: u64, data: Result<Data>) {
-        if epoch != self.context.epoch && !matches!(&data, Ok(Data::Tasks(_))) {
+        // Editor results belong to their guarded session, which can outlive an
+        // unrelated Agent binding epoch. Their handlers reject closed/new sessions.
+        if epoch != self.context.epoch
+            && !matches!(
+                &data,
+                Ok(Data::Tasks(_)
+                    | Data::EditorObserved(..)
+                    | Data::EditorSaved(..)
+                    | Data::EditorReloaded(..))
+            )
+        {
             return;
         }
         match data {
@@ -233,6 +265,15 @@ impl App {
                     .and_then(|id| tasks.iter().position(|t| t.id == id))
                     .unwrap_or(self.task.min(tasks.len().saturating_sub(1)));
                 self.tasks = tasks;
+            }
+            Ok(Data::EditorObserved(session, request, result)) => {
+                self.editor_observed(session, request, result)
+            }
+            Ok(Data::EditorSaved(session, request, result)) => {
+                self.editor_saved(session, request, result)
+            }
+            Ok(Data::EditorReloaded(session, request, text, result)) => {
+                self.editor_reloaded(session, request, text, result)
             }
             Ok(_) if epoch != self.context.epoch => {}
             Ok(Data::Code(generation, _)) if generation != self.generation => {}

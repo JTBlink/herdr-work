@@ -45,6 +45,7 @@ Code 已作为产品内部 crate 命名和维护，原说明、清单及版权�
 | Projects `crates/flow/src/flow/sidebar.rs` | managed 模式关闭旧 Sidebar 元数据同步，避免驱动另一插件界面。 |
 | Reviewr `src/herdr.rs` | 导出显式 endpoint 的有界 socket 请求，保留原 transport；发送直接复用原 send_text、就绪检查和错误分类。宿主 API 不支持原子 send-if-ready，最终检查与写入之间仍有宿主侧竞态。 |
 | Reviewr `src/proc.rs` | 导出原 process-tree/JobObject 有界进程执行入口，供工作台运行来源后端。 |
+| Code `crates/herdr-work-code/src/editor.rs` | 原 `poll_external` 抽为后台观察与纯状态应用，原入口也调用共享实现；保留原 reload/save、UTF-8/BOM/CRLF、选择及缓冲算法。工作台每次最多排队一个观察，按编辑会话/路径/工作目录和基线拒绝旧结果；保存确认只合并已落盘字节，保留等待期间的新输入。滚轮视口不再在绘制时被光标位置重置。 |
 | Code `crates/herdr-work-code/src/git.rs` | 导出线程范围的 HerdrWork 进程执行回调，让原 Git::discover_all/status/stage/unstage/commit 使用 Reviewr 原 process-tree/JobObject 有界执行器（同时限制子进程和管道排空）；原调用方默认行为不变。Tree 直接复用。 |
 
 HerdrWork 自身补充执行身份、epoch/generation、草稿、固定发送批次、导入日志及操作核对，不新增第二套任务阶段状态机。Reviewr 原评论仍为内存状态，持久化仅属于 HerdrWork。上游测试与 fixtures 完整保留。

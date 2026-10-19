@@ -20,6 +20,8 @@ pub(crate) enum Command {
     Edit,
     SaveEditor,
     DiscardEditor,
+    ReloadEditor,
+    OverwriteEditor,
     Cancel,
     Drawer(herdr_work_code::scm::Drawer),
     Search(bool),
@@ -358,11 +360,16 @@ impl App {
             }
             Command::Edit => self.start_editor()?,
             Command::SaveEditor => {
-                self.save_editor()?;
-                self.finish_editor()?;
+                self.save_editor_with(false, true)?;
             }
             Command::DiscardEditor => self.finish_editor()?,
-            Command::Cancel => {}
+            Command::ReloadEditor => self.reload_editor()?,
+            Command::OverwriteEditor => {
+                self.save_editor_with(true, self.editor_leave_after_save)?
+            }
+            Command::Cancel => {
+                self.editor_leave_after_save = false;
+            }
             Command::Reference(action) => {
                 use herdr_work_code::scm::{DrawerRef, MenuAction, drawer_spec, parse_drawer_ref};
                 let (view, index) = self
