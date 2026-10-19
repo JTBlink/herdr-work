@@ -714,3 +714,20 @@ fn old_observation_cannot_replace_a_reopened_editor_at_the_same_path() {
         "reopened file\n"
     );
 }
+
+#[test]
+fn binding_context_change_during_save_does_not_strand_the_same_editor() {
+    let (_temp, mut app) = editing_app();
+    app.editor.as_mut().unwrap().editor.insert_text("local ");
+    app.save_editor().unwrap();
+    let (epoch, result) = app
+        .jobs
+        .results
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
+    // A previously queued Agent binding may complete while this editor remains open.
+    app.context.epoch += 1;
+    app.apply(epoch, result);
+    assert!(!app.editor.as_ref().unwrap().editor.dirty);
+    assert!(app.editor_write.is_none());
+}
