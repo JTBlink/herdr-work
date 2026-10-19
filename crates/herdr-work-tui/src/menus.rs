@@ -401,10 +401,13 @@ impl App {
                     self.input = self.root.to_string_lossy().into_owned();
                 }
                 actions::MenuAction::ChangeFolder => {
-                    if cfg!(target_os = "linux") {
+                    #[cfg(not(any(windows, target_os = "macos")))]
+                    {
                         self.prompt = Some(Prompt::Folder);
                         self.input = self.root.to_string_lossy().into_owned();
-                    } else {
+                    }
+                    #[cfg(any(windows, target_os = "macos"))]
+                    {
                         let root = self.root.clone();
                         self.job(move |_| Ok(Data::Folder(actions::pick_folder(&root))))?;
                     }
