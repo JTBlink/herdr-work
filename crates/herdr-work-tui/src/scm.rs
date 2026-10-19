@@ -322,7 +322,12 @@ impl App {
             kind.title(),
             self.drawers
                 .get(&kind)
-                .map(|v| v.root.display().to_string())
+                .map(|v| v
+                    .root
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned())
                 .unwrap_or_default()
         );
         let text = if let Some(text) = &self.drawer_show {

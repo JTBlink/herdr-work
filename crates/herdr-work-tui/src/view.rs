@@ -16,11 +16,6 @@ impl App {
     pub(crate) fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
         let layout = self.panes(area);
-        f.render_widget(
-            Paragraph::new(format!("HerdrWork  | {}", self.root.display()))
-                .style(Style::default().fg(palette().header_accent)),
-            layout.header,
-        );
         for (index, (tab, label, key)) in ACTIVITIES.iter().enumerate() {
             let y = layout.activity.y + index as u16 * 3;
             let height = settings_button(layout.activity).y.saturating_sub(y).min(3);
@@ -85,14 +80,7 @@ impl App {
                         .map(|p| {
                             format!(
                                 "Preview · {}",
-                                p.strip_prefix(
-                                    self.code
-                                        .as_ref()
-                                        .map(|c| c.root.as_path())
-                                        .unwrap_or(&self.root)
-                                )
-                                .unwrap_or(p)
-                                .display()
+                                p.file_name().unwrap_or_default().to_string_lossy()
                             )
                         })
                         .unwrap_or_else(|| "Preview".into());
@@ -120,18 +108,49 @@ impl App {
             (Tab::Review, _) => "c 评论 · s 发送 · b 绑定 · f 聚焦 Agent · Tab 返回 Git",
             (Tab::Tasks, _) => "Enter 选择执行 · n 创建 · d 委派 · x 停止",
         };
+        let project = herdr_work_code::ui::truncate_to(
+            self.root
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            16,
+        );
+        let branch = self
+            .code
+            .as_ref()
+            .map(|code| code.branch.as_str())
+            .unwrap_or("");
+        let branch = herdr_work_code::ui::truncate_to(branch.to_string(), 18);
+        let location = if branch.is_empty() {
+            project
+        } else {
+            format!("{project} · {branch}")
+        };
+        let status = if self.status.is_empty() {
+            self.load_summary()
+        } else {
+            self.status.clone()
+        };
+        let notice = if self
+            .editor
+            .as_ref()
+            .is_some_and(|session| session.editor.external_changed)
+        {
+            "磁盘已改变，保留编辑内容 · "
+        } else {
+            ""
+        };
+        let status = status.lines().collect::<Vec<_>>().join(" · ");
         f.render_widget(
             Paragraph::new(format!(
-                "{}\n{}{}",
-                self.load_summary(),
-                self.status,
+                "{location} | {notice}{status}{}",
                 if self.preferences.show_hotkeys {
                     format!("\n{hints} · r 刷新 · q 退出")
                 } else {
                     String::new()
                 }
-            ))
-            .wrap(Wrap { trim: false }),
+            )),
             layout.footer,
         );
         self.draw_editor(f, &layout);
@@ -239,9 +258,8 @@ impl App {
     }
     pub(crate) fn content_block(&self, title: String) -> Block<'static> {
         Block::default()
-            .borders(Borders::ALL)
             .title(title)
-            .border_style(Style::default().fg(if self.focus == Focus::Content {
+            .title_style(Style::default().fg(if self.focus == Focus::Content {
                 palette().accent_focus
             } else {
                 palette().ignored
