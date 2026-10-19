@@ -22,12 +22,12 @@ def package(target, output, tag=None):
     suffix = '.exe' if 'windows' in target else ''
     binaries = {'herdr-work': ROOT / f'target/{target}/release/herdr-work{suffix}'}
     if info['projects_backend']:
-        binaries['workdesk-projects'] = ROOT / f'upstream/herdr-projects/target/{target}/release/herdr-projects'
+        binaries['herdr-work-projects'] = ROOT / f'upstream/herdr-projects/target/{target}/release/herdr-projects'
     for path in binaries.values():
         if not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f'Compiled binary missing: {path}')
-    name = f'workdesk-{info["version"]}-{target}'
-    with tempfile.TemporaryDirectory(prefix='workdesk-package-') as temp:
+    name = f'herdr-work-{info["version"]}-{target}'
+    with tempfile.TemporaryDirectory(prefix='herdr-work-package-') as temp:
         stage = Path(temp) / name
         (stage / 'bin').mkdir(parents=True)
         for label, source in binaries.items():
@@ -62,7 +62,7 @@ def verify(archive):
     expected = archive.with_name(archive.name + '.sha256').read_text().strip().split()
     if len(expected) != 2 or expected[1] != archive.name or expected[0] != digest(archive):
         raise ValueError('Archive checksum mismatch')
-    with tempfile.TemporaryDirectory(prefix='workdesk-verify-') as temp:
+    with tempfile.TemporaryDirectory(prefix='herdr-work-verify-') as temp:
         dest = Path(temp)
         if archive.name.endswith('.zip'):
             with zipfile.ZipFile(archive) as z:
@@ -86,7 +86,8 @@ def verify(archive):
             if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()) or digest(path) != sha:
                 raise ValueError(f'Manifest checksum mismatch: {rel}')
         suffix = '.exe' if 'windows' in manifest['target'] else ''
-        if manifest['projects_backend']: required.add('bin/workdesk-projects')
+        if manifest['projects_backend']:
+            required.add('bin/herdr-work-projects' if manifest['product'] == 'HerdrWork' else 'bin/workdesk-projects')
         if not required <= actual_files: raise ValueError('Required executable or license missing')
         return manifest
 

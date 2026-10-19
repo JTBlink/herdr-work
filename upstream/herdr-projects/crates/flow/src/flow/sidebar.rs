@@ -77,7 +77,7 @@ pub fn tell_sidebar(t: &Obj) {
 /// Keeps every live pane of one herdr session current. A pane that is no longer a live task's has what the board wrote
 /// taken off, once.
 pub fn sync_sidebar(tasks: &[Obj], socket: Option<&str>, now: i64) {
-    if std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1") { return; }
+    if crate::store::files::herdr_work_managed() { return; }
     let socket = socket.map(String::from).or_else(|| tasks.iter().find(|t| t.at("live").is_object() && !t.at("live").b("away")).map(|t| t.at("link").t("socket"))).filter(|s| !s.is_empty()).unwrap_or_else(current_socket);
     let mut seen = read();
     let mut list: Vec<Write> = vec![];

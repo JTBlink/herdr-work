@@ -22,7 +22,7 @@
 
 来源根目录下面的相对路径不变。工作台通过 path dependency 和保留的 Projects 后端复用实际实现，不修改来源的模块命名来迎合自有 crate 命名。
 
-工作台根 workspace 显式列出 `workdesk-core`、`workdesk-engine`、`workdesk-tui`、`workdesk` 四个成员，排除上游项目自动加入；保留来源 workspace 与锁文件。统一构建入口分别编排工作台和后端，记录使用的锁文件、固定 commit、适配补丁及行为测试。
+工作台根 workspace 显式列出 `herdr-work-core`、`herdr-work-engine`、`herdr-work-tui`、`herdr-work` 四个成员，排除上游项目自动加入；保留来源 workspace 与锁文件。统一构建入口分别编排工作台和后端，记录使用的锁文件、固定 commit、适配补丁及行为测试。
 
 根 workspace 和 Projects 后端分别以原锁文件编译。目录统一不等于扁平化上游结构，也不意味着共用一个 Cargo.lock；暂不降低来源声明的工具链要求。
 
@@ -34,13 +34,17 @@
 - 每次实现列出来源模块、保留行为、适配点、行为差异和验证结果。上游升级以明确 commit 更新，不自动跟随分支。
 - 关闭旧更新器、安装下载器和自动开窗格逻辑，通过工作台统一构建和版本验收。
 
-## Workdesk 必要适配
+## HerdrWork 必要适配
 
 | 来源文件 | 补丁与实际复用 |
 | --- | --- |
-| Projects `src/cli/mod.rs` | 增加启动迁移前的只读 `workdesk-snapshot`，调用原 tasks::list；增加调度暂停/恢复控制。managed 模式跳过旧安装接管及旧数据自动导入，禁止原更新入口。其他 add/delegate/stop/reopen 仍执行原命令逻辑。 |
+| Projects `src/cli/mod.rs` | 增加启动迁移前的只读 `herdr-work-snapshot`，调用原 tasks::list；增加调度暂停/恢复控制。managed 模式跳过旧安装接管及旧数据自动导入，禁止原更新入口。其他 add/delegate/stop/reopen 仍执行原命令逻辑。 |
 | Projects `crates/core/src/store/files.rs` | managed 模式的 board_env 为 Agent workspace、重启及实际 launcher 传递托管标记、home、data/config/reports；原模式保持原两项环境。Agent 回调不注入插件 UI 身份。 |
 | Projects `crates/flow/src/flow/send.rs` | managed 模式的原 launcher 清除插件 UI 身份及其上下文，保留原 Agent caller / 无 ID report 语义。 |
 | Projects `crates/flow/src/keeper.rs` | managed 模式识别独立暂停标记，keeper 和 ticker 自行退出；保留原后台锁、heartbeat、runner 与更新交接逻辑。 |
 | Projects `crates/flow/src/flow/sidebar.rs` | managed 模式关闭旧 Sidebar 元数据同步，避免驱动另一插件界面。 |
 
+
+## HerdrWork 名称迁移
+
+自有 workspace 为 `herdr-work-core`、`herdr-work-engine`、`herdr-work-tui`、`herdr-work`。新增适配接口使用 `herdr_work_*`，托管环境为 `HERDR_WORK_MANAGED`。Projects CLI 接受旧 `workdesk-*` 命令别名及 `WORKDESK_MANAGED`；暂停标记读取旧文件以保持升级语义，恢复时清理两个名称。固定来源 crate、原始业务目录和许可证均保留。

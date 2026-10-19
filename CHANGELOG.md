@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.1.4 — 2026-10-19
+
+- 产品、doctor、界面、插件和 Release 统一为 HerdrWork，主命令和归档为 herdr-work；四个自有 crate、目录、类型及任务文档同步更名。
+- 默认数据目录改为 ~/.herdr-work，优先读取 HERDR_WORK_HOME；兼容旧 WORKDESK_HOME。首次运行在旧界面/Agent 停止后校验并复制旧资料，保留旧目录，不覆盖已有新资料。
+- 后端使用 herdr-work-projects，插件 ID 为 jtblink.herdr-work。旧安装收据、后端入口和托管标记保留升级兼容，回滚恢复原版本的名称。
+- 新增产品/默认路径/环境变量优先级、旧数据迁移和旧安装回滚验收；GitHub Issues 同步当前名称并保留标签、状态与依赖。
+
 ## 0.1.3 — 2026-10-19
 
 - 补齐主命令、全部子命令和参数的中文帮助，保留原命令语法及 `help`、`-h` 入口，并增加常用示例。

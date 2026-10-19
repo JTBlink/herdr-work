@@ -2,10 +2,10 @@
 
 ## 结构与边界
 
-Workdesk 是 Rust 终端工作台。自有 workspace 仅包含 `crates/workdesk-core`（契约）、`crates/workdesk-engine`（编排与持久化）、`crates/workdesk-tui`（唯一终端与输入）、`crates/workdesk`（CLI）。
+HerdrWork 是 Rust 终端工作台。自有 workspace 仅包含 `crates/herdr-work-core`（契约）、`crates/herdr-work-engine`（编排与持久化）、`crates/herdr-work-tui`（唯一终端与输入）、`crates/herdr-work`（CLI）。
 
 
-GitHub 仓库仍为 `JTBlink/herdr-work`，产品、自有类型与 crate 统一为 Workdesk/workdesk，主命令为 `herdr-work`；上游名称保持原样。
+GitHub 仓库仍为 `JTBlink/herdr-work`，产品、自有类型与 crate 统一为 HerdrWork/herdr-work，主命令为 `herdr-work`；上游名称保持原样。
 
 ## 构建与检查
 

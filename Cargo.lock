@@ -1171,6 +1171,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "herdr-work"
+version = "0.1.4"
+dependencies = [
+ "anyhow",
+ "clap",
+ "herdr-work-core",
+ "herdr-work-engine",
+ "herdr-work-tui",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "herdr-work-core"
+version = "0.1.4"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "herdr-work-engine"
+version = "0.1.4"
+dependencies = [
+ "anyhow",
+ "fs2",
+ "herdr-sidebar",
+ "herdr-work-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
+name = "herdr-work-tui"
+version = "0.1.4"
+dependencies = [
+ "anyhow",
+ "crossterm",
+ "herdr-work-core",
+ "herdr-work-engine",
+ "ratatui",
+ "tempfile",
+]
+
+[[package]]
 name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3776,53 +3823,6 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
-
-[[package]]
-name = "workdesk"
-version = "0.1.3"
-dependencies = [
- "anyhow",
- "clap",
- "serde",
- "serde_json",
- "tempfile",
- "workdesk-core",
- "workdesk-engine",
- "workdesk-tui",
-]
-
-[[package]]
-name = "workdesk-core"
-version = "0.1.3"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "workdesk-engine"
-version = "0.1.3"
-dependencies = [
- "anyhow",
- "fs2",
- "herdr-sidebar",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "workdesk-core",
-]
-
-[[package]]
-name = "workdesk-tui"
-version = "0.1.3"
-dependencies = [
- "anyhow",
- "crossterm",
- "ratatui",
- "tempfile",
- "workdesk-core",
- "workdesk-engine",
-]
 
 [[package]]
 name = "writeable"

@@ -35,30 +35,34 @@ pub fn caller() -> Option<(Obj, &'static str)> {
 }
 fn stdin_json() -> Option<Value> { None }
 
-pub fn main(argv: Vec<String>) -> i32 {
-    // Workdesk read-only seam: no startup migration, housekeeping, notification consumption or keeper.
-    if argv.first().is_some_and(|s| s == "workdesk-snapshot") {
+pub fn main(mut argv: Vec<String>) -> i32 {
+    if let Some(command) = argv.first_mut() {
+        if let Some(name) = command.strip_prefix("workdesk-") { *command = format!("herdr-work-{name}"); }
+    }
+    // HerdrWork read-only seam: no startup migration, housekeeping, notification consumption or keeper.
+    if argv.first().is_some_and(|s| s == "herdr-work-snapshot") {
         let tasks = crate::store::tasks::list(crate::store::tasks::ListOpts { include_archived: true, archived: false, attempts: true });
         println!("{}", serde_json::json!({"schema_version": 1, "tasks": tasks}));
         return 0;
     }
-    if argv.first().is_some_and(|s| s == "workdesk-scheduler") && std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1") {
-        let marker = crate::store::files::data_dir().join("workdesk-paused");
+    if argv.first().is_some_and(|s| s == "herdr-work-scheduler") && crate::store::files::herdr_work_managed() {
+        let marker = crate::store::files::data_dir().join("herdr-work-paused");
+        let legacy = crate::store::files::data_dir().join("workdesk-paused");
         let result = match argv.get(1).map(String::as_str) {
             Some("pause") => marker.parent().map(std::fs::create_dir_all).unwrap().and_then(|_| std::fs::write(&marker, b"paused")),
-            Some("resume") => { let r = if marker.exists() { std::fs::remove_file(&marker) } else { Ok(()) }; if r.is_ok() { crate::keeper::ensure_keeper(); } r },
+            Some("resume") => { let r = [&marker, &legacy].into_iter().try_for_each(|p| if p.exists() { std::fs::remove_file(p) } else { Ok(()) }); if r.is_ok() { crate::keeper::ensure_keeper(); } r },
             Some("status") => Ok(()),
             _ => { eprintln!("Expected pause, resume or status"); return 1; }
         };
         if let Err(e) = result { eprintln!("{e}"); return 1; }
-        println!("{}", serde_json::json!({"paused": crate::keeper::workdesk_paused(), "keeper_alive": crate::keeper::keeper_alive()}));
+        println!("{}", serde_json::json!({"paused": crate::keeper::herdr_work_paused(), "keeper_alive": crate::keeper::keeper_alive()}));
         return 0;
     }
-    if argv.first().is_some_and(|s| s == "workdesk-environment") {
-        println!("{}", serde_json::json!({"home":crate::store::files::home_dir(),"data":crate::store::files::data_dir(),"config":crate::store::files::config_dir(),"reports":crate::store::files::reports_dir(),"managed":std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1"),"plugin":std::env::var("HERDR_PLUGIN_ID").unwrap_or_default(),"context":context_folder(),"caller":caller().map(|(t, role)| serde_json::json!({"task":t.at("id"),"role":role}))}));
+    if argv.first().is_some_and(|s| s == "herdr-work-environment") {
+        println!("{}", serde_json::json!({"home":crate::store::files::home_dir(),"data":crate::store::files::data_dir(),"config":crate::store::files::config_dir(),"reports":crate::store::files::reports_dir(),"managed":crate::store::files::herdr_work_managed(),"plugin":std::env::var("HERDR_PLUGIN_ID").unwrap_or_default(),"context":context_folder(),"caller":caller().map(|(t, role)| serde_json::json!({"task":t.at("id"),"role":role}))}));
         return 0;
     }
-    if argv.first().is_some_and(|s| s == "workdesk-launcher") && std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1") {
+    if argv.first().is_some_and(|s| s == "herdr-work-launcher") && crate::store::files::herdr_work_managed() {
         println!("{}", serde_json::json!({"launcher":crate::flow::send::shim()}));
         return 0;
     }
@@ -73,9 +77,9 @@ fn run(cmd: &str, a: &Args) -> Res<i32> {
     // A flag the command does not know is refused before anything is done, with the nearest right one named
     // (cli/flags.rs). Every command: the ones herdr, a hook and the board itself run too.
     refuse_unknown(cmd, a)?;
-    if std::env::var("WORKDESK_MANAGED").as_deref() != Ok("1") { crate::take_over::at_start(cmd); } // older installs taken over: herdr-superwork's, the old herdr-projects 0.2's (take_over.rs)
-    if std::env::var("WORKDESK_MANAGED").as_deref() != Ok("1") { home_at_start(cmd); } // an older version's folders move into the one home folder, once (store/move_home.rs)
-    if std::env::var("WORKDESK_MANAGED").as_deref() != Ok("1") { crate::store::old_copy::copy_at_start(cmd); } // …then a copy of the data an older (Node) version wrote, once (store/old_copy.rs)
+    if !crate::store::files::herdr_work_managed() { crate::take_over::at_start(cmd); } // older installs taken over: herdr-superwork's, the old herdr-projects 0.2's (take_over.rs)
+    if !crate::store::files::herdr_work_managed() { home_at_start(cmd); } // an older version's folders move into the one home folder, once (store/move_home.rs)
+    if !crate::store::files::herdr_work_managed() { crate::store::old_copy::copy_at_start(cmd); } // …then a copy of the data an older (Node) version wrote, once (store/old_copy.rs)
     // …and its settings into the new names, once (store/settings/migrate.rs). Asking for help changes nothing.
     // …and every repo it knew without a short key is given one, once (store/keys_given.rs): the board says which. Not
     // by `docs`, which the repo's check runs with a build that is not yours yet.
@@ -107,7 +111,7 @@ fn run(cmd: &str, a: &Args) -> Res<i32> {
         "help" => { print!("{}", help::HELP); return Ok(0); }
         _ if a.flags.b("help") => { print!("{}", help::HELP); return Ok(0); }
         "install" | "update" => {
-            if std::env::var("WORKDESK_MANAGED").as_deref() == Ok("1") { crate::fail!("Managed by Workdesk; update the Workdesk distribution instead."); }
+            if crate::store::files::herdr_work_managed() { crate::fail!("Managed by HerdrWork; update the HerdrWork distribution instead."); }
             return Ok(crate::install::main(cmd, &a.pos[1..]));
         },
         "doctor" => return Ok(crate::doctor::doctor_main()),

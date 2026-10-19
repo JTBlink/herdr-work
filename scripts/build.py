@@ -1,4 +1,4 @@
-"""Build Workdesk and its original Projects backend with explicit locked inputs."""
+"""Build HerdrWork and its original Projects backend with explicit locked inputs."""
 import argparse
 import json
 import os
@@ -24,17 +24,17 @@ def metadata(target, tag=None):
     if not re.fullmatch(r'0|[1-9]\d*',version.split('.')[0]) or not re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?',version):
         raise ValueError('VERSION must use semantic versioning')
     plugin=tomllib.loads((ROOT / 'herdr-plugin.toml').read_text())
-    if plugin['version'] != version or plugin['id'] != 'jtblink.workdesk':raise ValueError('Plugin identity/version differ')
+    if plugin['version'] != version or plugin['id'] != 'jtblink.herdr-work':raise ValueError('Plugin identity/version differ')
     if tag and tag != f'v{version}':
         raise ValueError('Tag and VERSION differ')
     sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
-    return {'product': 'workdesk', 'version': version, 'target': target, 'sha': sha,
+    return {'product': 'HerdrWork', 'version': version, 'target': target, 'sha': sha,
             'projects_backend': TARGETS[target]['backend'],
             'windows_limitation': None if TARGETS[target]['backend'] else 'Native files/Git/review UI; Projects execution backend is Unix-only'}
 
 def build(target, tag=None):
     info = metadata(target, tag)
-    subprocess.run(['cargo', 'build', '--release', '--locked', '--target', target, '-p', 'workdesk', '--bin', 'herdr-work'], cwd=ROOT, check=True)
+    subprocess.run(['cargo', 'build', '--release', '--locked', '--target', target, '-p', 'herdr-work', '--bin', 'herdr-work'], cwd=ROOT, check=True)
     if info['projects_backend']:
         subprocess.run(['cargo', 'build', '--release', '--locked', '--target', target,
                         '--manifest-path', 'upstream/herdr-projects/Cargo.toml', '--bin', 'herdr-projects'], cwd=ROOT, check=True)

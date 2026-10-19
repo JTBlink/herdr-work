@@ -1,4 +1,4 @@
-# Workdesk 首版验收
+# HerdrWork 首版验收
 
 任务实时状态以 [GitHub Issues](https://github.com/JTBlink/herdr-work/issues) 为准。以下是实现入口与可复现标准，不将手动场景写成已完成的自动验收。
 
@@ -8,10 +8,10 @@
 
 | Issue | 实现入口 | 可复现验收 |
 | --- | --- | --- |
-| #2 | 四个 crates、upstream、scripts/build.py | 锁定工具链和 Cargo.lock，编译 Workdesk 与 Unix Projects 后端；doctor 报告固定来源 |
+| #2 | 四个 crates、upstream、scripts/build.py | 锁定工具链和 Cargo.lock，编译 HerdrWork 与 Unix Projects 后端；doctor 报告固定来源 |
 | #3 | engine/tasks.rs、host.rs、tui/state.rs | 原 tasks::list 快照，保留 attempt、terminal/socket、worktree 实例；唯一匹配才绑定；过期 epoch 不更新当前视图 |
 | #5 | engine/review.rs | 评论锚定显示时的 fingerprint，原子落盘；重启、编辑、文件改变和工作目录实例替换测试 |
-| #6 | engine/review.rs、workdesk/tests/host.rs | 原格式化和发送传输；固定评论版本和目标，Unknown 禁重发；聚焦失败不撤销送达 |
+| #6 | engine/review.rs、herdr-work/tests/host.rs | 原格式化和发送传输；固定评论版本和目标，Unknown 禁重发；聚焦失败不撤销送达 |
 | #7 | engine/code.rs、tui/state.rs | 原 Sidebar Tree、Git::discover_all/status，显式 repository root；文件预览、SCM 与 Diff 联动 |
 | #8 | engine/code.rs | 原 Sidebar stage/unstage，写锁和工作区实例、index、文件内容预期校验；真实 Git 测试 |
 | #9 | engine/code.rs | 原 Sidebar commit，提交前 HEAD/index 再校验，持久化操作结果与显式核对 |
@@ -46,3 +46,7 @@ python3 scripts/smoke.py --archives dist
 `cargo test --workspace --locked` 包含中文主帮助、嵌套帮助、help/-h 入口，以及真实异步代码加载后的界面渲染检查。空任务须有创建/导入引导，任务列表只能出现一次；任务后端失败须显示错误且文件可用；失败重试和过期错误不得覆盖新结果。
 
 macOS/Linux 的归档安装 smoke 调用 `scripts/ui_smoke.py`，在私有 PTY 与临时 Git 仓库中等待真实加载完成，检查文件预览和 Git 差异，通过键盘实际创建任务并确认列表更新，再缩窄至 80 列、退出并检查终端标志恢复。Windows 通过 Rust 状态/渲染测试；尚未声明 Windows 原生 PTY 交互验收。
+
+## HerdrWork 名称验收
+
+`doctor` 必须报告 `product: HerdrWork`、默认 `~/.herdr-work` 和 `herdr-work-projects` 后端。覆盖新旧环境变量优先级、旧资料一次性校验复制、活跃旧目录拒绝迁移、已有新资料不覆盖、hook 在 UI 持锁时解析目录。安装器覆盖旧收据升级、新收据、兼容旧后台入口和回滚恢复旧文件名。历史 CHANGELOG、旧资料来源和必要兼容别名保留真实旧名。

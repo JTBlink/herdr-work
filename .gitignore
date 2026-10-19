@@ -34,5 +34,9 @@ __pycache__/
 *.pyc
 
 /bin/
+/herdr-work-install.json
+/.herdr-work-previous/
+
+# Legacy installation metadata retained for upgrade/rollback compatibility.
 /workdesk-install.json
 /.workdesk-previous/

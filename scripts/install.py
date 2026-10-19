@@ -1,4 +1,4 @@
-"""Install a verified Workdesk archive, preserving a previous installation for rollback."""
+"""Install HerdrWork, retaining owned legacy binaries and receipts for safe upgrade/rollback."""
 import argparse
 import hashlib
 import json
@@ -9,8 +9,12 @@ import shutil
 import subprocess
 import tempfile
 
-# Legacy names remain accepted for owned-installation migration and rollback.
-ALLOWED = {'herdr-work', 'herdr-work.exe', 'workdesk', 'workdesk.exe', 'workdesk-projects'}
+RECEIPT = 'herdr-work-install.json'
+LEGACY_RECEIPT = 'workdesk-install.json'
+RECEIPTS = (RECEIPT, LEGACY_RECEIPT)
+BACKUPS = ('.herdr-work-previous', '.workdesk-previous')
+ALLOWED = {'herdr-work', 'herdr-work.exe', 'herdr-work-projects',
+           'workdesk', 'workdesk.exe', 'workdesk-projects'}
 
 
 def digest(file):
@@ -25,7 +29,6 @@ def replace(source, dest):
     try:
         shutil.copy2(source, temp)
         temp.chmod(0o755)
-        # Sign the fresh inode before it replaces the previous executable.
         if platform.system() == 'Darwin':
             subprocess.run(['codesign', '--force', '--sign', '-', str(temp)], check=True, capture_output=True)
         os.replace(temp, dest)
@@ -33,8 +36,11 @@ def replace(source, dest):
         temp.unlink(missing_ok=True)
 
 
-def read_receipt(prefix):
-    data = json.loads((prefix / 'workdesk-install.json').read_text())
+def receipt_file(prefix):
+    return next((prefix / name for name in RECEIPTS if (prefix / name).exists()), prefix / RECEIPT)
+
+
+def validate_receipt(prefix, data):
     for file in data['files']:
         path = Path(file)
         if path.parent != prefix / 'bin' or path.name not in ALLOWED:
@@ -42,15 +48,28 @@ def read_receipt(prefix):
     return data
 
 
-def write_receipt(prefix, data):
+def read_receipt(prefix):
+    return validate_receipt(prefix, json.loads(receipt_file(prefix).read_text()))
+
+
+def write_receipt(prefix, data, name=RECEIPT):
+    if name not in RECEIPTS:
+        raise ValueError('Invalid receipt name')
     with tempfile.NamedTemporaryFile(mode='w', dir=prefix, delete=False) as stream:
         temp = Path(stream.name)
         try:
             stream.write(json.dumps(data, indent=2) + '\n')
             stream.close()
-            os.replace(temp, prefix / 'workdesk-install.json')
+            os.replace(temp, prefix / name)
         finally:
             temp.unlink(missing_ok=True)
+
+
+def clean_receipts(prefix, keep):
+    for name in RECEIPTS:
+        if name != keep and (prefix / name).exists():
+            validate_receipt(prefix, json.loads((prefix / name).read_text()))
+            (prefix / name).unlink()
 
 
 def install(root, prefix):
@@ -72,14 +91,13 @@ def install(root, prefix):
         raise ValueError('Unexpected archive executable')
     bindir = prefix / 'bin'
     bindir.mkdir(parents=True, exist_ok=True)
-    receipt = prefix / 'workdesk-install.json'
+    receipt = receipt_file(prefix)
     previous = read_receipt(prefix) if receipt.exists() else None
     owned = set(previous['files']) if previous else set()
     if any((bindir / p.name).exists() and str(bindir / p.name) not in owned for p in binaries):
         raise ValueError('Unowned executable exists; choose a new prefix')
-    backup = prefix / '.workdesk-previous'
+    backup = prefix / BACKUPS[0]
     if previous:
-        # Prepare the complete backup before touching the current installation.
         with tempfile.TemporaryDirectory(dir=prefix) as temp:
             staged = Path(temp)
             for file in previous['files']:
@@ -87,7 +105,8 @@ def install(root, prefix):
                 if not source.is_file():
                     raise ValueError('Previous executable missing; repair installation first')
                 shutil.copy2(source, staged / source.name)
-            shutil.copy2(receipt, staged / 'workdesk-install.json')
+            shutil.copy2(receipt, staged / receipt.name)
+            (staged / 'receipt-name').write_text(receipt.name)
             if backup.exists():
                 shutil.rmtree(backup)
             shutil.copytree(staged, backup)
@@ -97,9 +116,17 @@ def install(root, prefix):
             dest = bindir / source.name
             replace(source, dest)
             installed.append(str(dest))
+        # Existing Agent shims may still execute the old backend filename. Only
+        # an alias already owned by our previous receipt is retained on upgrade.
+        legacy = bindir / 'workdesk-projects'
+        canonical = bindir / 'herdr-work-projects'
+        if str(legacy) in owned and str(canonical) in installed:
+            replace(canonical, legacy)
+            installed.append(str(legacy))
         for file in owned - set(installed):
             Path(file).unlink(missing_ok=True)
         write_receipt(prefix, {'version': manifest['version'], 'sha': manifest['sha'], 'files': installed})
+        clean_receipts(prefix, RECEIPT)
     except Exception:
         if previous:
             rollback(prefix)
@@ -114,24 +141,24 @@ def install(root, prefix):
 
 def rollback(prefix):
     prefix = Path(prefix).expanduser().resolve()
-    backup = prefix / '.workdesk-previous'
-    old = json.loads((backup / 'workdesk-install.json').read_text())
+    backup = next((prefix / name for name in BACKUPS if (prefix / name).exists()), prefix / BACKUPS[0])
+    name = (backup / 'receipt-name').read_text() if (backup / 'receipt-name').exists() else receipt_file(backup).name
+    if name not in RECEIPTS:
+        raise ValueError('Invalid rollback receipt name')
+    old = validate_receipt(prefix, json.loads((backup / name).read_text()))
     current = read_receipt(prefix)
-    # Validate the entire restore before changing either set of executable names.
     for file in old['files']:
         dest = Path(file)
-        if dest.parent != prefix / 'bin' or dest.name not in ALLOWED:
-            raise ValueError('Invalid rollback receipt')
         if not (backup / dest.name).is_file():
             raise ValueError('Rollback executable missing')
         if dest.exists() and file not in current['files']:
             raise ValueError('Unowned executable exists; cannot roll back')
     for file in old['files']:
-        dest = Path(file)
-        replace(backup / dest.name, dest)
+        replace(backup / Path(file).name, Path(file))
     for file in set(current['files']) - set(old['files']):
         Path(file).unlink(missing_ok=True)
-    write_receipt(prefix, old)
+    write_receipt(prefix, old, name)
+    clean_receipts(prefix, name)
 
 
 def uninstall(prefix):
@@ -139,10 +166,15 @@ def uninstall(prefix):
     data = read_receipt(prefix)
     for file in data['files']:
         Path(file).unlink(missing_ok=True)
-    (prefix / 'workdesk-install.json').unlink()
-    backup = prefix / '.workdesk-previous'
-    if backup.exists():
-        shutil.rmtree(backup)
+    for name in RECEIPTS:
+        if (prefix / name).exists():
+            validate_receipt(prefix, json.loads((prefix / name).read_text()))
+            (prefix / name).unlink()
+    for name in BACKUPS:
+        backup = prefix / name
+        if backup.exists():
+            validate_receipt(prefix, json.loads(receipt_file(backup).read_text()))
+            shutil.rmtree(backup)
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-# Workdesk
+# HerdrWork
 
 Herdr Agent 工作台的领域用语。用于架构、规格和任务描述；定义不代表相关能力已实现。
 
