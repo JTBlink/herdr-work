@@ -25,6 +25,12 @@ pub(crate) const MAX_LINES: usize = 5000;
 pub(crate) static LAST_BODY_WIDTH: std::sync::atomic::AtomicU16 =
     std::sync::atomic::AtomicU16::new(80);
 
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ViewState {
+    pub line: usize,
+    pub wrap: bool,
+}
+
 pub struct Doc {
     pub(crate) name: String,
     pub(crate) context: String,
@@ -651,10 +657,6 @@ fn program_in_path(path: &std::ffi::OsStr, cwd: Option<&Path>, name: &str) -> Op
         })
 }
 
-#[cfg(any(feature = "reference-ui", test))]
-pub(crate) fn ffmpeg_on_path() -> Option<PathBuf> {
-    safe_program("ffmpeg", None)
-}
 fn safe_program(name: &str, root: Option<&Path>) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     let cwd = std::env::current_dir()
@@ -985,6 +987,16 @@ pub(crate) fn load_diff(root: &Path, rel: &str, kind: &str) -> Doc {
 }
 
 impl Doc {
+    pub fn view_state(&self) -> ViewState {
+        ViewState {
+            line: self.top_src() + 1,
+            wrap: self.wrap,
+        }
+    }
+    pub fn restore_view_state(&mut self, state: ViewState) {
+        self.wrap = state.wrap;
+        self.goto_line(state.line);
+    }
     pub fn name(&self) -> &str {
         &self.name
     }

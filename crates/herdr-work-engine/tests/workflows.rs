@@ -499,6 +499,273 @@ fn file_history_show_contains_colored_patch_only_for_selected_file() {
 }
 
 #[test]
+fn bulk_git_confirmation_tracks_untracked_bytes_and_respects_nested_ownership() {
+    use herdr_work_engine::WorkGitAction;
+    let (repo, _home, desk) = fixture();
+    std::fs::write(repo.path().join("new.txt"), "first").unwrap();
+    let plan = desk
+        .prepare_work_git(repo.path(), WorkGitAction::StageAll)
+        .unwrap();
+    std::fs::write(repo.path().join("new.txt"), "second").unwrap();
+    assert!(desk.execute_work_git(&plan).is_err());
+    let nested = repo.path().join("inner");
+    std::fs::create_dir(&nested).unwrap();
+    git(&nested, &["init", "-q"]);
+    std::fs::write(nested.join("own.txt"), "nested").unwrap();
+    let plan = desk
+        .prepare_work_git(repo.path(), WorkGitAction::StageAll)
+        .unwrap();
+    desk.execute_work_git(&plan).unwrap();
+    let snapshot = desk.code_snapshot(repo.path(), &[], 1).unwrap();
+    assert!(
+        snapshot
+            .changes
+            .iter()
+            .any(|c| c.staged && c.path == "new.txt")
+    );
+    assert!(
+        !snapshot
+            .changes
+            .iter()
+            .any(|c| c.staged && c.path.starts_with("inner"))
+    );
+    let plan = desk
+        .prepare_explorer_stage(&nested.join("own.txt"))
+        .unwrap();
+    assert_eq!(plan.root, nested.canonicalize().unwrap());
+    desk.execute_work_git(&plan).unwrap();
+    git(
+        &nested,
+        &["diff", "--cached", "--exit-code", "--", "absent"],
+    );
+    assert!(
+        desk.code_snapshot(repo.path(), &[], 2)
+            .unwrap()
+            .changes
+            .iter()
+            .any(|c| c.root == nested.canonicalize().unwrap() && c.staged && c.path == "own.txt")
+    );
+}
+
+#[test]
+fn explorer_staging_literal_path_does_not_stage_a_matching_sibling() {
+    let (repo, _home, desk) = fixture();
+    std::fs::write(repo.path().join("[a].txt"), "literal").unwrap();
+    std::fs::write(repo.path().join("a.txt"), "sibling").unwrap();
+    let plan = desk
+        .prepare_explorer_stage(&repo.path().join("[a].txt"))
+        .unwrap();
+    desk.execute_work_git(&plan).unwrap();
+    let snapshot = desk.code_snapshot(repo.path(), &[], 1).unwrap();
+    assert!(
+        snapshot
+            .changes
+            .iter()
+            .any(|c| c.path == "[a].txt" && c.staged)
+    );
+    assert!(
+        !snapshot
+            .changes
+            .iter()
+            .any(|c| c.path == "a.txt" && c.staged)
+    );
+}
+
+#[test]
+fn confirmed_folder_bulk_stash_and_discard_keep_other_repositories_separate() {
+    use herdr_work_engine::WorkGitAction as A;
+    let (repo, _home, desk) = fixture();
+    std::fs::create_dir(repo.path().join("dir")).unwrap();
+    std::fs::write(repo.path().join("dir/new.txt"), "untracked").unwrap();
+    let apply = |action| {
+        let plan = desk.prepare_work_git(repo.path(), action).unwrap();
+        desk.execute_work_git(&plan).unwrap()
+    };
+    apply(A::StageUnder("dir".into()));
+    let snapshot = desk.code_snapshot(repo.path(), &[], 1).unwrap();
+    assert!(
+        snapshot
+            .changes
+            .iter()
+            .any(|c| c.path == "dir/new.txt" && c.staged)
+    );
+    assert!(
+        !snapshot
+            .changes
+            .iter()
+            .any(|c| c.path == "file.txt" && c.staged)
+    );
+    apply(A::UnstageUnder("dir".into()));
+    apply(A::Stash);
+    assert!(!repo.path().join("dir/new.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("file.txt")).unwrap(),
+        "before\n"
+    );
+    git(repo.path(), &["stash", "pop", "-q"]);
+    apply(A::Discard("dir/new.txt".into()));
+    assert!(!repo.path().join("dir/new.txt").exists());
+    apply(A::StageAll);
+    apply(A::UnstageAll);
+    apply(A::DiscardAll);
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("file.txt")).unwrap(),
+        "before\n"
+    );
+}
+
+#[test]
+fn branch_delete_requires_a_second_force_plan_and_explicit_reconciliation_does_not_retry() {
+    use herdr_work_engine::{WorkGitAction as A, WorkGitOutcome};
+    let (repo, _home, desk) = fixture();
+    git(repo.path(), &["checkout", "-qb", "topic"]);
+    std::fs::write(repo.path().join("topic.txt"), "topic").unwrap();
+    git(repo.path(), &["add", "topic.txt"]);
+    git(repo.path(), &["commit", "-qm", "topic"]);
+    git(repo.path(), &["checkout", "-q", "-"]);
+    assert!(
+        desk.prepare_work_git(repo.path(), A::ForceDeleteBranch("topic".into()))
+            .is_err()
+    );
+    let plan = desk
+        .prepare_work_git(repo.path(), A::DeleteBranch("topic".into()))
+        .unwrap();
+    let WorkGitOutcome::DeleteNotMerged(force) = desk.execute_work_git(&plan).unwrap() else {
+        panic!("unmerged branch was deleted without a second confirmation")
+    };
+    git(repo.path(), &["rev-parse", "--verify", "refs/heads/topic"]);
+    desk.execute_work_git(&force).unwrap();
+    let plan = desk
+        .prepare_work_git(repo.path(), A::CreateBranch("bad..name".into()))
+        .unwrap();
+    assert!(desk.execute_work_git(&plan).is_err());
+    assert!(
+        desk.execute_work_git(&plan)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("未知")
+    );
+    let records = desk.git_reconciliation().unwrap();
+    let operation = records["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["record"]["state"] == "unknown")
+        .unwrap();
+    assert!(operation["record"]["observed"]["head"].is_string());
+    desk.resolve_operation(
+        operation["operation"].as_str().unwrap(),
+        "Checked HEAD and refs; invalid branch was not created",
+    )
+    .unwrap();
+    assert_eq!(
+        desk.git_reconciliation().unwrap()["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|o| o["record"]["state"] == "unknown")
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn remote_branch_checkout_establishes_tracking_and_sync_pushes_the_active_repository() {
+    use herdr_work_engine::WorkGitAction as A;
+    let (repo, _home, desk) = fixture();
+    let remote = tempfile::tempdir().unwrap();
+    git(remote.path(), &["init", "--bare", "-q"]);
+    git(
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    git(repo.path(), &["push", "-qu", "origin", "HEAD"]);
+    git(repo.path(), &["branch", "remote-topic"]);
+    git(repo.path(), &["push", "-q", "origin", "remote-topic"]);
+    git(repo.path(), &["branch", "-D", "remote-topic"]);
+    let plan = desk
+        .prepare_branch_checkout(repo.path(), "origin/remote-topic")
+        .unwrap();
+    desk.execute_work_git(&plan).unwrap();
+    let snapshot = desk.code_snapshot(repo.path(), &[], 1).unwrap();
+    assert_eq!(snapshot.repositories[0].branch, "remote-topic");
+    assert!(snapshot.repositories[0].has_upstream);
+    git(repo.path(), &["commit", "--allow-empty", "-qm", "ahead"]);
+    assert_eq!(
+        desk.code_snapshot(repo.path(), &[], 2)
+            .unwrap()
+            .repositories[0]
+            .ahead,
+        1
+    );
+    let plan = desk.prepare_work_git(repo.path(), A::Sync).unwrap();
+    desk.execute_work_git(&plan).unwrap();
+    assert_eq!(
+        desk.code_snapshot(repo.path(), &[], 3)
+            .unwrap()
+            .repositories[0]
+            .ahead,
+        0
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("file.txt")).unwrap(),
+        "after\n"
+    );
+    let plan = desk
+        .prepare_work_git(repo.path(), A::CreateBranch("new-local".into()))
+        .unwrap();
+    desk.execute_work_git(&plan).unwrap();
+    assert!(desk.prepare_work_git(repo.path(), A::Sync).is_err());
+}
+
+#[test]
+fn commit_confirmation_binds_the_branch_even_when_the_head_oid_is_identical() {
+    let (repo, _home, desk) = fixture();
+    git(repo.path(), &["add", "file.txt"]);
+    let plan = desk.prepare_commit(repo.path()).unwrap();
+    git(repo.path(), &["checkout", "-qb", "other-same-head"]);
+    assert!(
+        desk.commit(&plan, "must not commit on a different branch")
+            .is_err()
+    );
+    assert!(desk.prepare_commit(repo.path()).is_ok());
+}
+
+#[test]
+fn folder_stage_and_unstage_keep_both_sides_of_a_detected_rename_together() {
+    use herdr_work_engine::WorkGitAction as A;
+    let (repo, _home, desk) = fixture();
+    std::fs::write(repo.path().join("file.txt"), "before\n").unwrap();
+    std::fs::create_dir(repo.path().join("target")).unwrap();
+    std::fs::rename(
+        repo.path().join("file.txt"),
+        repo.path().join("target/file.txt"),
+    )
+    .unwrap();
+    git(repo.path(), &["add", "-N", "target/file.txt"]);
+    let plan = desk
+        .prepare_work_git(repo.path(), A::StageUnder("target".into()))
+        .unwrap();
+    desk.execute_work_git(&plan).unwrap();
+    let snapshot = desk.code_snapshot(repo.path(), &[], 1).unwrap();
+    assert_eq!(snapshot.changes.len(), 1);
+    assert!(snapshot.changes[0].staged);
+    assert_eq!(snapshot.changes[0].original.as_deref(), Some("file.txt"));
+    let plan = desk
+        .prepare_work_git(repo.path(), A::UnstageUnder("target".into()))
+        .unwrap();
+    desk.execute_work_git(&plan).unwrap();
+    assert!(
+        desk.code_snapshot(repo.path(), &[], 2)
+            .unwrap()
+            .changes
+            .iter()
+            .all(|c| !c.staged)
+    );
+}
+
+#[test]
 fn readonly_preview_uses_source_highlight_and_bounds_large_text() {
     let (repo, _home, desk) = fixture();
     std::fs::write(

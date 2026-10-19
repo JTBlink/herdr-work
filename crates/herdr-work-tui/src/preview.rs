@@ -322,7 +322,8 @@ impl App {
         }
     }
     /// Central tick drains ordered clipboard results; rendering never writes stdout.
-    pub(crate) fn tick_preview(&mut self) {
+    pub(crate) fn tick_preview(&mut self) -> bool {
+        let before = self.status.clone();
         if let Err(error) = self.dispatch_preview() {
             self.status = error.to_string();
         }
@@ -343,6 +344,7 @@ impl App {
                 };
             }
         }
+        self.status != before
     }
     pub(crate) fn clear_previews(&mut self) {
         self.preview_loading = None;

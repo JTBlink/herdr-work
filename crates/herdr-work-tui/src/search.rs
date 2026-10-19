@@ -143,6 +143,19 @@ impl App {
             .clone();
         self.open_preview(row.path, Some(row.line))
     }
+    pub(crate) fn search_regions(&self, area: Rect) -> (Rect, Rect) {
+        let inner = self.sidebar_block(String::new()).inner(area);
+        let height = inner.height.min(if self.search_quick { 1 } else { 4 });
+        (
+            Rect::new(inner.x, inner.y, inner.width, height),
+            Rect::new(
+                inner.x,
+                inner.y + height,
+                inner.width,
+                inner.height.saturating_sub(height),
+            ),
+        )
+    }
     pub(crate) fn draw_search_sidebar(&self, f: &mut Frame, area: Rect) {
         let block = self.sidebar_block(
             if self.search_quick {
@@ -152,7 +165,7 @@ impl App {
             }
             .into(),
         );
-        let inner = block.inner(area);
+        let (header_area, body) = self.search_regions(area);
         f.render_widget(block, area);
         let options = self.search_options;
         let header = format!(
@@ -172,17 +185,12 @@ impl App {
             self.search_include,
             self.search_exclude
         );
-        let height = inner.height.min(4);
-        f.render_widget(
-            Paragraph::new(header),
-            Rect::new(inner.x, inner.y, inner.width, height),
-        );
-        let body = Rect::new(
-            inner.x,
-            inner.y + height,
-            inner.width,
-            inner.height.saturating_sub(height),
-        );
+        let header = if self.search_quick {
+            header.lines().next().unwrap_or_default().to_string()
+        } else {
+            header
+        };
+        f.render_widget(Paragraph::new(header), header_area);
         let hint = match &self.search_state {
             LoadState::Loading => Some("正在搜索…".to_string()),
             LoadState::Failed(e) => Some(format!("搜索失败：{e}")),
