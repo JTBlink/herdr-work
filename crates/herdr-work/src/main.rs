@@ -57,11 +57,17 @@ fn run() -> Result<()> {
     if matches!(&cli.command, Some(Command::ProfilePath)) {
         return print(&serde_json::json!({"profile":root}));
     }
+    if matches!(&cli.command, Some(Command::SidebarEnsure)) {
+        return print(&HerdrWork::ensure_sidebar(&root)?);
+    }
     if let Some(Command::Activate {
         action,
         root: worktree,
     }) = &cli.command
     {
+        if action == "toggle" {
+            return print(&HerdrWork::toggle_sidebar(&root, worktree.as_deref())?);
+        }
         let view = match action.as_str() {
             "show-explorer" => herdr_work_tui::InitialView::Explorer,
             "show-search" => herdr_work_tui::InitialView::Search,
@@ -105,11 +111,22 @@ fn run() -> Result<()> {
             Some(value) => {
                 herdr_work_tui::InitialView::from_env_value(value).context("无效的初始活动")?
             }
-            None => herdr_work_tui::InitialView::Explorer,
+            None => return print(&HerdrWork::resume_sidebar(&root, worktree.as_deref())?),
         };
         return print(&HerdrWork::activate(&root, worktree.as_deref(), view)?);
     }
-    let desk = HerdrWork::open(&root, cli.projects_backend)?;
+    let source_sidebar = matches!(
+        &command,
+        Command::Ui {
+            standalone: false,
+            ..
+        } | Command::Ui { sidebar: true, .. }
+    );
+    let desk = if source_sidebar {
+        HerdrWork::open_sidebar(&root, cli.projects_backend)?
+    } else {
+        HerdrWork::open(&root, cli.projects_backend)?
+    };
     match command {
         Command::Ui {
             root,
@@ -134,7 +151,7 @@ fn run() -> Result<()> {
                 .unwrap_or(std::env::current_dir()?);
             herdr_work_tui::run_with_mode(desk, root, initial, sidebar || !standalone)
         }
-        Command::SidebarViewer { .. } | Command::SidebarEditor => {
+        Command::SidebarViewer { .. } | Command::SidebarEditor | Command::SidebarEnsure => {
             unreachable!("internal viewer is dispatched before the profile lock")
         }
         Command::Activate { .. } => {

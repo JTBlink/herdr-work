@@ -14,7 +14,7 @@ mod tasks;
 mod ui_state;
 mod work_git;
 
-pub use activation::{ActivationRequest, InitialView, UiRegistration};
+pub use activation::{ActivationRequest, InitialView, SidebarOpen, UiRegistration};
 pub use code::{CodeSnapshot, CommitPlan, DiffView, FileRow, GitChange, RepositoryStatus};
 pub use editing::{EditorExternalObservation, EditorExternalRequest, EditorSession};
 pub use files::FilePlan;
@@ -91,10 +91,21 @@ impl HerdrWork {
     }
 
     pub fn open(root: &Path, backend: Option<PathBuf>) -> Result<Self> {
+        Self::open_mode(root, backend, false)
+    }
+    /// Source Sidebar state uses its own per-file locks, one UI per host pane.
+    pub fn open_sidebar(root: &Path, backend: Option<PathBuf>) -> Result<Self> {
+        Self::open_mode(root, backend, true)
+    }
+    fn open_mode(root: &Path, backend: Option<PathBuf>, sidebar: bool) -> Result<Self> {
         let absolute = std::path::absolute(root)?;
         std::fs::create_dir_all(&absolute)?;
         let root = absolute.canonicalize()?;
-        let lock = profile::profile_lock(&root)?;
+        let lock = if sidebar {
+            profile::sidebar_lock(&root)?
+        } else {
+            profile::profile_lock(&root)?
+        };
         let backend = backend.unwrap_or_else(|| {
             std::env::current_exe()
                 .unwrap_or_default()
@@ -109,7 +120,9 @@ impl HerdrWork {
             backend,
             _lock: lock,
         }));
-        desk.recover_reviews()?;
+        if !sidebar {
+            desk.recover_reviews()?;
+        }
         Ok(desk)
     }
     pub fn root(&self) -> &Path {

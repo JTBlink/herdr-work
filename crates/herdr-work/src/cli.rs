@@ -25,6 +25,8 @@ pub(crate) enum Command {
     SidebarViewer { control: Option<PathBuf> },
     #[command(hide = true)]
     SidebarEditor,
+    #[command(hide = true)]
+    SidebarEnsure,
 
     /// 启动终端界面，默认浏览当前目录
     Ui {
@@ -42,7 +44,7 @@ pub(crate) enum Command {
     },
     /// 通过 Herdr 宿主打开或聚焦自有工作台活动
     Activate {
-        #[arg(value_parser = ["show-explorer", "show-search", "show-git", "quick-open"])]
+        #[arg(value_parser = ["show-explorer", "show-search", "show-git", "quick-open", "toggle"])]
         /// 自有活动入口
         action: String,
         #[arg(long)]

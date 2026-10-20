@@ -361,13 +361,12 @@ impl PaneCtl {
         ) else {
             return;
         };
-        let _ = herdr_work_code::ipc::call_text(
-            "pane.resize",
-            serde_json::json!({
-                "pane_id": self.pane_id,
-                "direction": step.direction,
-                "amount": step.amount,
-            }),
+        herdr_work_code::ipc::resize_sidebar(
+            &layout,
+            &self.pane_id,
+            dock_right,
+            step.direction,
+            step.amount,
         );
     }
 
@@ -387,13 +386,12 @@ impl PaneCtl {
         ) else {
             return;
         };
-        let _ = herdr_work_code::ipc::call_text(
-            "pane.resize",
-            serde_json::json!({
-                "pane_id": self.pane_id,
-                "direction": step.direction,
-                "amount": step.amount,
-            }),
+        herdr_work_code::ipc::resize_sidebar(
+            &layout,
+            &self.pane_id,
+            dock_right,
+            step.direction,
+            step.amount,
         );
     }
 

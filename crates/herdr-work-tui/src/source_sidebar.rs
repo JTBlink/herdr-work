@@ -28,82 +28,98 @@ pub(crate) fn run(desk: HerdrWork, root: PathBuf, initial: Option<InitialView>) 
             Ok(HostResult::Report(desk.report_ui(&registration)))
         })?;
     }
-    let mut sidebar = herdr_work_code::sidebar_component::Sidebar::new(root, initial);
+    crossterm::style::force_color_output(true);
     let mut terminal = ratatui::init();
     let _guard = crate::TerminalGuard;
     execute!(std::io::stdout(), EnableMouseCapture)?;
+    let saved = herdr_work_code::state::load_state();
+    let view = initial.map_or(saved.active, |view| {
+        if view == InitialView::Git {
+            herdr_work_code::state::View::SourceControl
+        } else {
+            herdr_work_code::state::View::Explorer
+        }
+    });
+    herdr_work_code::fontsetup::maybe_prompt(&mut terminal, view, saved.merged)?;
+    let mut sidebar = herdr_work_code::sidebar_component::Sidebar::new(root, initial);
+
     let mut last_poll = Instant::now();
     let mut last_recovery = Instant::now() - Duration::from_secs(3);
     let mut pending = false;
     let mut seen = None;
-    loop {
-        while let Ok((_, result)) = jobs.results.try_recv() {
-            match result {
-                Ok(HostResult::Report(Err(error))) => {
-                    sidebar.notice(format!("宿主身份登记失败：{error:#}"))
-                }
-                Ok(HostResult::Report(Ok(()))) => {}
-                Ok(HostResult::Activation(result)) => {
-                    pending = false;
-                    match result {
-                        Ok(Some(request)) => {
-                            seen = Some(request.nonce);
-                            sidebar.activate(&request.root, request.view);
-                        }
-                        Err(error) => sidebar.notice(format!("活动读取失败：{error:#}")),
-                        _ => {}
+    let result: Result<()> = (|| {
+        loop {
+            while let Ok((_, result)) = jobs.results.try_recv() {
+                match result {
+                    Ok(HostResult::Report(Err(error))) => {
+                        sidebar.notice(format!("宿主身份登记失败：{error:#}"))
                     }
+                    Ok(HostResult::Report(Ok(()))) => {}
+                    Ok(HostResult::Activation(result)) => {
+                        pending = false;
+                        match result {
+                            Ok(Some(request)) => {
+                                seen = Some(request.nonce);
+                                sidebar.activate(&request.root, request.view);
+                            }
+                            Err(error) => sidebar.notice(format!("活动读取失败：{error:#}")),
+                            _ => {}
+                        }
+                    }
+                    Ok(HostResult::Recovery(Err(error))) => {
+                        sidebar.notice(format!("布局恢复未完成：{error}"))
+                    }
+                    Ok(HostResult::Recovery(Ok(()))) => {}
+                    Err(error) => sidebar.notice(error.to_string()),
                 }
-                Ok(HostResult::Recovery(Err(error))) => {
-                    sidebar.notice(format!("布局恢复未完成：{error}"))
-                }
-                Ok(HostResult::Recovery(Ok(()))) => {}
-                Err(error) => sidebar.notice(error.to_string()),
             }
-        }
-        terminal.draw(|frame| sidebar.draw(frame))?;
-        if event::poll(Duration::from_millis(100))? {
-            let event = event::read()?;
-            if matches!(event, Event::Key(_) | Event::Mouse(_) | Event::Resize(..))
-                && sidebar.event(event)
+            terminal.draw(|frame| sidebar.draw(frame))?;
+            if event::poll(Duration::from_millis(100))? {
+                let event = event::read()?;
+                if matches!(event, Event::Key(_) | Event::Mouse(_) | Event::Resize(..))
+                    && sidebar.event(event)
+                {
+                    break;
+                }
+            }
+            sidebar.tick();
+            if registration.is_some()
+                && last_recovery.elapsed() >= Duration::from_secs(2)
+                && let Ok(tab) = std::env::var("HERDR_TAB_ID")
+                && jobs
+                    .submit(0, move || {
+                        Ok(HostResult::Recovery(
+                            herdr_work_code::takeover::recover_owned_session(&tab),
+                        ))
+                    })
+                    .is_ok()
             {
-                break;
+                last_recovery = Instant::now();
             }
-        }
-        sidebar.tick();
-        if registration.is_some()
-            && last_recovery.elapsed() >= Duration::from_secs(2)
-            && let Ok(tab) = std::env::var("HERDR_TAB_ID")
-            && jobs
-                .submit(0, move || {
-                    Ok(HostResult::Recovery(
-                        herdr_work_code::takeover::recover_owned_session(&tab),
-                    ))
-                })
-                .is_ok()
-        {
-            last_recovery = Instant::now();
-        }
 
-        if !pending
-            && last_poll.elapsed() >= Duration::from_millis(500)
-            && let Some(registration) = registration.clone()
-        {
-            let desk = desk.clone();
-            let seen = seen.clone();
-            if jobs
-                .submit(0, move || {
-                    Ok(HostResult::Activation(
-                        desk.pending_activation(&registration, seen.as_deref()),
-                    ))
-                })
-                .is_ok()
+            if !pending
+                && last_poll.elapsed() >= Duration::from_millis(500)
+                && let Some(registration) = registration.clone()
             {
-                pending = true;
-                last_poll = Instant::now();
+                let desk = desk.clone();
+                let seen = seen.clone();
+                if jobs
+                    .submit(0, move || {
+                        Ok(HostResult::Activation(
+                            desk.pending_activation(&registration, seen.as_deref()),
+                        ))
+                    })
+                    .is_ok()
+                {
+                    pending = true;
+                    last_poll = Instant::now();
+                }
             }
         }
-    }
-    sidebar.flush();
+        Ok(())
+    })();
+    let saved = sidebar.flush();
+    result?;
+    anyhow::ensure!(saved, "Sidebar 状态保存失败");
     Ok(())
 }

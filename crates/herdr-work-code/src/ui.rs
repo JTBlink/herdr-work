@@ -751,8 +751,9 @@ pub fn draw_activity_badge(
     } else {
         count.to_string()
     };
-    let x = bounds.0.saturating_add(2);
-    let width = (text.len() as u16).min(frame.area().right().saturating_sub(x));
+    let right = bounds.1.min(frame.area().right());
+    let width = (text.len() as u16).min(right.saturating_sub(bounds.0));
+    let x = right.saturating_sub(width);
     if width == 0 {
         return;
     }

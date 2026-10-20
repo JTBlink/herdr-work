@@ -39,10 +39,15 @@ impl Sidebar {
         } else {
             InitialView::Explorer
         });
+        let startup_label = crate::root_memory::workspace_label();
+        let spawn_cwd = root;
+        let key = crate::root_memory::remembered_root_key(&startup_label, &spawn_cwd);
+        let root = crate::root_memory::resolve_root(&key, &startup_label, &spawn_cwd)
+            .unwrap_or_else(|_| spawn_cwd.clone());
         let roots = crate::root_memory::RootMemory {
             root: root.clone(),
-            startup_label: crate::root_memory::workspace_label(),
-            spawn_cwd: root.clone(),
+            startup_label,
+            spawn_cwd,
             pending: false,
             last_attempt: None,
         };
@@ -58,6 +63,14 @@ impl Sidebar {
         sidebar
     }
     fn build(root: PathBuf, initial: InitialView, follower: Rc<RefCell<CwdFollower>>) -> ViewApp {
+        state::update_state(|saved| {
+            saved.active = if initial == InitialView::Git {
+                View::SourceControl
+            } else {
+                View::Explorer
+            };
+            saved.search_active = initial == InitialView::Search;
+        });
         match initial {
             InitialView::Git => ViewApp::Git(Box::new(scm_app::App::new(root, follower))),
             _ => {

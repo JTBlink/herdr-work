@@ -54,3 +54,35 @@ command = ["bin/herdr-work", "activate", "show-git"]
 id = "quick-open"
 title = "HerdrWork Quick Open"
 command = ["bin/herdr-work", "activate", "quick-open"]
+
+[[actions]]
+id = "toggle"
+title = "Toggle HerdrWork Sidebar"
+command = ["bin/herdr-work", "activate", "toggle"]
+
+[[startup]]
+command = ["bin/herdr-work", "sidebar-ensure"]
+
+[[events]]
+on = "tab.created"
+command = ["bin/herdr-work", "sidebar-ensure"]
+
+[[events]]
+on = "workspace.created"
+command = ["bin/herdr-work", "sidebar-ensure"]
+
+[[events]]
+on = "pane.focused"
+command = ["bin/herdr-work", "sidebar-ensure"]
+
+[[events]]
+on = "tab.focused"
+command = ["bin/herdr-work", "sidebar-ensure"]
+
+[[events]]
+on = "workspace.focused"
+command = ["bin/herdr-work", "sidebar-ensure"]
+
+[[events]]
+on = "pane.closed"
+command = ["bin/herdr-work", "sidebar-ensure"]

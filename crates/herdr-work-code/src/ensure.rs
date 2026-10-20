@@ -516,21 +516,7 @@ pub fn run(mode: Mode) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn request_close(panes_json: &str, pane_id: &str) -> std::io::Result<()> {
-    if launch::pane_is_starting(panes_json, pane_id) {
-        // No TUI event loop or in-memory draft exists yet.
-        ipc::call_text("pane.close", serde_json::json!({ "pane_id": pane_id }))?;
-    } else {
-        // Ctrl+Q is handled before overlays/focus modes. The TUI persists any
-        // Source Control draft and closes its own pane; this launcher does not
-        // poll for an acknowledgement.
-        ipc::call_text(
-            "pane.send_input",
-            serde_json::json!({ "pane_id": pane_id, "text": "", "keys": ["ctrl+q"] }),
-        )?;
-    }
-    Ok(())
-}
+pub use crate::pane_close::request_close;
 
 fn replace_backoff_path(dir: &Path, scope: &str, view: View) -> PathBuf {
     let hash = view

@@ -81,3 +81,11 @@ macOS 本地验证使用临时 Unix socket 运行真实 CLI，覆盖资料锁占
 将 `scm_app` 的仓库标题、带边框提交框、三行提交按钮和变高行视口机械移动到 `scm_widgets`，来源 App 改为适配调用。HerdrWork 的 `scm_layout` 只适配快照、草稿和可见矩形，侧栏直接使用同一组 widgets，消息框不再简化成单行文字。中文/换行的列宽修正在共享 `wrap_message` 中，两端共用；鼠标按可见行高命中，提交按钮上下装饰行也指向对应仓库。
 
 活动栏的文件、搜索、Git 与设置图标直接调用原 `activity_icons`/`gear_icon` 表；任务、审查沿用同族扩展。未显式选择图标主题时默认 auto，复用原 Nerd Font 探测；明确保存的 Emoji/Material 不会被覆盖，不读取独立 Sidebar 设置或修改终端字体。
+
+## 默认 Sidebar 与自有生命周期补齐（2026-10-20）
+
+本节替代前述“生产不启用 launch/原 App”“不运行 pane 自动补建”的阶段说明。默认入口由 `sidebar_component` 托管迁入的 Explorer/SCM App，`source_sidebar` 提供唯一终端与输入循环；来源 `root_memory`、`fontsetup`、`launch` 的 cwd/事件范围/切换判断，以及 `snooze` 和 takeover 均参与产品构建。独立插件的 ensure、升级及旧目录兼容仍只保留于 reference-ui，不参与产品生命周期。
+
+从原 ensure 机械移出 `request_close` 至 `pane_close`，两入口共用 Ctrl+Q 关闭与草稿保护；产品 Engine 自有 activation 负责 profile/前台程序核验、每标签页实例、自动打开、严格切换和焦点偏好。自动入口与来源 takeover 使用相同 profile 布局锁，UI 实例锁按 socket/pane 隔离；业务存储锁继续独立保留。设置字段及根目录记忆只读取 HerdrWork 的 `sidebar/`。
+
+接管前按独立插件 metadata/前台程序识别受保护 pane，只停车不包含它们的最大自有子树；无安全工作区域时走来源 Tab 预览。viewer 自身分栏，不借独立插件的邻接 pane 分栏。产品收窄列宽改从内侧工作 pane 移动分隔线，来源 resize 适配同一纯几何 helper 并保留原焦点；避免宿主选择外侧插件分隔线。原 takeover journal、身份核验、恢复与失效处理继续复用，相关来源测试保留。
