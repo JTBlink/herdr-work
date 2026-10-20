@@ -179,6 +179,29 @@ fn context_value() -> Option<Value> {
     }
     serde_json::from_str(&text).ok()
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SidebarOpen {
+    Show,
+    Toggle,
+    Ensure,
+}
+fn sidebar_settings(profile: &Path) -> herdr_work_code::state::State {
+    std::fs::read_to_string(profile.join("sidebar/state.json"))
+        .ok()
+        .map(|s| herdr_work_code::state::parse_state(&s))
+        .unwrap_or_default()
+}
+fn saved_view(profile: &Path) -> InitialView {
+    let saved = sidebar_settings(profile);
+    if saved.active == herdr_work_code::state::View::SourceControl {
+        InitialView::Git
+    } else if saved.search_active {
+        InitialView::Search
+    } else {
+        InitialView::Explorer
+    }
+}
+
 impl HerdrWork {
     /// Dispatched before opening/locking the profile. Never starts a UI process itself.
     pub fn activate(
@@ -186,11 +209,34 @@ impl HerdrWork {
         explicit_root: Option<&Path>,
         view: InitialView,
     ) -> Result<Value> {
+        Self::activate_sidebar(profile, explicit_root, view, SidebarOpen::Show)
+    }
+    pub fn resume_sidebar(profile: &Path, root: Option<&Path>) -> Result<Value> {
+        Self::activate(profile, root, saved_view(profile))
+    }
+    pub fn ensure_sidebar(profile: &Path) -> Result<Value> {
+        Self::activate_sidebar(profile, None, saved_view(profile), SidebarOpen::Ensure)
+    }
+    pub fn toggle_sidebar(profile: &Path, root: Option<&Path>) -> Result<Value> {
+        Self::activate_sidebar(profile, root, saved_view(profile), SidebarOpen::Toggle)
+    }
+    pub fn activate_sidebar(
+        profile: &Path,
+        explicit_root: Option<&Path>,
+        view: InitialView,
+        mode: SidebarOpen,
+    ) -> Result<Value> {
+        let settings = sidebar_settings(profile);
+        if mode == SidebarOpen::Ensure
+            && (!settings.auto_open || std::env::var_os("HERDR_SOCKET_PATH").is_none())
+        {
+            return Ok(json!({"action":"disabled"}));
+        }
         let socket = PathBuf::from(
             std::env::var_os("HERDR_SOCKET_PATH").context("此入口需要 Herdr 宿主连接")?,
         );
         let context = context_value();
-        let root = explicit_root
+        let mut root = explicit_root
             .map(Path::to_path_buf)
             .or_else(|| {
                 context
@@ -209,15 +255,110 @@ impl HerdrWork {
             .create(true)
             .truncate(false)
             .open(profile.join("activate.lock"))?;
-        lock.try_lock_exclusive()
-            .context("HerdrWork 活动入口正在处理中，请稍后重试")?;
+        if let Err(error) = lock.try_lock_exclusive() {
+            if mode == SidebarOpen::Ensure {
+                return Ok(json!({"action":"busy"}));
+            }
+            return Err(error).context("HerdrWork 活动入口正在处理中，请稍后重试");
+        }
+        // Focus hooks must yield while takeover parks/restores working panes.
+        let _layout_lock = match herdr_work_code::pane_lock::LaunchLock::acquire_profile(
+            &profile,
+            mode != SidebarOpen::Ensure,
+        ) {
+            Some(lock) => lock,
+            None if mode == SidebarOpen::Ensure => return Ok(json!({"action":"busy"})),
+            None => anyhow::bail!("无法锁定 HerdrWork 侧栏布局"),
+        };
         let token = profile_token(&profile);
         let binary = std::env::current_exe()?.canonicalize()?;
         let list = rpc(&socket, "pane.list", json!({}))?;
         let panes = list["panes"].as_array().context("宿主未返回窗格列表")?;
+        let raw_list = json!({"result":list}).to_string();
+        let event = std::env::var("HERDR_PLUGIN_EVENT_JSON").unwrap_or_default();
+        let event_scope = herdr_work_code::launch::event_scope_with_tab_context(
+            &event,
+            &raw_list,
+            &std::env::var("HERDR_TAB_ID").unwrap_or_default(),
+        );
+        let quiet_target = (mode == SidebarOpen::Ensure && !event_scope.is_empty()).then(|| {
+            herdr_work_code::launch::focused_pane_in(&raw_list, &event_scope)
+                .split('\t')
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        });
+        let context_tab = context.as_ref().and_then(|v| {
+            v["tab_id"]
+                .as_str()
+                .or_else(|| v["focused_tab_id"].as_str())
+        });
+        let in_context =
+            |p: &&Value| context_tab.is_none_or(|tab| p["tab_id"].as_str() == Some(tab));
+        let valid_target = |id: &String| {
+            panes
+                .iter()
+                .filter(in_context)
+                .any(|p| p["pane_id"].as_str() == Some(id))
+        };
+        let requested_target = quiet_target
+            .or_else(|| {
+                context
+                    .as_ref()
+                    .and_then(|v| {
+                        v["focused_pane_id"]
+                            .as_str()
+                            .or_else(|| v["pane_id"].as_str())
+                    })
+                    .map(str::to_owned)
+            })
+            .filter(valid_target)
+            .or_else(|| std::env::var("HERDR_PANE_ID").ok().filter(valid_target))
+            .or_else(|| {
+                panes
+                    .iter()
+                    .filter(in_context)
+                    .find(|p| p["focused"].as_bool() == Some(true))
+                    .and_then(|p| p["pane_id"].as_str())
+                    .map(str::to_owned)
+            })
+            .or_else(|| {
+                context_tab.and_then(|_| {
+                    panes
+                        .iter()
+                        .filter(in_context)
+                        .find_map(|p| p["pane_id"].as_str().map(str::to_owned))
+                })
+            });
+        let target_tab = requested_target
+            .as_ref()
+            .and_then(|id| panes.iter().find(|p| p["pane_id"].as_str() == Some(id)))
+            .and_then(|p| p["tab_id"].as_str())
+            .or(context_tab);
+        // Resolve the project from the invoking pane before considering reuse.
+        // Action processes run from the plugin directory, which is not a project.
+        if explicit_root.is_none()
+            && let Some(cwd) = requested_target
+                .as_ref()
+                .and_then(|id| panes.iter().find(|p| p["pane_id"].as_str() == Some(id)))
+                .and_then(|p| p["foreground_cwd"].as_str().or_else(|| p["cwd"].as_str()))
+                .and_then(|p| Path::new(p).canonicalize().ok())
+                .filter(|p| p.is_dir())
+        {
+            root = cwd;
+        }
+        let snooze_dir = profile.join("sidebar/snooze");
+        if mode == SidebarOpen::Ensure
+            && target_tab.is_some_and(|tab| herdr_work_code::snooze::is_set(&snooze_dir, tab))
+        {
+            return Ok(json!({"action":"hidden"}));
+        }
         let own: Vec<_> = panes
             .iter()
-            .filter(|p| p["tokens"][PROFILE_TOKEN].as_str() == Some(token.as_str()))
+            .filter(|p| {
+                p["tokens"][PROFILE_TOKEN].as_str() == Some(token.as_str())
+                    && target_tab.is_none_or(|tab| p["tab_id"].as_str() == Some(tab))
+            })
             .collect();
         let mut verified = vec![];
         for pane in &own {
@@ -245,6 +386,47 @@ impl HerdrWork {
             "此资料目录存在多个自有工作台，请先明确活动实例"
         );
         if let Some((pane, instance)) = verified.pop() {
+            if mode == SidebarOpen::Ensure {
+                return Ok(json!({"action":"kept","pane_id":pane}));
+            }
+            if mode == SidebarOpen::Toggle {
+                let focused = own.iter().any(|p| {
+                    p["pane_id"].as_str() == Some(&pane) && p["focused"].as_bool() == Some(true)
+                });
+                let decision = format!("{} {pane}", if focused { "CLOSE" } else { "FOCUS" });
+                let decision = if settings.strict_toggle {
+                    herdr_work_code::launch::focus_as_close(&decision)
+                } else {
+                    decision
+                };
+                if decision.starts_with("CLOSE ") {
+                    if let Some(tab) = target_tab {
+                        herdr_work_code::snooze::set(&snooze_dir, tab)?;
+                    }
+                    if let Err(error) = herdr_work_code::pane_close::request_close(&raw_list, &pane)
+                    {
+                        if let Some(tab) = target_tab {
+                            let _ = herdr_work_code::snooze::clear(&snooze_dir, tab);
+                        }
+                        return Err(error.into());
+                    }
+                    return Ok(json!({"action":"closing","pane_id":pane}));
+                }
+                // A focus-only toggle must preserve the live view and inputs.
+                rpc(&socket, "pane.focus", json!({"pane_id":pane}))?;
+                return Ok(json!({"action":"focused","pane_id":pane}));
+            }
+            if explicit_root.is_none()
+                && let Some(cwd) = own
+                    .iter()
+                    .find(|p| p["pane_id"].as_str() == Some(&pane))
+                    .and_then(|p| p["foreground_cwd"].as_str().or_else(|| p["cwd"].as_str()))
+                    .and_then(|path| Path::new(path).canonicalize().ok())
+                    .filter(|p| p.is_dir())
+            {
+                root = cwd;
+            }
+
             let request = ActivationRequest {
                 nonce: nonce(),
                 pane: pane.clone(),
@@ -259,32 +441,76 @@ impl HerdrWork {
                 json!({"action":"focused","pane_id":pane,"view":view,"request":request.nonce}),
             );
         }
+        if mode == SidebarOpen::Ensure && !own.is_empty() {
+            return Ok(json!({"action":"pending"}));
+        }
         ensure!(
             own.is_empty(),
             "自有窗格尚未就绪或前台身份无法核实；保留当前窗格，请稍后重试"
         );
-        drop(
-            crate::profile::profile_lock(&profile)
-                .context("资料目录正被使用，但宿主没有可核实的自有工作台")?,
-        );
-        let target = context
-            .as_ref()
-            .and_then(|v| v["focused_pane_id"].as_str())
-            .or_else(|| context.as_ref().and_then(|v| v["pane_id"].as_str()))
-            .map(str::to_owned)
-            .or_else(|| std::env::var("HERDR_PANE_ID").ok())
-            .or_else(|| {
-                panes
-                    .iter()
-                    .find(|p| p["focused"].as_bool() == Some(true))
-                    .and_then(|p| p["pane_id"].as_str())
-                    .map(str::to_owned)
-            })
-            .context("宿主没有提供要保留的原终端窗格，无法打开侧边栏")?;
-        ensure!(
-            panes.iter().any(|p| p["pane_id"].as_str() == Some(&target)),
-            "原终端窗格已关闭"
-        );
+        let mut target = requested_target
+            .filter(|id| panes.iter().any(|p| p["pane_id"].as_str() == Some(id)))
+            .context("宿主没有提供可用工作窗格")?;
+        let mut protected = std::collections::BTreeSet::new();
+        for pane in panes
+            .iter()
+            .filter(|p| target_tab.is_some_and(|tab| p["tab_id"].as_str() == Some(tab)))
+        {
+            let Some(id) = pane["pane_id"].as_str() else {
+                continue;
+            };
+            if herdr_work_code::takeover::independent_plugin_metadata(pane)
+                || herdr_work_code::takeover::independent_plugin_process(&rpc(
+                    &socket,
+                    "pane.process_info",
+                    json!({"pane_id":id}),
+                )?)
+            {
+                protected.insert(id.to_owned());
+            }
+        }
+        let foreign = |p: &Value| {
+            p["pane_id"]
+                .as_str()
+                .is_some_and(|id| protected.contains(id))
+        };
+        if panes
+            .iter()
+            .find(|p| p["pane_id"].as_str() == Some(&target))
+            .is_some_and(foreign)
+        {
+            let alternative = panes.iter().find(|p| {
+                target_tab.is_some_and(|tab| p["tab_id"].as_str() == Some(tab))
+                    && !foreign(p)
+                    && p["tokens"][PROFILE_TOKEN].is_null()
+            });
+            if let Some(pane) = alternative {
+                target = pane["pane_id"]
+                    .as_str()
+                    .context("missing pane id")?
+                    .to_owned();
+            } else if mode == SidebarOpen::Ensure {
+                return Ok(json!({"action":"no-working-pane"}));
+            } else {
+                anyhow::bail!("当前标签页没有可用于 HerdrWork 的工作窗格");
+            }
+        }
+        let chosen = panes
+            .iter()
+            .find(|p| p["pane_id"].as_str() == Some(&target))
+            .unwrap();
+        if mode == SidebarOpen::Ensure
+            && explicit_root.is_none()
+            && let Some(cwd) = chosen["foreground_cwd"]
+                .as_str()
+                .or_else(|| chosen["cwd"].as_str())
+                .and_then(|p| Path::new(p).canonicalize().ok())
+                .filter(|p| p.is_dir())
+        {
+            root = cwd;
+        }
+        let focus =
+            mode == SidebarOpen::Show || (mode == SidebarOpen::Toggle && settings.focus_on_open);
         let mut layout = rpc(&socket, "pane.layout", json!({"pane_id":target}))?;
         // Keep the caller's existing pane. Never split or adopt another plugin.
         if let Some(entries) = layout["layout"]["panes"].as_array_mut() {
@@ -309,7 +535,7 @@ impl HerdrWork {
         );
         let ratio: f64 = fields.next().context("无法计算侧边栏宽度")?.parse()?;
         let swap: bool = fields.next().context("无法计算侧边栏位置")?.parse()?;
-        let params = json!({"plugin_id":PLUGIN_ID,"entrypoint":"pane","placement":"split","target_pane_id":target,"direction":"right","focus":true,"cwd":root,
+        let params = json!({"plugin_id":PLUGIN_ID,"entrypoint":"pane","placement":"split","target_pane_id":target,"direction":"right","focus":focus,"cwd":root,
             "env":{"HERDR_WORK_HOME":profile,"HERDR_WORK_ROOT":root,"HERDR_WORK_INITIAL_VIEW":view.env_value()}});
         // Split placement is scoped by its target pane. The host rejects a
         // workspace selector alongside target_pane_id.
@@ -335,8 +561,23 @@ impl HerdrWork {
             rpc(
                 &socket,
                 "pane.resize",
-                json!({"pane_id":pane,"direction":if preferences.dock_right {"right"} else {"left"},"amount":amount}),
+                json!({"pane_id":target,"direction":if preferences.dock_right {"right"} else {"left"},"amount":amount}),
             )?;
+        }
+        if focus {
+            rpc(&socket, "pane.focus", json!({"pane_id":pane}))?;
+        } else if let Some(previous) = panes
+            .iter()
+            .find(|p| p["focused"].as_bool() == Some(true))
+            .and_then(|p| p["pane_id"].as_str())
+        {
+            // Host split/swap can change active tabs even with focus=false.
+            rpc(&socket, "pane.focus", json!({"pane_id":previous}))?;
+        }
+        if mode != SidebarOpen::Ensure
+            && let Some(tab) = target_tab
+        {
+            let _ = herdr_work_code::snooze::clear(&snooze_dir, tab);
         }
         Ok(json!({"action":"opened","pane_id":pane,"view":view}))
     }

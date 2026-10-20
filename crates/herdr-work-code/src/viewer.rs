@@ -1776,8 +1776,7 @@ pub fn open_in_pane(
     doc_key: &str,
     payload: &str,
 ) -> Result<PreviewTarget, String> {
-    let state = crate::state::load_state();
-    let inline = state.preview_placement.is_inline();
+    let mut state = crate::state::load_state();
     let list = ipc::call_text("pane.list", serde_json::json!({}))
         .map_err(|e| format!("preview failed: {e}"))?;
     let caller_tab_id = crate::launch::tab_of(&list, my_pane_id);
@@ -1786,6 +1785,13 @@ pub fn open_in_pane(
     if let Err(error) = crate::takeover::recover(&caller_tab_id) {
         eprintln!("herdr-work-code: temporary preview restore deferred: {error}");
     }
+    if crate::state::product_profile().is_some()
+        && state.preview_placement == crate::state::PreviewPlacement::Replace
+        && !crate::takeover::has_working_region(my_pane_id, &caller_tab_id)?
+    {
+        state.preview_placement = crate::state::PreviewPlacement::Tab;
+    }
+    let inline = state.preview_placement.is_inline();
     let list =
         ipc::call_text("pane.list", serde_json::json!({})).map_err(|error| error.to_string())?;
     // Route only within OUR space. A session-wide search reused another
@@ -1945,7 +1951,7 @@ fn target_is_showing(previews: &[PreviewPane], target: &PreviewTarget, doc_key: 
 /// layout changes reached the client as a visible flicker, and its re-fit of
 /// the origin tab lagged. The `tab.created` hook docks a sidebar alongside,
 /// so the tree stays reachable.
-fn spawn_preview_tab(
+pub(crate) fn spawn_preview_tab(
     my_pane_id: &str,
     spawn_cwd: &Path,
     doc_key: &str,
@@ -1986,16 +1992,53 @@ pub(crate) fn spawn_inline_pane(
     dock_right: bool,
     sidebar_cols: u16,
 ) -> Result<PreviewTarget, String> {
-    let (new_pane, control) = spawn_viewer_pane(
+    spawn_inline_with_plan(
         my_pane_id,
         spawn_cwd,
         doc_key,
         payload,
-        Some(InlineSpawn {
+        caller_tab_id,
+        InlineSpawn {
             dock_right,
             sidebar_cols,
-        }),
-    )?;
+            preserve_neighbors: false,
+        },
+    )
+}
+
+pub(crate) fn spawn_takeover_pane(
+    my_pane_id: &str,
+    spawn_cwd: &Path,
+    doc_key: &str,
+    payload: &str,
+    caller_tab_id: &str,
+    dock_right: bool,
+    sidebar_cols: u16,
+) -> Result<PreviewTarget, String> {
+    spawn_inline_with_plan(
+        my_pane_id,
+        spawn_cwd,
+        doc_key,
+        payload,
+        caller_tab_id,
+        InlineSpawn {
+            dock_right,
+            sidebar_cols,
+            preserve_neighbors: true,
+        },
+    )
+}
+
+fn spawn_inline_with_plan(
+    my_pane_id: &str,
+    spawn_cwd: &Path,
+    doc_key: &str,
+    payload: &str,
+    caller_tab_id: &str,
+    inline: InlineSpawn,
+) -> Result<PreviewTarget, String> {
+    let (new_pane, control) =
+        spawn_viewer_pane(my_pane_id, spawn_cwd, doc_key, payload, Some(inline))?;
     // A swap moves the FOCUSED SLOT's occupant, not the focus: when the plan
     // swapped us out of our own slot, focus is now sitting on the brand-new
     // pane. Put it back before the shell there starts consuming keystrokes.
@@ -2370,6 +2413,7 @@ fn preview_origin_tab(previews: &[PreviewPane], caller_tab_id: &str) -> String {
 /// and how wide it wants to stay.
 #[derive(Clone, Copy)]
 struct InlineSpawn {
+    preserve_neighbors: bool,
     dock_right: bool,
     sidebar_cols: u16,
 }
@@ -2621,7 +2665,9 @@ fn preview_spawn_env(control: &Path, inline: bool) -> serde_json::Value {
 /// `None` when the layout can't be read — the caller falls back to a plain
 /// self-split.
 fn inline_split_plan(layout_json: &str, pane_id: &str, inline: InlineSpawn) -> Option<SplitPlan> {
-    if let Some(target) = side_neighbor(layout_json, pane_id, inline.dock_right) {
+    if !inline.preserve_neighbors
+        && let Some(target) = side_neighbor(layout_json, pane_id, inline.dock_right)
+    {
         return Some(SplitPlan {
             target,
             ratio: 0.5,
@@ -2747,6 +2793,39 @@ mod tests {
         rows.iter()
             .map(|r| r.line.spans.iter().map(|s| s.content.as_ref()).collect())
             .collect()
+    }
+
+    #[test]
+    fn takeover_never_splits_a_neighbor_that_was_left_in_place() {
+        let layout = serde_json::json!({"result":{"layout":{"panes":[
+            {"pane_id":"owner","rect":{"x":0,"y":0,"width":90,"height":40}},
+            {"pane_id":"independent","rect":{"x":90,"y":0,"width":30,"height":40}}
+        ]}}})
+        .to_string();
+        let placement = InlineSpawn {
+            dock_right: false,
+            sidebar_cols: 28,
+            preserve_neighbors: true,
+        };
+        assert_eq!(
+            inline_split_plan(&layout, "owner", placement)
+                .unwrap()
+                .target,
+            "owner"
+        );
+        assert_eq!(
+            inline_split_plan(
+                &layout,
+                "owner",
+                InlineSpawn {
+                    preserve_neighbors: false,
+                    ..placement
+                }
+            )
+            .unwrap()
+            .target,
+            "independent"
+        );
     }
 
     #[test]
@@ -3521,6 +3600,7 @@ mod tests {
             &layout(SIDEBAR_LEFT),
             "w1:p1",
             InlineSpawn {
+                preserve_neighbors: false,
                 dock_right: false,
                 sidebar_cols: 32,
             },
@@ -3541,6 +3621,7 @@ mod tests {
             &layout(SIDEBAR_RIGHT),
             "w1:p1",
             InlineSpawn {
+                preserve_neighbors: false,
                 dock_right: true,
                 sidebar_cols: 32,
             },
@@ -3567,6 +3648,7 @@ mod tests {
             &alone,
             "w1:p1",
             InlineSpawn {
+                preserve_neighbors: false,
                 dock_right: false,
                 sidebar_cols: 32,
             },
@@ -3582,6 +3664,7 @@ mod tests {
             &alone,
             "w1:p1",
             InlineSpawn {
+                preserve_neighbors: false,
                 dock_right: true,
                 sidebar_cols: 32,
             },
@@ -3596,6 +3679,7 @@ mod tests {
             &narrow,
             "w1:p1",
             InlineSpawn {
+                preserve_neighbors: false,
                 dock_right: false,
                 sidebar_cols: 80,
             },
@@ -3609,6 +3693,7 @@ mod tests {
         let left = fallback_inline_split_plan(
             "w1:p1",
             InlineSpawn {
+                preserve_neighbors: false,
                 dock_right: false,
                 sidebar_cols: 32,
             },
@@ -3625,6 +3710,7 @@ mod tests {
         let right = fallback_inline_split_plan(
             "w1:p1",
             InlineSpawn {
+                preserve_neighbors: false,
                 dock_right: true,
                 sidebar_cols: 32,
             },
@@ -3646,6 +3732,7 @@ mod tests {
                 "not json",
                 "w1:p1",
                 InlineSpawn {
+                    preserve_neighbors: false,
                     dock_right: false,
                     sidebar_cols: 32
                 }
@@ -3660,6 +3747,7 @@ mod tests {
                 &degenerate,
                 "w1:p1",
                 InlineSpawn {
+                    preserve_neighbors: false,
                     dock_right: false,
                     sidebar_cols: 32
                 }

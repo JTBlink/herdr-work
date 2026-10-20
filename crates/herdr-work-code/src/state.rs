@@ -399,7 +399,6 @@ pub fn configure_product_profile(profile: &Path) -> std::io::Result<()> {
         save_state(State {
             sidebar_width: crate::appearance::PRODUCT_SIDEBAR_WIDTH,
             preview_placement: PreviewPlacement::Replace,
-            font_prompt_done: true,
             ..State::default()
         });
     }

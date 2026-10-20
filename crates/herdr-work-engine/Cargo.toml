@@ -12,7 +12,7 @@ serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 fs2.workspace = true
-herdr-work-code.workspace = true
+herdr-work-code = { workspace = true, features = ["sidebar-ui"] }
 herdr-reviewr = { path = "../../upstream/herdr-reviewr" }
 
 [dev-dependencies]

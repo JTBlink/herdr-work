@@ -73,6 +73,7 @@ fn ambiguous_post_send_receipt_is_unknown_and_cannot_resend() {
             stream
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
+            stream.set_nonblocking(false).unwrap();
             let mut line = String::new();
             BufReader::new(stream.try_clone().unwrap())
                 .read_line(&mut line)
@@ -188,6 +189,7 @@ fn activate_reuses_only_verified_own_pane_even_while_profile_is_locked() {
                 std::thread::sleep(Duration::from_millis(5));
                 continue;
             };
+            stream.set_nonblocking(false).unwrap();
             let mut line = String::new();
             BufReader::new(stream.try_clone().unwrap())
                 .read_line(&mut line)
@@ -299,6 +301,7 @@ fn activation_command_case(
                 std::thread::sleep(Duration::from_millis(5));
                 continue;
             };
+            stream.set_nonblocking(false).unwrap();
             let mut line = String::new();
             BufReader::new(stream.try_clone().unwrap())
                 .read_line(&mut line)
@@ -318,7 +321,7 @@ fn activation_command_case(
                 "pane.layout" if !forged_own_identity => {
                     json!({"layout":{"tab_id":"workspace-fixture:t1","area":{"x":0,"y":0,"width":160,"height":40},"panes":[{"pane_id":"original-terminal","rect":{"x":0,"y":0,"width":160,"height":40}}],"splits":[]}})
                 }
-                "pane.swap" | "pane.resize" if !forged_own_identity => json!({}),
+                "pane.swap" | "pane.resize" | "pane.focus" if !forged_own_identity => json!({}),
                 "plugin.pane.open" if !forged_own_identity => {
                     json!({"plugin_pane":{"plugin_id":"jtblink.herdr-work","entrypoint":"pane","pane":{"pane_id":"created-own"}}})
                 }
@@ -381,7 +384,7 @@ fn activate_allocates_a_tty_only_through_its_own_host_entrypoint() {
         .iter()
         .find(|r| r["method"] == "pane.resize")
         .unwrap();
-    assert_eq!(resize["params"]["pane_id"], "created-own");
+    assert_eq!(resize["params"]["pane_id"], "original-terminal");
     assert_eq!(resize["params"]["direction"], "left");
     assert!((resize["params"]["amount"].as_f64().unwrap() - 0.325).abs() < 0.0001);
     assert!(open["params"].get("workspace_id").is_none());
@@ -409,6 +412,7 @@ fn activate_allocates_a_tty_only_through_its_own_host_entrypoint() {
                 | "pane.report_metadata"
                 | "pane.swap"
                 | "pane.resize"
+                | "pane.focus"
         )
     )));
     assert!(
@@ -487,7 +491,7 @@ foreign_bytes=b'{"sidebar_width":72,"active":"source-control","colors":"light"}'
 foreign_state.write_bytes(foreign_bytes)
 env={k:v for k,v in os.environ.items() if not k.startswith('HERDR_')}
 env['HERDR_PLUGIN_STATE_DIR']=str(foreign)
-env.update(TERM='xterm-256color',HERDR_PROJECTS_NO_KEEPER='1',HERDR_PROJECTS_INLINE='1')
+env.update(TERM='xterm-256color',HERDR_PROJECTS_NO_KEEPER='1',HERDR_PROJECTS_INLINE='1',HERDR_WORK_CODE_FONT_PROMPT='off')
 for view,title in [('explorer','NEW-WORKSPACE'),('search','Search'),('source-control','Notagitrepository.'),('quick-open','QuickOpen')]:
     master,slave=pty.openpty(); fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',32,120,0,0))
     def seat():
@@ -503,8 +507,8 @@ for view,title in [('explorer','NEW-WORKSPACE'),('search','Search'),('source-con
             if select.select([master],[],[],.05)[0]:
                 captured+=os.read(master,65536)
             text=''.join(re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]',b'',captured).decode(errors='replace').split())
-            if title in text and (view != 'explorer' or 'NEW-WORKSPACE' in text): break
-        assert title in text and (view != 'explorer' or 'NEW-WORKSPACE' in text),(view,text[-1600:])
+            if title.casefold() in text.casefold() and (view != 'explorer' or 'new-workspace' in text.casefold()): break
+        assert title.casefold() in text.casefold() and (view != 'explorer' or 'new-workspace' in text.casefold()),(view,text[-1600:])
         assert 'old-workspace' not in text,(view,text[-1600:])
         # Allow the first worker results to settle before dismissing the search prompt.
         deadline=time.monotonic()+.4

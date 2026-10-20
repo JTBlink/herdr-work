@@ -16,6 +16,8 @@ parser.add_argument(
     help="Explicit socket of an isolated, disposable Herdr test session",
 )
 parser.add_argument("--binary", required=True)
+parser.add_argument("--independent-side", choices=["left", "right"])
+parser.add_argument("--lifecycle", action="store_true")
 parser.add_argument(
     "--activation-binary",
     help="Optional second installation used to verify focus/reuse",
@@ -35,6 +37,19 @@ BASE.mkdir(parents=True)
 REPO = BASE / "repo"
 REPO.mkdir(exist_ok=True)
 PROFILE = BASE / "ui-profile"
+(PROFILE / "sidebar").mkdir(parents=True)
+(PROFILE / "sidebar/state.json").write_text(
+    json.dumps(
+        {
+            "merged": True,
+            "sidebar_width": 28,
+            "auto_open": False,
+            "font_prompt": True,
+            "preview_placement": "replace",
+        }
+    )
+)
+
 for name in ["a-file.txt", "b-file.txt"]:
     (REPO / name).write_text(
         "".join(f"{name} fixture line {i:03d}\n" for i in range(1, 151))
@@ -123,6 +138,41 @@ try:
         ["Enter"],
     )
     wait(lambda: "WORKING one" in read(original), "original working process")
+    independent = None
+    if args.independent_side:
+        independent = rpc(
+            "pane.split",
+            {
+                "target_pane_id": original,
+                "direction": "right",
+                "ratio": 0.15 if args.independent_side == "left" else 0.85,
+                "cwd": str(REPO),
+                "focus": False,
+            },
+        )["pane"]["pane_id"]
+        if args.independent_side == "left":
+            rpc(
+                "pane.swap", {"source_pane_id": original, "target_pane_id": independent}
+            )
+        send(
+            independent,
+            "python3 -u "
+            + shlex.quote(str(worker))
+            + " "
+            + shlex.quote(str(REPO))
+            + " independent",
+            ["Enter"],
+        )
+        wait(lambda: "WORKING independent" in read(independent), "independent fixture")
+        rpc(
+            "pane.report_metadata",
+            {
+                "pane_id": independent,
+                "source": "herdr-sidebar-explorer",
+                "tokens": {"herdr-sidebar-explorer": "1"},
+            },
+        )
+        independent_process = process(independent)
     second = rpc(
         "pane.split",
         {
@@ -156,6 +206,7 @@ try:
         )
         wait(lambda p=pane, l=label: "WORKING " + l in read(p), "working " + label)
     originals = [original, second, third]
+    independent_rect = next((p["rect"] for p in layout(original)["panes"] if p["pane_id"] == independent), None)
     context = {
         "workspace_id": workspace,
         "focused_pane_id": original,
@@ -187,7 +238,7 @@ try:
         ),
         "owned Sidebar readiness",
     )
-    wait(lambda: "REPO" in read(owner), "source Explorer header")
+    wait(lambda: "repo" in read(owner).casefold(), "source Explorer header")
 
     def title():
         return next(p.get("label") for p in panes() if p["pane_id"] == owner)
@@ -226,11 +277,114 @@ try:
     receipt = json.loads(reused.stdout)
     assert receipt["action"] == "focused" and receipt["pane_id"] == owner, receipt
 
+    if args.lifecycle:
+        extra = rpc(
+            "tab.create", {"workspace_id": workspace, "cwd": str(REPO), "focus": False}
+        )
+        extra_tab = extra["tab"]["tab_id"]
+        extra_root = extra["root_pane"]["pane_id"]
+        extra_env = dict(
+            env,
+            HERDR_PANE_ID=extra_root,
+            HERDR_TAB_ID=extra_tab,
+            HERDR_PLUGIN_CONTEXT_JSON=json.dumps(
+                {
+                    "focused_pane_id": extra_root,
+                    "focused_pane_cwd": str(REPO),
+                    "workspace_id": workspace,
+                }
+            ),
+        )
+
+        def launch(*command):
+            r = subprocess.run(
+                [str(BINARY), "--home", str(PROFILE), *command],
+                env=extra_env,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert r.returncode == 0, r.stderr
+            return json.loads(r.stdout)
+
+        def preferences(**changed):
+            path = PROFILE / "sidebar/state.json"
+            state = json.loads(path.read_text())
+            state.update(changed)
+            pending = path.with_suffix(".test-pending")
+            pending.write_text(json.dumps(state))
+            pending.replace(path)
+
+        assert launch("sidebar-ensure")["action"] == "disabled"
+        preferences(auto_open=True)
+        rpc("pane.focus", {"pane_id": owner})
+        focus_before = [p["pane_id"] for p in panes() if p["focused"]]
+        second_owner = launch("sidebar-ensure")["pane_id"]
+        assert second_owner != owner
+        wait(
+            lambda: any(
+                p["pane_id"] == second_owner
+                and p.get("tokens", {}).get("herdr-work-ready") == "true"
+                for p in panes()
+            ),
+            "second tab Sidebar ready",
+        )
+        assert next(p["pane_id"] for p in panes() if p["focused"]) == owner, (
+            "quiet ensure stole focus", focus_before, [(p["pane_id"],p.get("focused")) for p in panes()]
+        )
+        preferences(strict_toggle=True)
+        assert launch("activate", "toggle")["action"] == "closing"
+        wait(
+            lambda: all(p["pane_id"] != second_owner for p in panes()),
+            "strict toggle close",
+        )
+        assert launch("sidebar-ensure")["action"] == "hidden"
+        preferences(strict_toggle=False, focus_on_open=False)
+        second_owner = launch("activate", "toggle")["pane_id"]
+        wait(
+            lambda: any(
+                p["pane_id"] == second_owner
+                and p.get("tokens", {}).get("herdr-work-ready") == "true"
+                for p in panes()
+            ),
+            "toggle reopens",
+        )
+        assert next(p["pane_id"] for p in panes() if p["focused"]) == owner, (
+            "focus-on-open off stole focus"
+        )
+        send(second_owner, keys=["2"])
+        wait(lambda: next(p.get("label") for p in panes() if p["pane_id"] == second_owner) == "HerdrWork · Search", "search before focus-only toggle")
+        rpc("pane.focus", {"pane_id": owner})
+        assert launch("activate", "toggle")["action"] == "focused"
+        time.sleep(.6)
+        assert next(p.get("label") for p in panes() if p["pane_id"] == second_owner) == "HerdrWork · Search", "focus-only toggle reset activity"
+        send(second_owner, keys=["1"])
+        wait(lambda: next(p.get("label") for p in panes() if p["pane_id"] == second_owner) == "HerdrWork · Explorer", "return after focus-only toggle")
+        send(second_owner, "b")
+        wait(
+            lambda: all(p["pane_id"] != second_owner for p in panes()), "source b hide"
+        )
+        assert launch("sidebar-ensure")["action"] == "hidden"
+        preferences(focus_on_open=True)
+        second_owner = launch("activate", "toggle")["pane_id"]
+        wait(
+            lambda: any(p["pane_id"] == second_owner and p["focused"] for p in panes()),
+            "focus-on-open on",
+        )
+        preferences(auto_open=False)
+        rpc("tab.close", {"tab_id": extra_tab})
+        print(
+            "Shared-profile tabs, auto-open, strict toggle, focus preference and hide/snooze passed.",
+            flush=True,
+        )
+
     rpc("pane.focus", {"pane_id": owner})
     time.sleep(0.7)
     before = layout(owner)
+    if independent:
+        assert next(p["rect"] for p in before["panes"] if p["pane_id"] == independent) == independent_rect, "opening resized the independent plugin"
     processes = {p: process(p) for p in originals}
-    assert len(before["panes"]) == 4, before
+    assert len(before["panes"]) == 4 + bool(independent), before
     (BASE / "before.json").write_text(
         json.dumps({"layout": before, "processes": processes}, indent=2)
     )
@@ -255,11 +409,26 @@ try:
             None,
         )
 
-    viewer = wait(active_viewer, "actual takeover viewer")["pane_id"]
+    try:
+        viewer = wait(active_viewer, "actual takeover viewer")["pane_id"]
+    except AssertionError:
+        (BASE / "failed-screen.txt").write_text(read(owner))
+        (BASE / "failed-layout.json").write_text(json.dumps(layout(owner),indent=2))
+        raise
     wait(lambda: "a-file.txt fixture line 001" in read(viewer), "viewer document")
     during = layout(owner)
-    assert {p["pane_id"] for p in during["panes"]} == {owner, viewer}, during
-    min_width = max(28, int(during["area"]["width"] * 0.1))
+    assert {p["pane_id"] for p in during["panes"]} == {owner, viewer} | (
+        {independent} if independent else set()
+    ), during
+    if independent:
+        assert process(independent) == independent_process
+        assert next(
+            p["rect"] for p in during["panes"] if p["pane_id"] == independent
+        ) == next(p["rect"] for p in before["panes"] if p["pane_id"] == independent)
+    working_width = during["area"]["width"] - (next(
+        p["rect"]["width"] for p in during["panes"] if p["pane_id"] == independent
+    ) if independent else 0)
+    min_width = max(28, int(working_width * 0.1 + 0.5))
     # Attached Herdr clients reserve two columns for pane chrome.
     assert next(p for p in during["panes"] if p["pane_id"] == owner)["rect"][
         "width"
@@ -289,6 +458,33 @@ try:
         "same viewer switches document",
     )
     assert active_viewer()["pane_id"] == viewer
+    # The source editor must keep dirty text when close is cancelled.
+    send(viewer, "e")
+    wait(
+        lambda: any(
+            p["pane_id"] == viewer and "editor" in p.get("label", "") for p in panes()
+        ),
+        "source editor",
+    )
+    send(viewer, "edited-")
+    send(viewer, keys=["ctrl+q"])
+    wait(lambda: "Unsaved changes" in read(viewer), "unsaved close guard")
+    send(viewer, keys=["Escape"])
+    assert not (REPO / "b-file.txt").read_text().startswith("edited-")
+    assert viewer in {p["pane_id"] for p in panes()}
+    send(viewer, keys=["ctrl+s"])
+    wait(
+        lambda: (REPO / "b-file.txt").read_text().startswith("edited-"),
+        "source editor save",
+    )
+    send(viewer, keys=["Escape"])
+    wait(
+        lambda: any(
+            p["pane_id"] == viewer and "preview" in p.get("label", "") for p in panes()
+        ),
+        "leave clean editor",
+    )
+    print("Source editor dirty close/cancel/save/preview passed.", flush=True)
     # Close the running viewer itself: this runs source restore before pane close.
     send(viewer, keys=["q"])
     wait(
@@ -296,6 +492,8 @@ try:
         "exact original split tree restored",
     )
     after = layout(owner)
+    if independent:
+        assert process(independent) == independent_process
     for pane in originals:
         assert (
             process(pane)["foreground_processes"]

@@ -53,6 +53,22 @@ impl Node {
         }
     }
 
+    /// Largest owner-containing subtree that excludes protected plugin panes.
+    fn working_scope<'a>(&'a self, owner: &str, protected: &BTreeSet<String>) -> Option<&'a Node> {
+        if !self.contains(owner) {
+            return None;
+        }
+        if !protected.iter().any(|id| self.contains(id)) {
+            return Some(self);
+        }
+        match self {
+            Self::Split { first, second, .. } => first
+                .working_scope(owner, protected)
+                .or_else(|| second.working_scope(owner, protected)),
+            Self::Pane(_) => None,
+        }
+    }
+
     fn representative(&self) -> &str {
         match self {
             Self::Pane(id) => id,
@@ -709,7 +725,7 @@ fn sweep_with(env: &mut impl Env, panes_json: &str) {
 }
 
 // Independent plugins are outside the product's takeover ownership.
-fn independent_plugin_name(name: &str) -> bool {
+pub fn independent_plugin_name(name: &str) -> bool {
     let name = name.trim_end_matches(".exe");
     name.starts_with("herdr-sidebar")
         || name.starts_with("herdr-aa-")
@@ -719,7 +735,41 @@ fn independent_plugin_name(name: &str) -> bool {
         || name == "reviewr"
         || name == "herdr-reviewr"
 }
-fn protect_independent_plugins(env: &mut impl Env, owner: &str, tab: &str) -> Result<(), String> {
+pub fn independent_plugin_metadata(pane: &Value) -> bool {
+    pane["plugin_id"]
+        .as_str()
+        .is_some_and(independent_plugin_name)
+        || pane["tokens"].as_object().is_some_and(|tokens| {
+            tokens
+                .iter()
+                .any(|(key, value)| !value.is_null() && independent_plugin_name(key))
+        })
+}
+
+pub fn independent_plugin_process(info: &Value) -> bool {
+    info["process_info"]["foreground_processes"]
+        .as_array()
+        .is_some_and(|processes| {
+            processes.iter().any(|process| {
+                [process["argv0"].as_str(), process["argv"][0].as_str()]
+                    .into_iter()
+                    .flatten()
+                    .any(|path| {
+                        Path::new(path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .is_some_and(independent_plugin_name)
+                    })
+            })
+        })
+}
+
+fn protect_independent_plugins(
+    env: &mut impl Env,
+    owner: &str,
+    tab: &str,
+) -> Result<BTreeSet<String>, String> {
+    let mut protected = BTreeSet::new();
     let list = env.call("pane.list", json!({}))?;
     for pane in list["panes"].as_array().ok_or("missing pane list")? {
         let Some(id) = pane["pane_id"].as_str() else {
@@ -728,33 +778,39 @@ fn protect_independent_plugins(env: &mut impl Env, owner: &str, tab: &str) -> Re
         if id == owner || pane["tab_id"].as_str() != Some(tab) {
             continue;
         }
-        let marked = pane["plugin_id"]
-            .as_str()
-            .is_some_and(independent_plugin_name)
-            || pane["tokens"]
-                .as_object()
-                .is_some_and(|tokens| tokens.keys().any(|key| independent_plugin_name(key)));
-        let info = env.call("pane.process_info", json!({"pane_id": id}))?;
-        let running = info["process_info"]["foreground_processes"]
-            .as_array()
-            .is_some_and(|processes| {
-                processes.iter().any(|process| {
-                    [process["argv0"].as_str(), process["argv"][0].as_str()]
-                        .into_iter()
-                        .flatten()
-                        .any(|path| {
-                            Path::new(path)
-                                .file_name()
-                                .and_then(|name| name.to_str())
-                                .is_some_and(independent_plugin_name)
-                        })
+        let marked = independent_plugin_metadata(pane)
+            || pane["tokens"].as_object().is_some_and(|tokens| {
+                tokens.iter().any(|(key, value)| {
+                    !value.is_null()
+                        && matches!(
+                            key.as_str(),
+                            "herdr-work-explorer" | "herdr-work-git" | "herdr-work-profile"
+                        )
                 })
             });
+        let info = env.call("pane.process_info", json!({"pane_id": id}))?;
+        let running = independent_plugin_process(&info);
         if marked || running {
-            return Err("independent plugin pane present; takeover was not started".into());
+            protected.insert(id.to_owned());
         }
     }
-    Ok(())
+    Ok(protected)
+}
+
+/// A protected neighbor can leave the owner with no safe working subtree.
+/// Use the source tab-preview route in that case, rather than resizing it.
+pub fn has_working_region(owner: &str, tab: &str) -> Result<bool, String> {
+    let protected = protect_independent_plugins(&mut RealEnv, owner, tab)?;
+    if protected.is_empty() {
+        return Ok(true);
+    }
+    let layout: Layout = serde_json::from_value(
+        RealEnv.call("pane.layout", json!({"pane_id":owner}))?["layout"].clone(),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(tree(&layout, layout.area)?
+        .working_scope(owner, &protected)
+        .is_some_and(|scope| scope.pane_count() > 1))
 }
 
 pub fn open(
@@ -767,12 +823,22 @@ pub fn open(
     width: u16,
 ) -> Result<crate::viewer::PreviewTarget, String> {
     let _lock = LaunchLock::acquire(true).ok_or("could not lock the sidebar layout")?;
-    if crate::state::product_profile().is_some() {
-        protect_independent_plugins(&mut RealEnv, owner, tab)?;
+    let protected = if crate::state::product_profile().is_some() {
+        protect_independent_plugins(&mut RealEnv, owner, tab)?
+    } else {
+        BTreeSet::new()
+    };
+    if !protected.is_empty() && !has_working_region(owner, tab)? {
+        return crate::viewer::spawn_preview_tab(owner, cwd, doc, payload, tab);
     }
-    open_with(&mut RealEnv, owner, cwd, tab, |_| {
-        crate::viewer::spawn_inline_pane(owner, cwd, doc, payload, tab, dock_right, width)
-    })
+    let spawn = |_: &mut RealEnv| {
+        crate::viewer::spawn_takeover_pane(owner, cwd, doc, payload, tab, dock_right, width)
+    };
+    if protected.is_empty() {
+        open_with(&mut RealEnv, owner, cwd, tab, spawn)
+    } else {
+        open_scoped_with(&mut RealEnv, owner, cwd, tab, &protected, spawn)
+    }
 }
 
 fn open_with<E: Env>(
@@ -780,6 +846,17 @@ fn open_with<E: Env>(
     owner: &str,
     cwd: &Path,
     tab: &str,
+    spawn: impl FnOnce(&mut E) -> Result<crate::viewer::PreviewTarget, String>,
+) -> Result<crate::viewer::PreviewTarget, String> {
+    open_scoped_with(env, owner, cwd, tab, &BTreeSet::new(), spawn)
+}
+
+fn open_scoped_with<E: Env>(
+    env: &mut E,
+    owner: &str,
+    cwd: &Path,
+    tab: &str,
+    protected: &BTreeSet<String>,
     spawn: impl FnOnce(&mut E) -> Result<crate::viewer::PreviewTarget, String>,
 ) -> Result<crate::viewer::PreviewTarget, String> {
     if let Some(plan) = env.load(tab)?
@@ -795,7 +872,11 @@ fn open_with<E: Env>(
         env.call("pane.layout", json!({"pane_id": owner}))?["layout"].clone(),
     )
     .map_err(|error| error.to_string())?;
-    let original = tree(&layout, layout.area)?;
+    let full_tree = tree(&layout, layout.area)?;
+    let original = full_tree
+        .working_scope(owner, protected)
+        .cloned()
+        .ok_or("sidebar is missing from its working region")?;
     if !original.contains(owner) {
         return Err("sidebar is missing from the current layout".into());
     }
@@ -878,6 +959,27 @@ fn open_with<E: Env>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn interleaved_protected_pane_leaves_no_safe_inline_working_region() {
+        let owner_and_plugin = super::Node::Split {
+            direction: "right".into(),
+            ratio: 0.5,
+            first: Box::new(super::Node::Pane("sidebar".into())),
+            second: Box::new(super::Node::Pane("independent".into())),
+        };
+        let whole = super::Node::Split {
+            direction: "right".into(),
+            ratio: 0.5,
+            first: Box::new(owner_and_plugin),
+            second: Box::new(super::Node::Pane("terminal".into())),
+        };
+        let protected = std::collections::BTreeSet::from(["independent".into()]);
+        let scope = whole.working_scope("sidebar", &protected).unwrap();
+        assert_eq!(scope.pane_count(), 1);
+        assert!(!scope.contains("independent"));
+        assert!(!scope.contains("terminal"));
+    }
+
     use super::*;
 
     const AREA: Rect = Rect {
@@ -1147,7 +1249,7 @@ mod tests {
 
     impl Env for Fake {
         fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
-            if method != "pane.list" && method != "pane.layout" {
+            if method != "pane.list" && method != "pane.layout" && method != "pane.process_info" {
                 self.mutations.push(format!("{method} {params}"));
             }
             match method {
@@ -1174,6 +1276,7 @@ mod tests {
                     }
                     Ok(json!({"panes": panes}))
                 }
+                "pane.process_info" => Ok(json!({"process_info":{"foreground_processes":[]}})),
                 "pane.layout" => {
                     let pane = params["pane_id"].as_str().unwrap();
                     let tab = self.tab_of(pane).ok_or("pane_not_found")?;
@@ -1345,6 +1448,71 @@ mod tests {
 
     fn plan(fake: &Fake) -> Plan {
         fake.plans.get("w1:main").cloned().expect("journal present")
+    }
+
+    #[test]
+    fn coexisting_independent_sidebar_does_not_block_the_working_region() {
+        for protected_on_right in [false, true] {
+            for dock_right in [false, true] {
+                let mut fake = Fake::default();
+                let work = Box::new(working_layout(dock_right));
+                let original = Node::Split {
+                    direction: "right".into(),
+                    ratio: if protected_on_right { 0.85 } else { 0.15 },
+                    first: if protected_on_right {
+                        work.clone()
+                    } else {
+                        pane("independent")
+                    },
+                    second: if protected_on_right {
+                        pane("independent")
+                    } else {
+                        work
+                    },
+                };
+                fake.add_tab("w1:main", original.clone());
+                fake.tokens
+                    .insert("independent".into(), json!({"herdr-sidebar-explorer":"1"}));
+                let identity = fake.terminals["independent"].clone();
+                let protected =
+                    protect_independent_plugins(&mut fake, "sidebar", "w1:main").unwrap();
+                assert_eq!(protected, BTreeSet::from(["independent".into()]));
+                let target = open_scoped_with(
+                    &mut fake,
+                    "sidebar",
+                    Path::new("/work"),
+                    "w1:main",
+                    &protected,
+                    |env| {
+                        let response = env.call(
+                            "pane.split",
+                            json!({"target_pane_id":"sidebar", "direction":"right", "ratio":0.3}),
+                        )?;
+                        Ok(crate::viewer::PreviewTarget {
+                            pane_id: response["pane"]["pane_id"].as_str().unwrap().into(),
+                            tab_id: "w1:main".into(),
+                            origin_tab_id: "w1:main".into(),
+                            inline: true,
+                        })
+                    },
+                )
+                .unwrap();
+                let journal = plan(&fake);
+                assert!(!journal.tree.contains("independent"));
+                assert_eq!(fake.tab_of("independent").as_deref(), Some("w1:main"));
+                assert_eq!(
+                    fake.tab_of("top").as_deref(),
+                    Some(journal.parking_tab.as_str())
+                );
+                restore_with(&mut fake, &journal, Trigger::ViewerClosing).unwrap();
+                assert_eq!(fake.root("w1:main"), Some(&original));
+                assert_eq!(fake.terminals["independent"], identity);
+                assert!(
+                    fake.mutations.iter().all(|m| !m.contains("independent")),
+                    "{target:?}: independent pane was mutated"
+                );
+            }
+        }
     }
 
     #[test]

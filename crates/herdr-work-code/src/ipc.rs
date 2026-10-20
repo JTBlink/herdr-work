@@ -100,6 +100,70 @@ pub fn report_identity_checked(
     Ok(())
 }
 
+/// Product resizing preserves the exterior plugin divider and active pane.
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
+pub fn resize_sidebar(layout: &str, owner: &str, dock_right: bool, direction: &str, amount: f64) {
+    let product = crate::state::product_profile().is_some();
+    let target = if product {
+        let Some(target) =
+            crate::dock::interior_resize_target(layout, owner, dock_right, direction)
+        else {
+            return;
+        };
+        target
+    } else {
+        owner.to_owned()
+    };
+    let snapshot = product
+        .then(|| call_text("pane.list", serde_json::json!({})).ok())
+        .flatten();
+    if product {
+        let Some(interior) = crate::dock::interior_resize_target(
+            layout,
+            owner,
+            dock_right,
+            if dock_right { "right" } else { "left" },
+        ) else {
+            return;
+        };
+        let Some(snapshot) = &snapshot else { return };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(snapshot) else {
+            return;
+        };
+        let neighbor = value["result"]["panes"].as_array().and_then(|panes| {
+            panes
+                .iter()
+                .find(|p| p["pane_id"].as_str() == Some(&interior))
+        });
+        if neighbor.is_none_or(|p| {
+            crate::takeover::independent_plugin_metadata(p)
+                || !p["tokens"]["herdr-work-profile"].is_null()
+        }) {
+            return;
+        }
+        let Ok(info) = call_text("pane.process_info", serde_json::json!({"pane_id":interior}))
+        else {
+            return;
+        };
+        let Ok(info) = serde_json::from_str::<serde_json::Value>(&info) else {
+            return;
+        };
+        if crate::takeover::independent_plugin_process(&info["result"]) {
+            return;
+        }
+    }
+    let _ = call_text(
+        "pane.resize",
+        serde_json::json!({"pane_id":target,"direction":direction,"amount":amount}),
+    );
+    if let Some(previous) = snapshot
+        .map(|snapshot| crate::launch::server_focused_pane_id(&snapshot))
+        .filter(|id| !id.is_empty())
+    {
+        let _ = call_text("pane.focus", serde_json::json!({"pane_id":previous}));
+    }
+}
+
 /// Mark the brief interval before a TUI reaches its event loop. Windows calls
 /// this after a raw split; directly spawned Unix TUIs call it immediately on
 /// process startup. The first full identity report clears the marker.

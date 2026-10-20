@@ -13,7 +13,7 @@ pub mod dock;
 pub mod editor;
 #[cfg(any(feature = "reference-ui", test))]
 pub mod ensure;
-#[cfg(any(feature = "reference-ui", test))]
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub mod fontsetup;
 pub mod git;
 pub mod gitdeco;
@@ -56,6 +56,8 @@ pub mod view_state;
 
 #[cfg(feature = "sidebar-ui")]
 pub mod explorer_app;
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
+pub mod pane_close;
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub mod pane_lock;
 #[cfg(feature = "sidebar-ui")]

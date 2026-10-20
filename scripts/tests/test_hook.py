@@ -15,7 +15,7 @@ class HookProfile(unittest.TestCase):
         self.assertEqual(manifest['panes'][0]['command'], ['bin/herdr-work', 'ui', '--sidebar'])
         self.assertEqual(manifest['panes'][0]['placement'], 'split')
         actions = {action['id']: action['command'] for action in manifest['actions']}
-        self.assertEqual(set(actions), {'show-explorer', 'show-search', 'show-git', 'quick-open'})
+        self.assertEqual(set(actions), {'show-explorer', 'show-search', 'show-git', 'quick-open', 'toggle'})
         for name, command in actions.items():
             self.assertEqual(command, ['bin/herdr-work', 'activate', name])
 

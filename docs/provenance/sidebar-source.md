@@ -84,3 +84,11 @@ Sidebar `launch.rs` 的纯布局类型、`open_plan`、`resize_plan`、`preferre
 ![默认 Sidebar 三个活动的临时仓库绘制 fixture](../verification/ui-default-sidebar.png)
 
 产品宿主标题分别为 `HerdrWork · Explorer`、`HerdrWork · Search`、`HerdrWork · Git`；设置窗口使用 `HerdrWork Settings`，与独立 Sidebar 区分。
+
+## 生命周期与共存验收扩展
+
+默认入口补齐每标签页实例、自动打开、strict toggle、focus-on-open、隐藏 snooze、活动与目录记忆和来源字体引导。设置中的统一侧栏为产品固定设计；来源双插件部署和自动更新入口不开放。与独立插件共存时只接管安全工作子树；没有安全子树则在新标签页预览，避免调整独立插件布局。初始停靠及设置缩窄从工作区域内侧移动 divider，后台创建和列宽调整保留原焦点。
+
+`scripts/sidebar_smoke.py` 增加 `--independent-side left|right` 和 `--lifecycle`。fixture 使用测试进程模拟独立插件标记，核对其矩形、进程不变；验证同一 profile 的两个标签页可共存、自动打开/关闭/聚焦偏好、隐藏后不自动重开，以及未保存编辑关闭取消、保存、返回预览和精确布局恢复。自动事件只操作自己的 pane；不控制真实独立插件。
+
+2026-10-20 本机最终验收：workspace 493 项通过（4 项可选工具测试跳过），来源独立界面 54 项通过，Python 14 项通过，严格 Clippy / fmt / 构建 / 归档安装及完整工作台 PTY smoke 通过。隔离宿主分别验证无独立插件、外侧左右插件共存；另验证真实 workspace/tab 事件自动打开、焦点事件保持隐藏及显式重开。原生字体安装和 Linux/Windows 交互未执行。

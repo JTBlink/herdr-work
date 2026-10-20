@@ -247,6 +247,41 @@ fn resize_plan_inner(
     })
 }
 
+/// Shrink from the interior neighbor so an outer plugin divider stays fixed.
+pub fn interior_resize_target(
+    layout_json: &str,
+    pane_id: &str,
+    dock_right: bool,
+    direction: &str,
+) -> Option<String> {
+    let shrinking = matches!((dock_right, direction), (false, "left") | (true, "right"));
+    if !shrinking {
+        return Some(pane_id.into());
+    }
+    let msg = serde_json::from_str::<LayoutMsg>(strip_bom(layout_json)).ok()?;
+    let panes = &msg.result.layout.panes;
+    let me = panes
+        .iter()
+        .find(|p| p.pane_id.as_deref() == Some(pane_id))?
+        .rect
+        .as_ref()?;
+    panes
+        .iter()
+        .filter_map(|p| Some((p.pane_id.as_ref()?, p.rect.as_ref()?)))
+        .filter(|(id, r)| {
+            id.as_str() != pane_id
+                && r.y < me.y + me.height
+                && r.y + r.height > me.y
+                && if dock_right {
+                    r.x + r.width == me.x
+                } else {
+                    r.x == me.x + me.width
+                }
+        })
+        .min_by_key(|(_, r)| r.y)
+        .map(|(id, _)| id.clone())
+}
+
 /// True when the id can be passed as a positional argument to the herdr CLI
 /// without any risk of being parsed as a flag.
 pub(crate) fn is_flag_safe(id: &str) -> bool {
@@ -310,6 +345,24 @@ pub fn repair_step(layout_json: &str, pane_id: &str, dock_right: bool) -> Option
 
 #[cfg(test)]
 mod product_width_tests {
+    #[test]
+    fn nested_sidebar_shrinks_from_its_interior_without_moving_outer_plugin() {
+        let layout = serde_json::json!({"result":{"layout":{"panes":[
+            {"pane_id":"protected","rect":{"x":0,"y":0,"width":20,"height":40}},
+            {"pane_id":"sidebar","rect":{"x":20,"y":0,"width":40,"height":40}},
+            {"pane_id":"working","rect":{"x":60,"y":0,"width":100,"height":40}}
+        ]}}})
+        .to_string();
+        assert_eq!(
+            super::interior_resize_target(&layout, "sidebar", false, "left").as_deref(),
+            Some("working")
+        );
+        assert_eq!(
+            super::interior_resize_target(&layout, "sidebar", false, "right").as_deref(),
+            Some("sidebar")
+        );
+    }
+
     use super::*;
     #[test]
     fn product_width_yields_only_to_host_split_limits() {
