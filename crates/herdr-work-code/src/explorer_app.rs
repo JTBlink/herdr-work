@@ -2721,17 +2721,31 @@ impl App {
 
     /// Render the centered Settings popup and remember its rect for clicks.
     fn draw_settings(&mut self, frame: &mut Frame) {
-        let rows = self.settings_rows();
+        let rows = self
+            .settings_rows()
+            .into_iter()
+            .map(|(id, label, value, enabled)| {
+                let (label, value) = crate::settings_view::row(label, &value);
+                (id, label, value, enabled)
+            })
+            .collect::<Vec<_>>();
         let area = frame.area();
         let desired_width = rows
             .iter()
-            .map(|(_, label, value, _)| label.chars().count() + value.chars().count() + 5)
+            .map(|(_, label, value, _)| {
+                Span::raw(label.as_str()).width() + Span::raw(value.as_str()).width() + 5
+            })
             .max()
             .unwrap_or(30)
             .max(30) as u16;
         let width = desired_width.min(area.width);
         // The hotkey reference lives here now; the footer chips are opt-in.
-        let hint_lines = wrap_hints(&self.hints(), width.saturating_sub(2), 0);
+        let hints = self.hints();
+        let hints = hints
+            .iter()
+            .map(|(key, label)| (*key, crate::settings_view::text(label)))
+            .collect::<Vec<_>>();
+        let hint_lines = wrap_hints(&hints, width.saturating_sub(2), 0);
         let Some(Overlay::Settings {
             selected,
             rect,
@@ -2755,8 +2769,7 @@ impl App {
         let inner_w = usize::from(width.saturating_sub(2));
         let mut lines: Vec<Line> = Vec::new();
         for (i, (_, label, value, enabled)) in rows.iter().enumerate() {
-            let pad = inner_w.saturating_sub(label.chars().count() + value.chars().count() + 2);
-            let text = format!(" {label}{}{value} ", " ".repeat(pad.max(1)));
+            let text = crate::settings_view::row_text(label, value, inner_w);
             let style = if !enabled {
                 Style::default().dim()
             } else if i == *selected {
@@ -2767,21 +2780,18 @@ impl App {
             lines.push(Line::styled(text, style));
         }
         lines.push(Line::default());
-        lines.push(Line::from(Span::styled(
-            " Hotkeys",
-            Style::default().bold(),
-        )));
+        lines.push(Line::from(Span::styled(" 快捷键", Style::default().bold())));
         lines.extend(hint_lines);
-        lines.push(Line::from(" click/⏎ · ←/→ width · esc".dim()));
+        lines.push(Line::from(" ⏎ 切换 · ←→ 调宽 · Esc".dim()));
 
         frame.render_widget(Clear, popup);
         frame.render_widget(
             Paragraph::new(lines).scroll((*scroll as u16, 0)).block(
                 ratatui::widgets::Block::bordered()
                     .title(if sidebar::product_profile().is_some() {
-                        " HerdrWork Settings "
+                        " HerdrWork 设置 "
                     } else {
-                        " Settings "
+                        " 设置 "
                     })
                     .border_style(Style::default().dim()),
             ),

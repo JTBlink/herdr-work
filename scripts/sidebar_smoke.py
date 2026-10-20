@@ -249,7 +249,7 @@ try:
     send(owner, keys=["1"])
     wait(lambda: title() == "HerdrWork · Explorer", "Explorer before settings")
     send(owner, "s")
-    wait(lambda: "HerdrWork Settings" in read(owner), "product settings title")
+    wait(lambda: "HerdrWork 设置" in read(owner), "product settings title")
     send(owner, keys=["Escape"])
     send(owner, keys=["3"])
     wait(lambda: title() == "HerdrWork · Git", "product Git title")

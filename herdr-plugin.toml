@@ -6,7 +6,7 @@ description = "Tasks, agents, files, Git and code review in one HerdrWork termin
 platforms = ["macos", "linux"]
 
 [[build]]
-command = ["python3", "scripts/plugin.py"]
+command = ["python3", "scripts/plugin_build.py"]
 
 [[panes]]
 id = "pane"

@@ -32,6 +32,7 @@ pub mod scm_view;
 pub mod scm_widgets;
 pub mod search;
 pub mod search_widgets;
+pub mod settings_view;
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub mod snooze;
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]

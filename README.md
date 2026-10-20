@@ -29,7 +29,7 @@ Windows 使用 `python install.py --prefix "$env:LOCALAPPDATA/HerdrWork"`，运�
 
 在 Herdr 中执行 `herdr-work ui` 默认以 28 列打开 Sidebar（受宿主 10% 下限及半屏上限约束），右侧保留原终端或 Agent；当前标签页已有自有实例会直接聚焦。默认界面直接复用迁入的 Sidebar 文件树、搜索、Git、设置和键鼠处理。`1`、`2`、`3` 分别进入文件、搜索和 Git，`Ctrl+P` 快速打开文件，`m` 或右键打开菜单，齿轮打开设置。图标使用原有固定占位，Git 数量角标紧贴图标右下角。
 
-打开文件或 Diff 时，viewer 默认接管右侧实际布局空间：原 pane 暂存于停车标签页，进程继续运行，Sidebar 保留。关闭 viewer 后恢复原 pane、分栏方向与比例；未保存编辑继续使用来源确认流程。预览、编辑器、固定文档、搜索过滤条件和 Git 面板沿用 Sidebar 的原交互。设置和恢复记录独立保存在 HerdrWork 资料目录的 `sidebar/` 下。独立插件共存时只接管自有工作区域；没有安全的工作区域时在新标签页预览。
+打开文件或 Diff 时，viewer 默认接管右侧实际布局空间：原 pane 暂存于停车标签页，进程继续运行，Sidebar 保留。关闭 viewer 后恢复原 pane、分栏方向与比例；未保存编辑继续使用来源确认流程。预览、编辑器、固定文档、搜索过滤条件和 Git 面板沿用 Sidebar 的原交互。设置和恢复记录独立保存在 HerdrWork 资料目录的 `sidebar/` 下。独立 Sidebar 等插件启用时，文件与 Diff 均在当前标签页内分栏预览，避免创建标签页触发其他插件；预览和恢复均避开独立插件窗格。HerdrWork 不会在预览专用标签页自动补开侧栏。
 
 自动打开、严格切换、打开时聚焦、跟随工作目录和预览位置可在设置中调整。`herdr-work activate toggle` 切换侧栏；`b` 隐藏后不会被焦点事件立即重开，显式打开可恢复。每个标签页可拥有自己的侧栏，重开沿用上次活动和目录记忆。
 
@@ -55,10 +55,12 @@ Herdr 插件入口使用稳定 ID `jtblink.herdr-work`。在仓库根目录使�
 
 ```sh
 sh install-plugin.sh            # 默认从当前源码构建，需要 Rust 和平台编译工具
-sh install-plugin.sh --release  # 下载 VERSION 对应的发行包，校验后安装
+sh install-plugin.sh --release  # 官方安装 VERSION 对应的 GitHub 标签
 ```
 
-脚本支持 macOS Apple Silicon 和 Linux x86_64，可从任意目录通过脚本路径调用。底层入口为 `scripts/plugin.py`，安装完成后自动执行 `herdr plugin link .`；插件链接依赖当前仓库目录，请保留该目录。插件的原 Projects hook 在独立数据目录运行。
+脚本支持 macOS Apple Silicon 和 Linux x86_64，可从任意目录通过脚本路径调用。`scripts/plugin.py` 统一调用 Herdr 官方命令：源码模式构建后执行 `herdr plugin link <仓库目录>`；发行模式执行 `herdr plugin install JTBlink/herdr-work --ref v<VERSION>`，由 Herdr 管理插件副本。源码链接依赖当前仓库目录，请保留该目录。插件清单通过 `scripts/plugin_build.py` 准备并校验发行程序；Projects hook 在独立数据目录运行。
+
+安装时会为文件树添加默认快捷键：先按 `Ctrl+B`，松开后按 `F`，打开或聚焦当前标签页的 HerdrWork。若修改了 Herdr 前缀键，则使用自定义前缀再按 `F`。安装器只在键位空闲时添加；已有绑定或用户改动会保留，重复安装不重复添加。配置前备份宿主配置，不修改独立 Sidebar 的绑定。使用 `herdr plugin install JTBlink/herdr-work` 安装时也会执行相同的快捷键配置步骤。
 
 插件动作提供 Show HerdrWork Explorer、Search、Source Control 和 Quick Open；宿主为自有工作台分配侧边栏终端，已有实例通过身份核验后聚焦。也可在宿主环境执行 `herdr-work activate show-search --root /path/to/repository`，其余动作名为 `show-explorer`、`show-git`、`quick-open`。编辑器或输入弹窗打开时，动作只聚焦并提示保留当前输入；结束输入后可再次选择活动。
 

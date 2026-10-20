@@ -382,6 +382,7 @@ fn move_pane(
 
 /// Move `pane` into `parking_tab`, splitting that tab's largest pane.
 fn park_pane(env: &mut impl Env, pane: &str, parking_tab: &str) -> Result<(), String> {
+    let protected = protect_independent_plugins(env, "", parking_tab)?;
     let list = env.call("pane.list", json!({}))?;
     let anchor = live_panes(&list)?
         .into_iter()
@@ -394,6 +395,7 @@ fn park_pane(env: &mut impl Env, pane: &str, parking_tab: &str) -> Result<(), St
     let target = layout
         .panes
         .iter()
+        .filter(|target| !protected.contains(&target.pane_id))
         .filter(|target| target.rect.width >= 16 || target.rect.height >= 8)
         .max_by_key(|target| target.rect.width * target.rect.height)
         .ok_or("not enough room to park the working panes")?;
@@ -553,9 +555,15 @@ fn restore_with(env: &mut impl Env, plan: &Plan, trigger: Trigger) -> Result<Out
         // No sidebar to rebuild around (the user hid it): bring the first
         // working pane in beside whatever the tab still shows. This is the
         // only step that may fail before anything moved.
+        let protected = protect_independent_plugins(env, &plan.owner, &plan.tab)?;
         let target = viewer
             .filter(|viewer| viewer.tab == plan.tab)
-            .or_else(|| panes.iter().find(|pane| pane.tab == plan.tab))
+            .filter(|viewer| !protected.contains(&viewer.id))
+            .or_else(|| {
+                panes
+                    .iter()
+                    .find(|pane| pane.tab == plan.tab && !protected.contains(&pane.id))
+            })
             .map(|pane| pane.id.clone())
             .ok_or("the previewed tab has no panes")?;
         move_pane(env, &anchor, &plan.tab, &target, "right", 0.5)?;
@@ -1508,6 +1516,23 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn recovery_does_not_use_remaining_independent_sidebar_as_an_anchor() {
+        let (mut fake, _) = fake_with_takeover(false);
+        let journal = plan(&fake);
+        fake.call("pane.close", json!({"pane_id":journal.owner}))
+            .unwrap();
+        fake.call("pane.close", json!({"pane_id":journal.viewer}))
+            .unwrap();
+        fake.add_tab("w1:main", *pane("independent"));
+        fake.tokens
+            .insert("independent".into(), json!({"herdr-sidebar-explorer":"1"}));
+        fake.mutations.clear();
+        assert!(restore_with(&mut fake, &journal, Trigger::Recover).is_err());
+        assert!(fake.mutations.is_empty());
+        assert_eq!(fake.root("w1:main"), Some(pane("independent").as_ref()));
     }
 
     #[test]
