@@ -14,7 +14,7 @@ use ratatui::{
 /// The name yields to title actions rather than drawing underneath them.
 pub fn workspace_name_span(name: &str, available: usize) -> Span<'static> {
     Span::styled(
-        truncate_to(format!(" {}", name.to_uppercase()), available),
+        truncate_to(format!(" {name}"), available),
         Style::default()
             .add_modifier(Modifier::BOLD)
             .fg(crate::ui::palette().header_accent),

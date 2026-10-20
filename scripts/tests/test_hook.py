@@ -8,6 +8,16 @@ import unittest
 from unittest.mock import patch
 
 class HookProfile(unittest.TestCase):
+    def test_closing_or_focusing_panes_does_not_auto_reopen_the_workbench(self):
+        root = Path(__file__).resolve().parents[2]
+        manifest = tomllib.loads((root / 'herdr-plugin.toml').read_text())
+        for event in ['pane.closed', 'pane.focused', 'tab.focused', 'workspace.focused']:
+            dispatched = [hook['command'] for hook in manifest['events'] if hook['on'] == event]
+            self.assertNotIn(['bin/herdr-work', 'sidebar-ensure'], dispatched, event)
+        for event in ['tab.created', 'workspace.created']:
+            dispatched = [hook['command'] for hook in manifest['events'] if hook['on'] == event]
+            self.assertIn(['bin/herdr-work', 'sidebar-ensure'], dispatched, event)
+
     def test_manifest_activities_allocate_the_products_own_tty_entrypoint(self):
         root = Path(__file__).resolve().parents[2]
         manifest = tomllib.loads((root / 'herdr-plugin.toml').read_text())

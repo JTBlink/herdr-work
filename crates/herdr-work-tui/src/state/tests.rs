@@ -3403,6 +3403,104 @@ fn activity_icons_keep_two_cell_slots_and_badges_touch_the_lower_right() {
 }
 
 #[test]
+fn graph_lives_in_content_tabs_and_keeps_sidebar_navigation_independent() {
+    use crate::scm::ScmTarget;
+    use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use herdr_work_code::scm::Drawer;
+    use ratatui::layout::Rect;
+
+    let (_temp, mut app) = loaded_app();
+    for args in [
+        vec!["add", "."],
+        vec![
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "graph content fixture",
+        ],
+    ] {
+        assert!(
+            Command::new("git")
+                .args(args)
+                .current_dir(&app.root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    app.switch_tab(Tab::Scm);
+    let area = Rect::new(0, 0, 120, 32);
+    for dock_right in [false, true] {
+        app.preferences.dock_right = dock_right;
+        let content = app.panes(area).content;
+        let [review, graph, _] = crate::layout::scm_content_tabs(content);
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: graph.x + 2,
+                row: graph.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        receive(&mut app);
+        assert_eq!(app.active_drawer, Some(Drawer::Graph));
+        assert!(app.focus == Focus::Content);
+        assert!(matches!(app.drawer_state, crate::loading::LoadState::Ready));
+        assert!(!app.scm_rows().iter().any(|row| matches!(
+            row.3,
+            ScmTarget::Drawer(Drawer::Graph) | ScmTarget::History(Drawer::Graph, _)
+        )));
+        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let content_text = (content.y..content.bottom())
+            .flat_map(|y| (content.x..content.right()).map(move |x| buffer[(x, y)].symbol()))
+            .collect::<String>();
+        assert!(content_text.contains("Graph [g]"));
+        assert_eq!(buffer[(review.x + 8, review.y)].symbol(), " ");
+        assert_eq!(buffer[(review.x + 9, review.y)].symbol(), " ");
+        assert!(content_text.contains("graph content fixture"));
+        if !dock_right {
+            capture_fixture(&mut app, "graph-content");
+        }
+        let cursor = app.scm_cursor;
+        app.key(KeyCode::Down).unwrap();
+        assert_eq!(app.drawer_scroll, 1);
+        assert_eq!(app.scm_cursor, cursor);
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: review.x + 2,
+                row: review.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            area,
+        )
+        .unwrap();
+        assert!(app.tab == Tab::Review);
+        assert!(app.active_drawer.is_none());
+        assert!(screen(&mut app).contains("选择左侧Git变更"));
+    }
+    app.key(KeyCode::Char('g')).unwrap();
+    assert_eq!(app.active_drawer, Some(Drawer::Graph));
+    let pending = app.drawer_request;
+    app.key(KeyCode::Char('g')).unwrap();
+    receive(&mut app);
+    app.apply(
+        app.context.epoch,
+        Ok(Data::Show(pending, Ok("stale graph detail".into()))),
+    );
+    assert!(app.tab == Tab::Review);
+    assert!(app.active_drawer.is_none());
+    assert!(app.drawer_show.is_none());
+}
+
+#[test]
 fn vscode_search_groups_hits_and_keeps_file_folding_and_replace_targets_live() {
     use ratatui::layout::Position;
     let (_temp, mut app) = loaded_app();

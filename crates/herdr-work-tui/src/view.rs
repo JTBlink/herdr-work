@@ -24,12 +24,15 @@ impl App {
                 Tab::Scm | Tab::Review => self.draw_diff(f, layout.content),
             }
         }
+        if matches!(self.tab, Tab::Scm | Tab::Review) && layout.content.width > 0 {
+            self.draw_scm_content_tabs(f, layout.content);
+        }
         let hints = match (self.tab, self.focus) {
             (Tab::Search, _) => "/ 搜索 · c 大小写 · w 全词 · * 正则 · i 包含 · o 排除 · e 编辑",
             (Tab::Files, Focus::Content) => "↑/↓ 滚动预览 · Tab 返回文件树",
             (Tab::Files, _) => "Enter 展开/预览 · e 编辑 · m 菜单 · , 设置 · Tab 聚焦预览",
-            (Tab::Scm, _) => "Enter 查看差异 · s 暂存 · u 取消暂存 · C 提交",
-            (Tab::Review, _) => "c 评论 · s 发送 · b 绑定 · f 聚焦 Agent · Tab 返回 Git",
+            (Tab::Scm, _) => "Enter 查看差异 · g 图谱/差异 · s 暂存 · u 取消暂存 · C 提交",
+            (Tab::Review, _) => "c 评论 · s 发送 · b 绑定 · g 图谱 · f 聚焦 Agent · Tab 返回 Git",
             (Tab::Tasks, _) => "Enter 选择执行 · n 创建 · d 委派 · x 停止",
         };
         self.draw_footer(f, layout.footer, hints);
