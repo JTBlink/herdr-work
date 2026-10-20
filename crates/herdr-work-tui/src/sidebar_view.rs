@@ -380,6 +380,9 @@ impl App {
             }
         }
         for kind in herdr_work_code::scm::Drawer::ALL {
+            if kind == herdr_work_code::scm::Drawer::Graph {
+                continue;
+            }
             let open = self.drawer_open[kind.index()];
             rows.push((
                 None,

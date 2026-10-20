@@ -214,6 +214,11 @@ impl App {
             KeyCode::Char('2') => self.switch_tab(Tab::Files),
             KeyCode::Char('3') => self.switch_tab(Tab::Scm),
             KeyCode::Char('4') => self.switch_tab(Tab::Review),
+            KeyCode::Char('g') if matches!(self.tab, Tab::Scm | Tab::Review) => {
+                let graph = self.tab != Tab::Scm
+                    || self.active_drawer != Some(herdr_work_code::scm::Drawer::Graph);
+                self.select_graph_content(graph)?;
+            }
             KeyCode::Down | KeyCode::Up | KeyCode::Char('j' | 'k') if self.tab == Tab::Scm => {
                 let down = matches!(key, KeyCode::Down | KeyCode::Char('j'));
                 if self.focus == Focus::Content && self.active_drawer.is_some() {

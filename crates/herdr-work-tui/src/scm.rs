@@ -38,6 +38,80 @@ pub(crate) struct GitUi {
 }
 pub(crate) type ScmRow = (Option<usize>, String, char, ScmTarget);
 impl App {
+    pub(crate) fn select_graph_content(&mut self, graph: bool) -> Result<()> {
+        if graph {
+            if self.tab != Tab::Scm {
+                self.switch_tab(Tab::Scm);
+            }
+            if self.active_drawer != Some(Drawer::Graph) {
+                self.load_drawer(Drawer::Graph)?;
+            }
+        } else {
+            self.drawer_request += 1;
+            self.active_drawer = None;
+            self.drawer_show = None;
+            self.drawer_doc = None;
+            self.switch_tab(Tab::Review);
+        }
+        self.focus = Focus::Content;
+        Ok(())
+    }
+
+    pub(crate) fn draw_scm_content_tabs(&self, f: &mut Frame, area: Rect) {
+        use herdr_work_code::ui::{palette, selection_style};
+        use ratatui::style::Style;
+        let [review, graph, detail] = crate::layout::scm_content_tabs(area);
+        f.render_widget(
+            ratatui::widgets::Clear,
+            Rect::new(area.x, area.y, area.width, area.height.min(1)),
+        );
+        let graph_active = self.tab == Tab::Scm && self.active_drawer == Some(Drawer::Graph);
+        for (rect, label, active) in [
+            (
+                review,
+                " Review ",
+                self.active_drawer.is_none() || self.tab == Tab::Review,
+            ),
+            (graph, " Graph [g] ", graph_active),
+        ] {
+            f.render_widget(
+                Paragraph::new(label).style(if active {
+                    selection_style(self.focus == Focus::Content)
+                } else {
+                    Style::default().fg(palette().ignored)
+                }),
+                rect,
+            );
+        }
+        let title = if self.tab == Tab::Scm
+            && let Some(kind) = self.active_drawer
+        {
+            self.drawers
+                .get(&kind)
+                .map(|view| {
+                    format!(
+                        " · {}{}",
+                        if kind == Drawer::Graph {
+                            String::new()
+                        } else {
+                            format!("{} · ", kind.title())
+                        },
+                        view.root.file_name().unwrap_or_default().to_string_lossy()
+                    )
+                })
+                .unwrap_or_default()
+        } else {
+            self.diff
+                .as_ref()
+                .map(|diff| format!(" · {}", diff.file))
+                .unwrap_or_default()
+        };
+        f.render_widget(
+            Paragraph::new(title).style(Style::default().fg(palette().ignored)),
+            detail,
+        );
+    }
+
     fn force_delete_idle(&self) -> bool {
         self.prompt.is_none()
             && self.overlay.is_none()

@@ -83,6 +83,14 @@ impl App {
             }
             return Ok(());
         }
+        if matches!(self.tab, Tab::Scm | Tab::Review)
+            && event.kind == MouseEventKind::Down(MouseButton::Left)
+        {
+            let [review, graph, _] = crate::layout::scm_content_tabs(layout.content);
+            if review.contains(point) || graph.contains(point) {
+                return self.select_graph_content(graph.contains(point));
+            }
+        }
         if self.search_prompt()
             && !layout.sidebar.contains(point)
             && matches!(event.kind, MouseEventKind::Down(_))

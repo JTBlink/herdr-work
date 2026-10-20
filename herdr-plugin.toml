@@ -70,19 +70,3 @@ command = ["bin/herdr-work", "sidebar-ensure"]
 [[events]]
 on = "workspace.created"
 command = ["bin/herdr-work", "sidebar-ensure"]
-
-[[events]]
-on = "pane.focused"
-command = ["bin/herdr-work", "sidebar-ensure"]
-
-[[events]]
-on = "tab.focused"
-command = ["bin/herdr-work", "sidebar-ensure"]
-
-[[events]]
-on = "workspace.focused"
-command = ["bin/herdr-work", "sidebar-ensure"]
-
-[[events]]
-on = "pane.closed"
-command = ["bin/herdr-work", "sidebar-ensure"]

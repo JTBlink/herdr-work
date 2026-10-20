@@ -20,11 +20,7 @@ pub(crate) fn activity_badge(rect: Rect, width: u16, dock_right: bool) -> Rect {
     let glyph = activity_glyph(rect);
     let right = rect.right().saturating_sub(u16::from(dock_right));
     let width = width.min(right.saturating_sub(rect.x + 1));
-    let x = glyph
-        .right()
-        .saturating_sub(1)
-        .min(right.saturating_sub(width))
-        .max(rect.x);
+    let x = glyph.right().min(right.saturating_sub(width)).max(rect.x);
     Rect::new(
         x,
         glyph.bottom().min(rect.bottom().saturating_sub(1)),
@@ -186,4 +182,14 @@ pub(crate) fn offset(selected: usize, height: u16) -> usize {
 }
 pub(crate) fn task_offset(selected: usize, height: u16) -> usize {
     offset(selected, height / 2)
+}
+
+/// Content tabs occupy the existing title row, so document geometry stays shared.
+pub(crate) fn scm_content_tabs(area: Rect) -> [Rect; 3] {
+    Layout::horizontal([
+        Constraint::Length(10),
+        Constraint::Length(12),
+        Constraint::Min(0),
+    ])
+    .areas(Rect::new(area.x, area.y, area.width, area.height.min(1)))
 }

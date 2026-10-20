@@ -1116,7 +1116,7 @@ impl App {
             && key.modifiers.contains(KeyModifiers::CONTROL)
             && !key.modifiers.contains(KeyModifiers::ALT)
         {
-            self.close(false);
+            self.close(crate::state::product_profile().is_some());
             return None;
         }
         self.flash = None;
