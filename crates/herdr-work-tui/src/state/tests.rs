@@ -724,9 +724,9 @@ fn sidebar_preferences_persist_and_apply_to_the_original_tree() {
     std::fs::write(app.root.join(".hidden"), "hidden").unwrap();
     app.open_settings();
     app.key(KeyCode::Right).unwrap();
-    assert_eq!(app.preferences.sidebar_width, 36);
+    assert_eq!(app.preferences.sidebar_width, 32);
     receive(&mut app);
-    assert_eq!(app.desk.ui_preferences().unwrap().sidebar_width, 36);
+    assert_eq!(app.desk.ui_preferences().unwrap().sidebar_width, 32);
     for _ in 0..4 {
         app.key(KeyCode::Down).unwrap();
     }
@@ -2499,7 +2499,7 @@ fn pending_settings_save_preserves_later_local_edits_and_unrelated_disk_fields()
     assert!(!app.preferences.show_hotkeys);
     receive(&mut app);
     let saved = app.desk.ui_preferences().unwrap();
-    assert_eq!(saved.sidebar_width, 36);
+    assert_eq!(saved.sidebar_width, 32);
     assert!(saved.dock_right);
     assert!(!saved.show_hotkeys);
 }

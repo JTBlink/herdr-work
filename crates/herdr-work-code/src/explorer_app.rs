@@ -817,10 +817,28 @@ impl App {
 
     /// The label this pane should carry while expanded.
     fn pane_label(&self) -> &'static str {
+        if sidebar::product_profile().is_some() {
+            return if matches!(self.overlay, Some(Overlay::ContentSearch { .. }))
+                || self.suspended_search.is_some()
+            {
+                "HerdrWork · Search"
+            } else {
+                "HerdrWork · Explorer"
+            };
+        }
         if self.merged() {
             sidebar::SIDEBAR_LABEL
         } else {
             herdr_work_code::launch::PANE_LABEL
+        }
+    }
+
+    pub fn host_title(&self) -> &'static str {
+        self.pane_label()
+    }
+    pub fn refresh_host_title(&self) {
+        if let Some(ctl) = &self.pane_ctl {
+            ctl.set_label(Some(self.host_title()));
         }
     }
 
@@ -2424,7 +2442,11 @@ impl App {
         vec![
             (
                 Setting::Version,
-                "Sidebar version",
+                if sidebar::product_profile().is_some() {
+                    "HerdrWork version"
+                } else {
+                    "Sidebar version"
+                },
                 env!("CARGO_PKG_VERSION").into(),
                 false,
             ),
@@ -2758,7 +2780,11 @@ impl App {
         frame.render_widget(
             Paragraph::new(lines).scroll((*scroll as u16, 0)).block(
                 ratatui::widgets::Block::bordered()
-                    .title(" Settings ")
+                    .title(if sidebar::product_profile().is_some() {
+                        " HerdrWork Settings "
+                    } else {
+                        " Settings "
+                    })
                     .border_style(Style::default().dim()),
             ),
             popup,
