@@ -26,6 +26,7 @@ pub struct Sidebar {
     follower: Rc<RefCell<CwdFollower>>,
     last_tick: Instant,
     roots: crate::root_memory::RootMemory,
+    last_title: Option<&'static str>,
 }
 impl Sidebar {
     pub fn new(root: PathBuf, initial: Option<InitialView>) -> Self {
@@ -46,12 +47,15 @@ impl Sidebar {
             last_attempt: None,
         };
         let app = Self::build(root, initial, Rc::clone(&follower));
-        Self {
+        let mut sidebar = Self {
             app,
             follower,
             last_tick: Instant::now(),
             roots,
-        }
+            last_title: None,
+        };
+        sidebar.refresh_title();
+        sidebar
     }
     fn build(root: PathBuf, initial: InitialView, follower: Rc<RefCell<CwdFollower>>) -> ViewApp {
         match initial {
@@ -67,6 +71,20 @@ impl Sidebar {
                 ViewApp::Explorer(Box::new(app))
             }
         }
+    }
+    fn refresh_title(&mut self) {
+        let title = match &self.app {
+            ViewApp::Explorer(app) => app.host_title(),
+            ViewApp::Git(app) => app.host_title(),
+        };
+        if self.last_title == Some(title) {
+            return;
+        }
+        match &self.app {
+            ViewApp::Explorer(app) => app.refresh_host_title(),
+            ViewApp::Git(app) => app.refresh_host_title(),
+        }
+        self.last_title = Some(title);
     }
     pub fn root(&self) -> PathBuf {
         match &self.app {
@@ -103,6 +121,7 @@ impl Sidebar {
             return false;
         }
         self.app = Self::build(root.to_owned(), view, Rc::clone(&self.follower));
+        self.refresh_title();
         true
     }
     pub fn event(&mut self, event: Event) -> bool {
@@ -121,6 +140,7 @@ impl Sidebar {
             }
             _ => None,
         };
+        self.refresh_title();
         let Some(exit) = exit else { return false };
         if let ViewApp::Git(app) = &mut self.app
             && !app.persist_scm()
@@ -151,6 +171,7 @@ impl Sidebar {
         if focus_query && let ViewApp::Explorer(app) = &mut self.app {
             app.open_content_search(true);
         }
+        self.refresh_title();
         false
     }
     pub fn tick(&mut self) {
@@ -227,7 +248,7 @@ mod tests {
         )
         .unwrap();
         for view in [InitialView::Explorer, InitialView::Search, InitialView::Git] {
-            for (width, height) in [(32, 24), (48, 32), (80, 24)] {
+            for (width, height) in [(28, 24), (32, 24), (48, 32), (80, 24)] {
                 let mut component = Sidebar::new(root.clone(), Some(view));
                 let mut actual = Terminal::new(TestBackend::new(width, height)).unwrap();
                 actual.draw(|f| component.draw(f)).unwrap();
@@ -251,7 +272,7 @@ mod tests {
                     expected.backend().buffer(),
                     "{view:?} {width}x{height}"
                 );
-                if width == 32
+                if width == 28
                     && let Some(dir) = std::env::var_os("HERDR_WORK_TEST_FRAMES")
                 {
                     std::fs::create_dir_all(&dir).unwrap();

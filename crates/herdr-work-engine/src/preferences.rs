@@ -19,7 +19,7 @@ pub struct UiPreferences {
 impl Default for UiPreferences {
     fn default() -> Self {
         Self {
-            sidebar_width: herdr_work_code::appearance::DEFAULT_SIDEBAR_WIDTH,
+            sidebar_width: herdr_work_code::appearance::PRODUCT_SIDEBAR_WIDTH,
             dock_right: false,
             color_theme: "vscode".into(),
             icon_theme: "auto".into(),

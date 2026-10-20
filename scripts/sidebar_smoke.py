@@ -188,6 +188,23 @@ try:
         "owned Sidebar readiness",
     )
     wait(lambda: "REPO" in read(owner), "source Explorer header")
+
+    def title():
+        return next(p.get("label") for p in panes() if p["pane_id"] == owner)
+
+    wait(lambda: title() == "HerdrWork · Explorer", "product Explorer title")
+    send(owner, keys=["2"])
+    wait(lambda: title() == "HerdrWork · Search", "product Search title")
+    send(owner, keys=["1"])
+    wait(lambda: title() == "HerdrWork · Explorer", "Explorer before settings")
+    send(owner, "s")
+    wait(lambda: "HerdrWork Settings" in read(owner), "product settings title")
+    send(owner, keys=["Escape"])
+    send(owner, keys=["3"])
+    wait(lambda: title() == "HerdrWork · Git", "product Git title")
+    send(owner, keys=["1"])
+    wait(lambda: title() == "HerdrWork · Explorer", "return to Explorer title")
+
     reused = subprocess.run(
         [
             str(Path(args.activation_binary).resolve())
@@ -217,9 +234,9 @@ try:
     (BASE / "before.json").write_text(
         json.dumps({"layout": before, "processes": processes}, indent=2)
     )
-    assert (
-        next(p for p in before["panes"] if p["pane_id"] == owner)["rect"]["width"] <= 35
-    ), before
+    assert next(p for p in before["panes"] if p["pane_id"] == owner)["rect"][
+        "width"
+    ] in (28, 30), before
     # Original Sidebar's Quick Open: type into its own input handler, then open.
     send(owner, keys=["ctrl+p"])
     wait(lambda: "Quick Open" in read(owner), "original Quick Open")
@@ -242,6 +259,12 @@ try:
     wait(lambda: "a-file.txt fixture line 001" in read(viewer), "viewer document")
     during = layout(owner)
     assert {p["pane_id"] for p in during["panes"]} == {owner, viewer}, during
+    min_width = max(28, int(during["area"]["width"] * 0.1))
+    # Attached Herdr clients reserve two columns for pane chrome.
+    assert next(p for p in during["panes"] if p["pane_id"] == owner)["rect"][
+        "width"
+    ] in (min_width, min_width + 2), during
+
     parked = {p["pane_id"]: p["tab_id"] for p in panes() if p["pane_id"] in originals}
     assert set(parked) == set(originals) and all(
         tab != before["tab_id"] for tab in parked.values()

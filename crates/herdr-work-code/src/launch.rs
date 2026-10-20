@@ -29,9 +29,33 @@ pub const STARTING_TOKEN: &str = "herdr-work-code-starting";
 
 use crate::dock::is_flag_safe;
 pub(crate) use crate::dock::strip_bom;
-pub use crate::dock::{
-    RepairStep, layout_width, open_plan, preferred_resize_plan, repair_step, resize_plan,
-};
+pub use crate::dock::{RepairStep, layout_width, open_plan, repair_step, resize_plan};
+
+pub fn preferred_resize_plan(
+    layout_json: &str,
+    pane_id: &str,
+    term_cols_now: u16,
+    preferred_cols: u16,
+    dock_right: bool,
+) -> Option<crate::dock::ResizeStep> {
+    if crate::state::product_profile().is_some() {
+        crate::dock::column_resize_plan(
+            layout_json,
+            pane_id,
+            term_cols_now,
+            preferred_cols,
+            dock_right,
+        )
+    } else {
+        crate::dock::preferred_resize_plan(
+            layout_json,
+            pane_id,
+            term_cols_now,
+            preferred_cols,
+            dock_right,
+        )
+    }
+}
 
 #[derive(Deserialize)]
 struct PaneListMsg {

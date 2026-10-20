@@ -71,14 +71,16 @@ HerdrWork 保持唯一终端和事件循环。生产 `sidebar-ui` 特性直接�
 
 搜索结果的 `highlighted_search_context`、`truncate_path_tail` 从同一固定来源机械提取到 `search_widgets`，原测试与参考调用保留。工作台按文件分组显示，原内容搜索匹配范围贯通 Engine 至 TUI。替换是新增用例，匹配范围复用原搜索算法，捕获组由现有 regex 依赖展开；Engine 生成固定文件快照并预检，执行通过原 EditorSession / Editor 保存，保留 BOM、换行及磁盘变化检查。执行中途失败会报告已保存文件数，不声明跨文件原子回滚。
 
-Sidebar `launch.rs` 的纯布局类型、`open_plan`、`resize_plan`、`preferred_resize_plan`、`layout_width` 与 `repair_step` 机械移动至生产共享模块 `dock.rs`，原入口重导出，来源测试保留。HerdrWork 的活动入口只为当前原终端创建本产品侧栏，沿用 split → swap → resize 的原停靠顺序；不调用独立插件的 ensure、配置、接管或更新。默认侧栏使用来源约 32 列宽度，窄终端沿用来源 15%–50% 的宽度界限。`ui --standalone` 保留完整工作台，宿主内普通 `ui` 在获得数据锁前转交活动入口，避免重复实例报锁错误。
+Sidebar `launch.rs` 的纯布局类型、`open_plan`、`resize_plan`、`preferred_resize_plan`、`layout_width` 与 `repair_step` 机械移动至生产共享模块 `dock.rs`，原入口重导出，来源测试保留。HerdrWork 的活动入口只为当前原终端创建本产品侧栏，沿用 split → swap → resize 的原停靠顺序；不调用独立插件的 ensure、配置、接管或更新。HerdrWork 默认 28 列并优先保持设定列宽，宽屏不再强制至少占 15%；遵守实际宿主 10% 下限及来源半屏上限。参考入口仍使用原 15%–50% 界限。`ui --standalone` 保留完整工作台，宿主内普通 `ui` 在获得数据锁前转交活动入口，避免重复实例报锁错误。
 
 ## 默认入口验证
 
-默认 Sidebar 与直接创建原 App 的绘制缓冲在 32×24、48×32、80×24 下逐格比较，覆盖文件、搜索和 SCM。另以隔离 Herdr session 检查实际宿主创建与 takeover；不会以 fake socket 测试代替真实布局验收。验证只使用临时仓库、专属 profile 和测试 pane，不操作用户已有会话。
+默认 Sidebar 与直接创建原 App 的绘制缓冲在 28×24、32×24、48×32、80×24 下逐格比较，覆盖文件、搜索和 SCM。另以隔离 Herdr session 检查实际宿主创建与 takeover；不会以 fake socket 测试代替真实布局验收。验证只使用临时仓库、专属 profile 和测试 pane，不操作用户已有会话。
 
 本轮在 macOS Apple Silicon 验证通过：根 workspace 测试、保留来源界面测试、默认组件三种尺寸逐格对照、Python 安装测试、原生构建与归档隔离安装 smoke、完整工作台 PTY smoke。独立 Herdr session 的三块工作 pane 测试实际验证停车期间进程身份不变、第二个文件复用 viewer、关闭后 pane ID/方向/比例/矩形精确恢复，宿主直接关闭 viewer 后后台恢复同样通过；另从第二个安装前缀调用活动入口验证聚焦同一实例。Linux/Windows 本轮原生交互未执行。
 
 可复现的宿主验收入口为 `scripts/sidebar_smoke.py --socket <isolated-session-socket> --binary bin/herdr-work --output <new-fixture-directory>`；先在隔离 session 链接本仓库插件，入口拒绝继承的用户 socket，创建并最终关闭自己的测试 workspace。可选 `--activation-binary <second-installation>` 验证跨安装前缀聚焦。不得传入用户会话。
 
 ![默认 Sidebar 三个活动的临时仓库绘制 fixture](../verification/ui-default-sidebar.png)
+
+产品宿主标题分别为 `HerdrWork · Explorer`、`HerdrWork · Search`、`HerdrWork · Git`；设置窗口使用 `HerdrWork Settings`，与独立 Sidebar 区分。

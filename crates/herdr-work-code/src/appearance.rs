@@ -1,5 +1,7 @@
 //! Shared visual preferences; no plugin configuration or lifecycle calls.
 pub const DEFAULT_SIDEBAR_WIDTH: u16 = 32;
+/// Product sidebar default; the reference Sidebar keeps its original width.
+pub const PRODUCT_SIDEBAR_WIDTH: u16 = 28;
 pub const MIN_SIDEBAR_WIDTH: u16 = 24;
 pub const MAX_SIDEBAR_WIDTH: u16 = 80;
 pub const SIDEBAR_WIDTH_STEP: u16 = 4;

@@ -3,6 +3,8 @@
 use serde::Deserialize;
 const MIN_SIDEBAR_SHARE: f64 = 0.15;
 const MAX_SIDEBAR_SHARE: f64 = 0.5;
+/// Herdr clamps split ratios to at least ten percent.
+pub const PRODUCT_MIN_SIDEBAR_SHARE: f64 = 0.1;
 
 #[derive(Deserialize)]
 pub(crate) struct LayoutMsg {
@@ -56,6 +58,25 @@ pub(crate) fn strip_bom(input: &str) -> &str {
 /// the leftmost pane and swaps; right docking splits the rightmost pane with
 /// an inverted original-pane ratio and needs no swap. Empty on any failure.
 pub fn open_plan(layout_json: &str, dock_right: bool, target_cols: u16) -> String {
+    open_plan_inner(layout_json, dock_right, target_cols, MIN_SIDEBAR_SHARE)
+}
+
+/// Use the configured columns within Herdr's actual split limits.
+pub fn column_open_plan(layout_json: &str, dock_right: bool, target_cols: u16) -> String {
+    open_plan_inner(
+        layout_json,
+        dock_right,
+        target_cols,
+        PRODUCT_MIN_SIDEBAR_SHARE,
+    )
+}
+
+fn open_plan_inner(
+    layout_json: &str,
+    dock_right: bool,
+    target_cols: u16,
+    min_share: f64,
+) -> String {
     let Ok(msg) = serde_json::from_str::<LayoutMsg>(strip_bom(layout_json)) else {
         return String::new();
     };
@@ -81,7 +102,7 @@ pub fn open_plan(layout_json: &str, dock_right: bool, target_cols: u16) -> Strin
         return String::new();
     };
     let sidebar_share =
-        (f64::from(target_cols) / rect.width as f64).clamp(MIN_SIDEBAR_SHARE, MAX_SIDEBAR_SHARE);
+        (f64::from(target_cols) / rect.width as f64).clamp(min_share, MAX_SIDEBAR_SHARE);
     let ratio = if dock_right {
         1.0 - sidebar_share
     } else {
@@ -126,7 +147,7 @@ pub fn resize_plan(
         term_cols_now,
         term_cols_target,
         dock_right,
-        false,
+        None,
     )
 }
 
@@ -146,7 +167,25 @@ pub fn preferred_resize_plan(
         term_cols_now,
         preferred_cols,
         dock_right,
-        true,
+        Some(MIN_SIDEBAR_SHARE),
+    )
+}
+
+/// Product reflow yields only to the host minimum and half-pane limit.
+pub fn column_resize_plan(
+    layout_json: &str,
+    pane_id: &str,
+    term_cols_now: u16,
+    preferred_cols: u16,
+    dock_right: bool,
+) -> Option<ResizeStep> {
+    resize_plan_inner(
+        layout_json,
+        pane_id,
+        term_cols_now,
+        preferred_cols,
+        dock_right,
+        Some(PRODUCT_MIN_SIDEBAR_SHARE),
     )
 }
 
@@ -156,7 +195,7 @@ fn resize_plan_inner(
     term_cols_now: u16,
     term_cols_target: u16,
     dock_right: bool,
-    clamp_share: bool,
+    min_share: Option<f64>,
 ) -> Option<ResizeStep> {
     let msg = serde_json::from_str::<LayoutMsg>(strip_bom(layout_json)).ok()?;
     let layout = &msg.result.layout;
@@ -187,8 +226,8 @@ fn resize_plan_inner(
     // reassertion keeps the content usable at extreme tab widths.
     let chrome = pane_rect.width - i64::from(term_cols_now);
     let requested = i64::from(term_cols_target) + chrome.max(0);
-    let target_rect_w = if clamp_share {
-        let min = (split.0.width as f64 * MIN_SIDEBAR_SHARE).ceil() as i64;
+    let target_rect_w = if let Some(min_share) = min_share {
+        let min = (split.0.width as f64 * min_share).ceil() as i64;
         let max = (split.0.width as f64 * MAX_SIDEBAR_SHARE).floor() as i64;
         requested.clamp(min, max.max(min))
     } else {
@@ -267,4 +306,33 @@ pub fn repair_step(layout_json: &str, pane_id: &str, dock_right: bool) -> Option
         beside,
         tab: tab.to_string(),
     })
+}
+
+#[cfg(test)]
+mod product_width_tests {
+    use super::*;
+    #[test]
+    fn product_width_yields_only_to_host_split_limits() {
+        let geometry = serde_json::json!({"result":{"layout":{
+            "panes":[{"pane_id":"p1","rect":{"x":0,"y":0,"width":400,"height":40}}]
+        }}})
+        .to_string();
+        assert_eq!(column_open_plan(&geometry, false, 28), "p1\t0.100000\ttrue");
+        assert_eq!(column_open_plan(&geometry, true, 28), "p1\t0.900000\tfalse");
+        assert_eq!(open_plan(&geometry, false, 28), "p1\t0.150000\ttrue");
+        for (width, current, target, expected) in [(400, 60, 28, 0.05), (40, 20, 28, 0.0)] {
+            let geometry = serde_json::json!({"result":{"layout":{
+                "panes":[{"pane_id":"p1","rect":{"x":0,"y":0,"width":current,"height":40}}],
+                "splits":[{"direction":"right","ratio":current as f64 / width as f64,"rect":{"x":0,"y":0,"width":width,"height":40}}]
+            }}}).to_string();
+            let step = column_resize_plan(&geometry, "p1", current, target, false);
+            if expected == 0.0 {
+                assert!(step.is_none());
+            } else {
+                let step = step.unwrap();
+                assert_eq!(step.direction, "left");
+                assert!((step.amount - expected).abs() < 1e-6);
+            }
+        }
+    }
 }

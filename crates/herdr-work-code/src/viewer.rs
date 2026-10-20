@@ -2629,7 +2629,12 @@ fn inline_split_plan(layout_json: &str, pane_id: &str, inline: InlineSpawn) -> O
         });
     }
     let my_width = pane_width(layout_json, pane_id)?;
-    let share = (f64::from(inline.sidebar_cols) / my_width).clamp(0.15, 0.5);
+    let min_share = if crate::state::product_profile().is_some() {
+        crate::dock::PRODUCT_MIN_SIDEBAR_SHARE
+    } else {
+        0.15
+    };
+    let share = (f64::from(inline.sidebar_cols) / my_width).clamp(min_share, 0.5);
     Some(SplitPlan {
         target: pane_id.to_string(),
         // `ratio` is the ORIGINAL pane's share, and a swap moves us into the

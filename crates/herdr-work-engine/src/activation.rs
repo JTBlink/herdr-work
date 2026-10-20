@@ -297,7 +297,7 @@ impl HerdrWork {
         };
         preferences.validate()?;
         let geometry = json!({"result":layout});
-        let plan = herdr_work_code::dock::open_plan(
+        let plan = herdr_work_code::dock::column_open_plan(
             &geometry.to_string(),
             preferences.dock_right,
             preferences.sidebar_width,

@@ -27,7 +27,7 @@ Windows 使用 `python install.py --prefix "$env:LOCALAPPDATA/HerdrWork"`，运�
 | Linux x86_64 | HerdrWork 与固定 Projects 后端 |
 | Windows x86_64 | 原生文件、Git、Diff 与评论界面；Projects 后端仍依赖 Unix，不提供原生任务执行 |
 
-在 Herdr 中执行 `herdr-work ui` 默认打开约 32 列的 Sidebar，右侧保留原终端或 Agent；已有自有实例会直接聚焦。默认界面直接复用迁入的 Sidebar 文件树、搜索、Git、设置和键鼠处理。`1`、`2`、`3` 分别进入文件、搜索和 Git，`Ctrl+P` 快速打开文件，`m` 或右键打开菜单，`,` 打开设置。图标使用原有固定占位，Git 数量角标紧贴图标右下角。
+在 Herdr 中执行 `herdr-work ui` 默认以 28 列打开 Sidebar（受宿主 10% 下限及半屏上限约束），右侧保留原终端或 Agent；已有自有实例会直接聚焦。默认界面直接复用迁入的 Sidebar 文件树、搜索、Git、设置和键鼠处理。`1`、`2`、`3` 分别进入文件、搜索和 Git，`Ctrl+P` 快速打开文件，`m` 或右键打开菜单，齿轮打开设置。图标使用原有固定占位，Git 数量角标紧贴图标右下角。
 
 打开文件或 Diff 时，viewer 默认接管右侧实际布局空间：原 pane 暂存于停车标签页，进程继续运行，Sidebar 保留。关闭 viewer 后恢复原 pane、分栏方向与比例；未保存编辑继续使用来源确认流程。预览、编辑器、固定文档、搜索过滤条件和 Git 面板沿用 Sidebar 的原交互。设置和恢复记录独立保存在 HerdrWork 资料目录的 `sidebar/` 下。
 

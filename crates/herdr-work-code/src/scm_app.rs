@@ -648,15 +648,25 @@ impl App {
         self.sidebar_state.merged && self.other_exe.is_some()
     }
 
-    /// Push our label + metadata tokens to herdr for the current mode.
-    fn apply_identity(&self) {
-        let Some(ctl) = &self.pane_ctl else { return };
-        let label = if self.merged() {
+    pub fn host_title(&self) -> &'static str {
+        if sidebar::product_profile().is_some() {
+            "HerdrWork · Git"
+        } else if self.merged() {
             sidebar::SIDEBAR_LABEL
         } else {
             MY_VIEW.label()
-        };
-        ctl.set_label(Some(label));
+        }
+    }
+    pub fn refresh_host_title(&self) {
+        if let Some(ctl) = &self.pane_ctl {
+            ctl.set_label(Some(self.host_title()));
+        }
+    }
+
+    /// Push our label + metadata tokens to herdr for the current mode.
+    fn apply_identity(&self) {
+        let Some(ctl) = &self.pane_ctl else { return };
+        ctl.set_label(Some(self.host_title()));
         ctl.report_tokens(MY_VIEW, self.merged());
     }
 
@@ -1911,7 +1921,11 @@ impl App {
         vec![
             (
                 Setting::Version,
-                "Sidebar version",
+                if sidebar::product_profile().is_some() {
+                    "HerdrWork version"
+                } else {
+                    "Sidebar version"
+                },
                 env!("CARGO_PKG_VERSION").into(),
                 false,
             ),
@@ -2256,7 +2270,11 @@ impl App {
         frame.render_widget(
             Paragraph::new(lines).scroll((*scroll as u16, 0)).block(
                 Block::bordered()
-                    .title(" Settings ")
+                    .title(if sidebar::product_profile().is_some() {
+                        " HerdrWork Settings "
+                    } else {
+                        " Settings "
+                    })
                     .border_style(Style::default().dim()),
             ),
             popup,

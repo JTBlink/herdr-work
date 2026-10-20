@@ -383,7 +383,7 @@ fn activate_allocates_a_tty_only_through_its_own_host_entrypoint() {
         .unwrap();
     assert_eq!(resize["params"]["pane_id"], "created-own");
     assert_eq!(resize["params"]["direction"], "left");
-    assert!((resize["params"]["amount"].as_f64().unwrap() - 0.3).abs() < 0.0001);
+    assert!((resize["params"]["amount"].as_f64().unwrap() - 0.325).abs() < 0.0001);
     assert!(open["params"].get("workspace_id").is_none());
     assert_eq!(
         open["params"]["env"]["HERDR_WORK_INITIAL_VIEW"],

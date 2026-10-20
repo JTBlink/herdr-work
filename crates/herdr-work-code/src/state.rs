@@ -397,6 +397,7 @@ pub fn configure_product_profile(profile: &Path) -> std::io::Result<()> {
         .map_err(|_| std::io::Error::other("Sidebar profile was configured concurrently"))?;
     if !state_path().is_some_and(|p| p.exists()) {
         save_state(State {
+            sidebar_width: crate::appearance::PRODUCT_SIDEBAR_WIDTH,
             preview_placement: PreviewPlacement::Replace,
             font_prompt_done: true,
             ..State::default()
