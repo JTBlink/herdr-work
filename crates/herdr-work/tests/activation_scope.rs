@@ -12,6 +12,37 @@ use std::{
     time::Duration,
 };
 
+#[test]
+fn auto_open_ignores_preview_tab_created_events_before_contacting_host() {
+    let temp = tempfile::tempdir().unwrap();
+    let profile = temp.path().join("profile");
+    std::fs::create_dir_all(profile.join("sidebar")).unwrap();
+    std::fs::write(profile.join("sidebar/state.json"), r#"{"auto_open":true}"#).unwrap();
+    for data in [
+        json!({"tab":{"tab_id":"w1:t2","label":"example.md · preview"}}),
+        json!({"tab_id":"w1:t2","label":"example.md · preview"}),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_herdr-work"))
+            .args(["--home", profile.to_str().unwrap(), "sidebar-ensure"])
+            .env("HERDR_SOCKET_PATH", temp.path().join("nonexistent.sock"))
+            .env(
+                "HERDR_PLUGIN_EVENT_JSON",
+                json!({"event":"tab.created","data":data}).to_string(),
+            )
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&output.stdout).unwrap()["action"],
+            "preview-tab"
+        );
+    }
+}
+
 fn open_from_plugin(context: Value, caller: &str, explicit_root: bool, quiet: bool) {
     let temp = tempfile::tempdir_in("/tmp").unwrap();
     let project = temp.path().join("current-project");

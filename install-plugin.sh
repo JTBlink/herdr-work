@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build or download HerdrWork, then link this checkout into Herdr.
+# Wrap Herdr's official GitHub install and local link commands.
 set -eu
 
 usage() {
@@ -7,8 +7,9 @@ usage() {
 用法：sh install-plugin.sh [--from-source | --release]
 
 默认从当前源码构建并链接 HerdrWork 插件。
+安装时配置默认打开快捷键 Ctrl+B → F；冲突或已有配置时保留用户设置。
   --from-source  从源码构建（需要 Rust 和平台编译工具）
-  --release      下载 VERSION 对应的发行包并校验安装
+  --release      通过 Herdr 官方安装 VERSION 对应的 GitHub 标签
   -h, --help     显示帮助
 
 依赖：Python 3.12+、Herdr 0.9.3+。
@@ -43,9 +44,8 @@ fi
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$repo_root"
 if [ "$mode" = --release ]; then
-    python3 scripts/plugin.py
+    python3 scripts/plugin.py --release
 else
     python3 scripts/plugin.py --from-source
 fi
-herdr plugin link .
-printf 'HerdrWork 插件已安装并链接（jtblink.herdr-work）。\n'
+printf 'HerdrWork 插件安装完成（jtblink.herdr-work）。\n'

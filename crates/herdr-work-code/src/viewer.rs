@@ -1785,11 +1785,16 @@ pub fn open_in_pane(
     if let Err(error) = crate::takeover::recover(&caller_tab_id) {
         eprintln!("herdr-work-code: temporary preview restore deferred: {error}");
     }
-    if crate::state::product_profile().is_some()
-        && state.preview_placement == crate::state::PreviewPlacement::Replace
-        && !crate::takeover::has_working_region(my_pane_id, &caller_tab_id)?
-    {
-        state.preview_placement = crate::state::PreviewPlacement::Tab;
+    if crate::state::product_profile().is_some() {
+        let registry = ipc::call_text("plugin.list", serde_json::json!({}))
+            .ok()
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok());
+        state.preview_placement = coexistence_placement(state.preview_placement, registry.as_ref());
+        if state.preview_placement == crate::state::PreviewPlacement::Replace
+            && !crate::takeover::has_working_region(my_pane_id, &caller_tab_id)?
+        {
+            state.preview_placement = crate::state::PreviewPlacement::Pane;
+        }
     }
     let inline = state.preview_placement.is_inline();
     let list =
@@ -1882,6 +1887,29 @@ pub fn open_in_pane(
         )
     } else {
         spawn_preview_tab(my_pane_id, spawn_cwd, doc_key, payload, &origin_tab_id)
+    }
+}
+
+/// Parking tabs trigger other plugins' auto-open hooks. Prefer an ordinary
+/// inline preview while those plugins are enabled; their settings stay untouched.
+fn coexistence_placement(
+    requested: crate::state::PreviewPlacement,
+    registry: Option<&serde_json::Value>,
+) -> crate::state::PreviewPlacement {
+    let independent_enabled = registry
+        .and_then(|value| value["result"]["plugins"].as_array())
+        .is_none_or(|plugins| {
+            plugins.iter().any(|plugin| {
+                plugin["enabled"].as_bool() != Some(false)
+                    && plugin["plugin_id"]
+                        .as_str()
+                        .is_some_and(crate::takeover::independent_plugin_name)
+            })
+        });
+    if independent_enabled {
+        crate::state::PreviewPlacement::Pane
+    } else {
+        requested
     }
 }
 
@@ -2449,7 +2477,7 @@ fn spawn_viewer_pane(
     let control = fresh_control_path();
     write_scratch_file(&control, payload).map_err(|e| format!("preview failed: {e}"))?;
     let layout = ipc::call_text("pane.layout", serde_json::json!({ "pane_id": my_pane_id })).ok();
-    let plan = match inline {
+    let mut plan = match inline {
         Some(inline) => layout
             .as_deref()
             .and_then(|json| inline_split_plan(json, my_pane_id, inline))
@@ -2474,6 +2502,18 @@ fn spawn_viewer_pane(
             }
         }
     };
+    if crate::state::product_profile().is_some() && plan.target != my_pane_id {
+        let list = ipc::call_text("pane.list", serde_json::json!({}))
+            .ok()
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok());
+        let info = ipc::call_text(
+            "pane.process_info",
+            serde_json::json!({"pane_id":plan.target}),
+        )
+        .ok()
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok());
+        plan = protect_split_plan(plan, my_pane_id, inline, list.as_ref(), info.as_ref());
+    }
     let response = ipc::call_text(
         "pane.split",
         serde_json::json!({
@@ -2504,6 +2544,42 @@ fn spawn_viewer_pane(
     }
     register_viewer_pane(&new_pane, &control, doc_key, inline.is_some())?;
     Ok((new_pane, control))
+}
+
+fn protect_split_plan(
+    plan: SplitPlan,
+    owner: &str,
+    inline: Option<InlineSpawn>,
+    list: Option<&serde_json::Value>,
+    info: Option<&serde_json::Value>,
+) -> SplitPlan {
+    let target = list
+        .and_then(|list| list["result"]["panes"].as_array())
+        .and_then(|panes| {
+            panes
+                .iter()
+                .find(|p| p["pane_id"].as_str() == Some(&plan.target))
+        });
+    let protected = target.is_none_or(|p| {
+        crate::takeover::independent_plugin_metadata(p)
+            || !p["tokens"]["herdr-work-profile"].is_null()
+    }) || info.is_none_or(|info| {
+        info["result"]["process_info"]["foreground_processes"]
+            .as_array()
+            .is_none()
+            || crate::takeover::independent_plugin_process(&info["result"])
+    });
+    if !protected {
+        return plan;
+    }
+    inline.map_or_else(
+        || SplitPlan {
+            target: owner.into(),
+            ratio: 0.3,
+            swap: false,
+        },
+        |inline| fallback_inline_split_plan(owner, inline),
+    )
 }
 
 /// Spawn the viewer's shell pane as the ROOT pane of a brand-new tab. This is
@@ -2769,6 +2845,87 @@ mod tests {
     use super::*;
     use crossterm::event::MouseEvent;
     use ratatui::style::Color;
+
+    #[test]
+    fn coexisting_plugins_use_inline_preview_without_parking_tabs() {
+        use crate::state::PreviewPlacement::{Pane, Replace, Tab};
+        for enabled in [true, false] {
+            let registry = serde_json::json!({"result":{"plugins":[
+                {"plugin_id":"herdr-sidebar","enabled":enabled},
+                {"plugin_id":"jtblink.herdr-work","enabled":true}
+            ]}});
+            assert_eq!(
+                coexistence_placement(Replace, Some(&registry)),
+                if enabled { Pane } else { Replace }
+            );
+            assert_eq!(coexistence_placement(Pane, Some(&registry)), Pane);
+            assert_eq!(
+                coexistence_placement(Tab, Some(&registry)),
+                if enabled { Pane } else { Tab }
+            );
+        }
+        assert_eq!(coexistence_placement(Replace, None), Pane);
+    }
+
+    #[test]
+    fn product_preview_never_splits_an_independent_plugin_neighbor() {
+        let plan = SplitPlan {
+            target: "neighbor".into(),
+            ratio: 0.5,
+            swap: true,
+        };
+        let inline = InlineSpawn {
+            dock_right: false,
+            sidebar_cols: 28,
+            preserve_neighbors: false,
+        };
+        let info = serde_json::json!({"result":{"process_info":{"foreground_processes":[]}}});
+        for tokens in [
+            serde_json::json!({"herdr-sidebar-explorer":"1"}),
+            serde_json::json!({"herdr-work-profile":"other"}),
+        ] {
+            let list =
+                serde_json::json!({"result":{"panes":[{"pane_id":"neighbor","tokens":tokens}]}});
+            assert_eq!(
+                protect_split_plan(
+                    plan.clone(),
+                    "owner",
+                    Some(inline),
+                    Some(&list),
+                    Some(&info)
+                )
+                .target,
+                "owner"
+            );
+        }
+        let list = serde_json::json!({"result":{"panes":[{"pane_id":"neighbor","tokens":{}}]}});
+        assert_eq!(
+            protect_split_plan(
+                plan.clone(),
+                "owner",
+                Some(inline),
+                Some(&list),
+                Some(&info)
+            ),
+            plan
+        );
+        let process = serde_json::json!({"result":{"process_info":{"foreground_processes":[{"argv0":"/bin/herdr-sidebar"}]}}});
+        assert_eq!(
+            protect_split_plan(
+                plan.clone(),
+                "owner",
+                Some(inline),
+                Some(&list),
+                Some(&process)
+            )
+            .target,
+            "owner"
+        );
+        assert_eq!(
+            protect_split_plan(plan, "owner", Some(inline), Some(&list), None).target,
+            "owner"
+        );
+    }
 
     fn doc_of(lines: Vec<Line<'static>>, numbered: bool) -> Doc {
         Doc {

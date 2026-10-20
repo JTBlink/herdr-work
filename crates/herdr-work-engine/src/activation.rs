@@ -228,6 +228,13 @@ impl HerdrWork {
     ) -> Result<Value> {
         let settings = sidebar_settings(profile);
         if mode == SidebarOpen::Ensure
+            && herdr_work_code::launch::is_preview_tab_event(
+                &std::env::var("HERDR_PLUGIN_EVENT_JSON").unwrap_or_default(),
+            )
+        {
+            return Ok(json!({"action":"preview-tab"}));
+        }
+        if mode == SidebarOpen::Ensure
             && (!settings.auto_open || std::env::var_os("HERDR_SOCKET_PATH").is_none())
         {
             return Ok(json!({"action":"disabled"}));

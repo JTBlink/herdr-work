@@ -390,6 +390,21 @@ pub(crate) fn is_preview_label(label: &str) -> bool {
         || label.ends_with(" · editor")
 }
 
+/// Preview tabs are document surfaces, not new workspaces to auto-dock into.
+pub fn is_preview_tab_event(event_json: &str) -> bool {
+    if event_kind(event_json) != "tab_created" {
+        return false;
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(event_json) else {
+        return false;
+    };
+    let data = value.get("data").unwrap_or(&value);
+    data["tab"]["label"]
+        .as_str()
+        .or_else(|| data["label"].as_str())
+        .is_some_and(is_preview_label)
+}
+
 /// Eligible panes in our tab, sorted by pane id so the fallback is stable.
 /// `foreground_cwd` is deliberately required: falling back to `cwd` would
 /// resurrect a stale spawn directory when the host has no live cwd signal.
