@@ -15,6 +15,7 @@ pub(crate) enum Command {
     Copy(bool),
     Collapse,
     External,
+    VsCode,
     Reveal,
     Settings,
     FontHelp,
@@ -146,6 +147,9 @@ impl App {
                         if let actions::MenuEntry::Action(action, label) = entry {
                             let mapped = match action {
                                 actions::MenuAction::Preview => None,
+                                actions::MenuAction::OpenVsCode => {
+                                    Some((Command::VsCode, "通过 VS Code 打开"))
+                                }
                                 actions::MenuAction::Stage => {
                                     Some((Command::Key(KeyCode::Char('s')), "暂存文件/目录更改"))
                                 }
@@ -486,6 +490,13 @@ impl App {
                     actions::ClipboardWrite::Osc52Unacknowledged => "已发送到终端剪贴板",
                 }
                 .into();
+            }
+            Command::VsCode => {
+                let path = self.selected_path()?;
+                self.job(move |_| {
+                    herdr_work_code::vscode::open(&path, None)?;
+                    Ok(Data::Status("已通过 VS Code 打开".into()))
+                })?;
             }
             Command::External => actions::open_external(&self.selected_path()?)?,
             Command::Reveal => {

@@ -110,6 +110,8 @@ def smoke(archive):
         if os.name != 'nt':
             subprocess.run([sys.executable, str(Path(__file__).parent / 'tests/viewer_close_fixture.py'),
                             str(binary)], check=True, timeout=60)
+            subprocess.run([sys.executable, str(Path(__file__).parent / 'tests/vscode_settings_fixture.py'),
+                            str(binary)], check=True, timeout=60)
         install(stage, prefix)
         rollback(prefix)
         output([binary, '--version'])

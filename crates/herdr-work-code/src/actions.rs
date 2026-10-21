@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MenuAction {
     Preview,
+    OpenVsCode,
     NewFile,
     NewFolder,
     CopyPath,
@@ -45,6 +46,7 @@ pub fn menu_entries(target: Option<bool>, in_repo: bool) -> Vec<MenuEntry> {
         ]);
     }
     entries.extend([
+        MenuEntry::Action(MenuAction::OpenVsCode, "通过 VS Code 打开"),
         MenuEntry::Action(MenuAction::Reveal, reveal_label()),
         MenuEntry::Separator,
         MenuEntry::Action(MenuAction::NewFile, "新建文件…"),

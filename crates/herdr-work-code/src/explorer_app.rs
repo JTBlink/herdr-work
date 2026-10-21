@@ -275,6 +275,7 @@ struct ContentSearchResult {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Setting {
     Version,
+    Scope,
     #[cfg(feature = "reference-ui")]
     Update,
     #[cfg(feature = "reference-ui")]
@@ -332,6 +333,7 @@ pub struct App {
     suspended_search: Option<Overlay>,
     /// Transient status/error line shown in the footer until the next action.
     notice: Option<String>,
+    vscode_open: Option<std::sync::mpsc::Receiver<(PathBuf, Result<(), String>)>>,
     // Merged-sidebar state.
     sidebar_state: sidebar::State,
     other_exe: Option<std::path::PathBuf>,
@@ -491,6 +493,7 @@ impl App {
             overlay: None,
             suspended_search: None,
             notice: None,
+            vscode_open: None,
             sidebar_state,
             other_exe,
             activity: ActivityZones::default(),
@@ -541,6 +544,7 @@ impl App {
         self.collect_quick_index();
         self.collect_content_search();
         self.collect_git_sync();
+        self.collect_vscode_open();
         self.start_content_search_if_due();
         self.collect_decorations();
         if self.last_deco.elapsed() < DECO_REFRESH {
@@ -562,6 +566,7 @@ impl App {
         self.sidebar_state.strict_toggle = shared.strict_toggle;
         self.sidebar_state.focus_on_open = shared.focus_on_open;
         self.sidebar_state.custom_editor_on_click = shared.custom_editor_on_click;
+        self.sidebar_state.preview_placement = shared.preview_placement;
         let old_git_footer = self.sidebar_state.show_git_footer;
         self.sidebar_state.show_git_footer = shared.show_git_footer;
         if shared.color_theme != self.sidebar_state.color_theme {
@@ -861,6 +866,14 @@ impl App {
     }
 
     fn open_preview_at(&mut self, path: &Path, line: Option<usize>) {
+        if self.sidebar_state.preview_placement == sidebar::PreviewPlacement::VsCode {
+            self.open_vscode(path, line);
+            return;
+        }
+        self.open_builtin_preview_at(path, line);
+    }
+
+    fn open_builtin_preview_at(&mut self, path: &Path, line: Option<usize>) {
         let Some(pane_id) = self.pane_ctl.as_ref().map(|c| c.pane_id.clone()) else {
             self.notice = Some("preview needs a herdr pane".into());
             return;
@@ -1279,6 +1292,11 @@ impl App {
                     // undo the first; explicit chevron clicks always toggle.
                     if folder_click_toggles(on_chevron, double) {
                         self.toggle();
+                    }
+                } else if self.sidebar_state.preview_placement == sidebar::PreviewPlacement::VsCode
+                {
+                    if !double {
+                        self.open_vscode(&path, None);
                     }
                 } else if self.sidebar_state.custom_editor_on_click
                     && actions::configured_editor().is_some()
@@ -2413,6 +2431,45 @@ impl App {
         }
     }
 
+    fn open_vscode(&mut self, path: &Path, line: Option<usize>) {
+        if self.vscode_open.is_some() {
+            self.notice = Some("正在启动 VS Code，请稍候".into());
+            return;
+        }
+        let path = path.to_path_buf();
+        let root = self.tree.root_path();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result =
+                herdr_work_code::vscode::open(&path, line).map_err(|error| error.to_string());
+            let _ = sender.send((root, result));
+        });
+        self.vscode_open = Some(receiver);
+        self.notice = Some("正在通过 VS Code 打开…".into());
+    }
+
+    fn collect_vscode_open(&mut self) {
+        let Some(receiver) = &self.vscode_open else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok((root, result)) => {
+                self.vscode_open = None;
+                if root == self.tree.root_path() {
+                    self.notice = Some(match result {
+                        Ok(()) => "已通过 VS Code 打开".into(),
+                        Err(error) => format!("VS Code 打开失败：{error}"),
+                    });
+                }
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.vscode_open = None;
+                self.notice = Some("VS Code 启动任务中断，请重试".into());
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        }
+    }
+
     fn open_custom_editor(&mut self, path: &Path) {
         let Some(pane_id) = self
             .pane_ctl
@@ -2447,6 +2504,17 @@ impl App {
                     "Sidebar version"
                 },
                 env!("CARGO_PKG_VERSION").into(),
+                false,
+            ),
+            (
+                Setting::Scope,
+                "Settings scope",
+                if sidebar::product_profile().is_some() {
+                    "HerdrWork only"
+                } else {
+                    "Current profile"
+                }
+                .into(),
                 false,
             ),
             #[cfg(feature = "reference-ui")]
@@ -2514,7 +2582,8 @@ impl App {
                     "off"
                 }
                 .to_string(),
-                actions::configured_editor().is_some(),
+                actions::configured_editor().is_some()
+                    && self.sidebar_state.preview_placement != sidebar::PreviewPlacement::VsCode,
             ),
             (
                 Setting::HiddenFiles,
@@ -2616,7 +2685,7 @@ impl App {
             return;
         }
         match setting {
-            Setting::Version => {}
+            Setting::Version | Setting::Scope => {}
             #[cfg(feature = "reference-ui")]
             Setting::Update => {
                 self.notice = Some(
@@ -2646,7 +2715,11 @@ impl App {
             }
             Setting::PreviewPlacement => {
                 self.sidebar_state = sidebar::update_state(|state| {
-                    state.preview_placement = state.preview_placement.other();
+                    state.preview_placement = if sidebar::product_profile().is_some() {
+                        state.preview_placement.next_product()
+                    } else {
+                        state.preview_placement.other()
+                    };
                 });
             }
             Setting::CustomEditorCommand => {
@@ -2823,9 +2896,16 @@ impl App {
             None => self.tree.root_path(),
         };
         match action {
+            MenuAction::OpenVsCode => {
+                let path = target
+                    .as_ref()
+                    .map(|(path, _)| path.clone())
+                    .unwrap_or_else(|| self.tree.root_path());
+                self.open_vscode(&path, None);
+            }
             MenuAction::Preview => {
                 if let Some((path, false)) = target {
-                    self.open_preview(&path);
+                    self.open_builtin_preview_at(&path, None);
                 }
             }
             MenuAction::NewFile => {

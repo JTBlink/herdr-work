@@ -211,6 +211,7 @@ pub enum PreviewPlacement {
     Tab,
     Pane,
     Replace,
+    VsCode,
 }
 
 impl PreviewPlacement {
@@ -219,6 +220,7 @@ impl PreviewPlacement {
             Self::Tab => "tab",
             Self::Pane => "pane",
             Self::Replace => "replace",
+            Self::VsCode => "vscode",
         }
     }
 
@@ -226,7 +228,17 @@ impl PreviewPlacement {
         match self {
             Self::Tab => Self::Pane,
             Self::Pane => Self::Replace,
-            Self::Replace => Self::Tab,
+            Self::Replace | Self::VsCode => Self::Tab,
+        }
+    }
+
+    /// Product settings may use an external file editor; reference UI keeps
+    /// its original three internal layouts.
+    pub fn next_product(self) -> Self {
+        match self {
+            Self::Replace => Self::VsCode,
+            Self::VsCode => Self::Tab,
+            _ => self.other(),
         }
     }
 
@@ -240,12 +252,14 @@ impl PreviewPlacement {
             "tab" => Some(Self::Tab),
             "pane" => Some(Self::Pane),
             "replace" => Some(Self::Replace),
+            "vscode" => Some(Self::VsCode),
             _ => None,
         }
     }
 }
 
-/// The sticky sidebar setting, shared by both plugins.
+/// Settings shared by views within one product profile. Independent plugins
+/// never share this profile or its settings files.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct State {
     pub merged: bool,
@@ -339,12 +353,19 @@ pub fn follow_cwd_setting_value(enabled: bool) -> String {
     }
 }
 
-/// Durable state belongs in herdr's per-plugin state dir (docs: "store
-/// runtime state in HERDR_PLUGIN_STATE_DIR"). herdr injects that env for
-/// hooks/actions but NOT panes, so our launchers pass it into every pane
-/// they split (see [`spawn_env`]); when it didn't reach us, fall back to
-/// the conventional location herdr resolves it to.
+/// Authoritative product settings location shared by the UI and host hooks.
+/// The internal `sidebar` directory belongs to this HerdrWork profile, not
+/// to the independently installed Sidebar plugin.
+pub fn product_settings_path(profile: &Path) -> PathBuf {
+    profile.join("sidebar/state.json")
+}
+
+/// A configured product profile always wins over inherited plugin state.
+/// Only the reference UI may use the host's per-plugin state directory.
 pub fn state_path() -> Option<PathBuf> {
+    if let Some(profile) = product_profile() {
+        return Some(product_settings_path(profile));
+    }
     Some(state_dir()?.join("state.json"))
 }
 
@@ -1192,6 +1213,19 @@ mod tests {
             PreviewPlacement::Replace
         );
         assert!(PreviewPlacement::Replace.is_inline());
+        assert_eq!(
+            PreviewPlacement::Replace.next_product(),
+            PreviewPlacement::VsCode
+        );
+        assert_eq!(
+            PreviewPlacement::VsCode.next_product(),
+            PreviewPlacement::Tab
+        );
+        assert_eq!(
+            parse_state(r#"{"preview_placement":"vscode"}"#).preview_placement,
+            PreviewPlacement::VsCode
+        );
+        assert!(!PreviewPlacement::VsCode.is_inline());
     }
 
     #[test]

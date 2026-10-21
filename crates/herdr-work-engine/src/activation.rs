@@ -186,7 +186,7 @@ pub enum SidebarOpen {
     Ensure,
 }
 fn sidebar_settings(profile: &Path) -> herdr_work_code::state::State {
-    std::fs::read_to_string(profile.join("sidebar/state.json"))
+    std::fs::read_to_string(herdr_work_code::state::product_settings_path(profile))
         .ok()
         .map(|s| herdr_work_code::state::parse_state(&s))
         .unwrap_or_default()
@@ -523,8 +523,10 @@ impl HerdrWork {
         if let Some(entries) = layout["layout"]["panes"].as_array_mut() {
             entries.retain(|p| p["pane_id"].as_str() == Some(&target));
         }
-        let preferences = if profile.join("sidebar/state.json").exists() {
-            storage::load::<crate::UiPreferences>(&profile.join("sidebar/state.json"))?
+        let preferences = if herdr_work_code::state::product_settings_path(&profile).exists() {
+            storage::load::<crate::UiPreferences>(&herdr_work_code::state::product_settings_path(
+                &profile,
+            ))?
         } else {
             crate::UiPreferences::default()
         };

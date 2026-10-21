@@ -273,6 +273,7 @@ enum Overlay {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Setting {
     Version,
+    Scope,
     #[cfg(feature = "reference-ui")]
     Update,
     #[cfg(feature = "reference-ui")]
@@ -1927,6 +1928,17 @@ impl App {
                 env!("CARGO_PKG_VERSION").into(),
                 false,
             ),
+            (
+                Setting::Scope,
+                "Settings scope",
+                if sidebar::product_profile().is_some() {
+                    "HerdrWork only"
+                } else {
+                    "Current profile"
+                }
+                .into(),
+                false,
+            ),
             #[cfg(feature = "reference-ui")]
             (Setting::Update, update.0, update.1, update.2),
             #[cfg(feature = "reference-ui")]
@@ -2073,7 +2085,7 @@ impl App {
             return;
         }
         match setting {
-            Setting::Version => {}
+            Setting::Version | Setting::Scope => {}
             #[cfg(feature = "reference-ui")]
             Setting::Update => {
                 self.flash = Some(match herdr_work_code::updates::activate() {
@@ -2103,7 +2115,11 @@ impl App {
             }
             Setting::PreviewPlacement => {
                 self.sidebar_state = sidebar::update_state(|state| {
-                    state.preview_placement = state.preview_placement.other();
+                    state.preview_placement = if sidebar::product_profile().is_some() {
+                        state.preview_placement.next_product()
+                    } else {
+                        state.preview_placement.other()
+                    };
                 });
             }
             Setting::Hotkeys => {
