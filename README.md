@@ -35,6 +35,10 @@ Windows 使用 `python install.py --prefix "$env:LOCALAPPDATA/HerdrWork"`，运�
 
 自动打开、严格切换、打开时聚焦、跟随工作目录和预览位置可在设置中调整。`herdr-work activate toggle` 切换侧栏；`b` 隐藏后不会被焦点事件立即重开，显式打开可恢复。每个标签页可拥有自己的侧栏，重开沿用上次活动和目录记忆。
 
+设置中的“文件打开方式”可选择“VS Code”：单击文件、Enter、Quick Open 和搜索结果均交给 VS Code，搜索结果保留行号；文件或目录右键菜单也提供“通过 VS Code 打开”。Git 差异和历史继续使用内置查看器。macOS 优先使用 `code` 命令，并支持标准 Applications 目录下的 VS Code；启动失败显示提示。
+
+设置中的“配置范围”标明“仅 HerdrWork”。自动打开、聚焦、预览、跟随目录、主题等开关均保存在当前 HerdrWork 资料目录中，不读取或修改独立 Sidebar 的配置；独立 Sidebar 仍可能按它自己的设置自动启动。
+
 `herdr-work ui --standalone` 打开包含任务、审查和内部文件预览的完整工作台。在 Herdr 外，普通 `ui` 在当前终端显示 Sidebar；宿主分栏和接管需要 Herdr 连接。完整工作台的搜索支持搜索/替换、大小写/整词/正则匹配、包含/排除条件和保留大小写；替换先预览确认，并检查文件是否发生外部变化。
 
 Agent 定位和发送需要 Herdr 0.9.3+ 提供的宿主连接。独立启动时仍可浏览 Git 和保存评论。关闭界面不会停止已委派的 Agent。

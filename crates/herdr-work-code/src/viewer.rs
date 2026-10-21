@@ -1828,7 +1828,12 @@ pub fn open_in_pane(
     doc_key: &str,
     payload: &str,
 ) -> Result<PreviewTarget, String> {
-    let state = crate::state::load_state();
+    let mut state = crate::state::load_state();
+    // VS Code is a file-opening preference. Diff/history retain their
+    // internal viewer and never silently become a document tab.
+    if state.preview_placement == crate::state::PreviewPlacement::VsCode {
+        state.preview_placement = crate::state::PreviewPlacement::Replace;
+    }
     let list = ipc::call_text("pane.list", serde_json::json!({}))
         .map_err(|e| format!("preview failed: {e}"))?;
     let caller_tab_id = crate::launch::tab_of(&list, my_pane_id);

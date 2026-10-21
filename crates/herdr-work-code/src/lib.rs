@@ -56,6 +56,7 @@ pub mod appearance;
 pub mod file_view;
 
 pub mod view_state;
+pub mod vscode;
 
 #[cfg(feature = "sidebar-ui")]
 pub mod explorer_app;

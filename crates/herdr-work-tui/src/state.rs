@@ -7,6 +7,7 @@ use herdr_work_engine::{CodeSnapshot, DiffView, HerdrWork, JobQueue};
 use std::path::PathBuf;
 
 pub(crate) enum Data {
+    Status(String),
     Preferences(crate::preferences::Update),
     Persistence(Box<crate::persistence::Update>),
     Background(Box<crate::refresh::BackgroundRefresh>),
@@ -355,6 +356,7 @@ impl App {
             return;
         }
         match data {
+            Ok(Data::Status(text)) => self.status = text,
             Ok(Data::Preferences(update)) => self.apply_preferences(update),
             Ok(Data::Persistence(update)) => self.apply_persistence(*update),
             Ok(Data::Background(update)) => self.apply_background(*update),
