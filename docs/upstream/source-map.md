@@ -33,6 +33,8 @@
 
 ## HerdrWork 必要适配
 
+VS Code 直接设置入口：Explorer 与 SCM 在文件打开方式后增加当前目录打开动作，共用 `vscode::Launcher` 的有界后台任务和过期结果处理；保留原设置数据与内置预览行为。
+
 VS Code 文件打开扩展：继续使用原 Explorer 的文件、Quick Open 和搜索命中入口，新增产品设置循环和独立 `vscode` 启动适配器；Git 差异/历史及显式内置预览保留原 viewer/takeover。Explorer 与 Git 设置显示产品资料范围，宿主自动打开读取同一 `product_settings_path`；测试以独立 Sidebar 的配置环境作为干扰输入，确认产品设置与编辑器配置不跨目录读取或写入。
 
 2026-10-21 补充：复用 Code 的 `actions` 菜单模型及 Explorer 操作，文件菜单采用中文分组，增加现有预览入口；绘制抽至 `context_menu`，按终端列宽计算弹窗，渲染与点击共用滚动视口。viewer 的独立标签页关闭在共存插件下仍返回来源页面，关闭失败保留控制文件并允许重试。来源文件/Git/剪贴板和 takeover 恢复逻辑继续复用，独立插件不参与关闭。

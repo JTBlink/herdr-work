@@ -285,6 +285,7 @@ enum Setting {
     IconTheme,
     ColorTheme,
     PreviewPlacement,
+    OpenVsCode,
     CustomEditorCommand,
     CustomEditorClick,
     AutoOpen,
@@ -333,7 +334,7 @@ pub struct App {
     suspended_search: Option<Overlay>,
     /// Transient status/error line shown in the footer until the next action.
     notice: Option<String>,
-    vscode_open: Option<std::sync::mpsc::Receiver<(PathBuf, Result<(), String>)>>,
+    vscode_open: herdr_work_code::vscode::Launcher,
     // Merged-sidebar state.
     sidebar_state: sidebar::State,
     other_exe: Option<std::path::PathBuf>,
@@ -493,7 +494,7 @@ impl App {
             overlay: None,
             suspended_search: None,
             notice: None,
-            vscode_open: None,
+            vscode_open: Default::default(),
             sidebar_state,
             other_exe,
             activity: ActivityZones::default(),
@@ -2432,41 +2433,23 @@ impl App {
     }
 
     fn open_vscode(&mut self, path: &Path, line: Option<usize>) {
-        if self.vscode_open.is_some() {
-            self.notice = Some("正在启动 VS Code，请稍候".into());
-            return;
-        }
-        let path = path.to_path_buf();
-        let root = self.tree.root_path();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let result =
-                herdr_work_code::vscode::open(&path, line).map_err(|error| error.to_string());
-            let _ = sender.send((root, result));
-        });
-        self.vscode_open = Some(receiver);
-        self.notice = Some("正在通过 VS Code 打开…".into());
+        let started = self.vscode_open.start(&self.tree.root_path(), path, line);
+        self.notice = Some(
+            if started {
+                "正在通过 VS Code 打开…"
+            } else {
+                "正在启动 VS Code，请稍候"
+            }
+            .into(),
+        );
     }
 
     fn collect_vscode_open(&mut self) {
-        let Some(receiver) = &self.vscode_open else {
-            return;
-        };
-        match receiver.try_recv() {
-            Ok((root, result)) => {
-                self.vscode_open = None;
-                if root == self.tree.root_path() {
-                    self.notice = Some(match result {
-                        Ok(()) => "已通过 VS Code 打开".into(),
-                        Err(error) => format!("VS Code 打开失败：{error}"),
-                    });
-                }
-            }
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                self.vscode_open = None;
-                self.notice = Some("VS Code 启动任务中断，请重试".into());
-            }
-            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        if let Some(result) = self.vscode_open.poll(&self.tree.root_path()) {
+            self.notice = Some(match result {
+                Ok(()) => "已通过 VS Code 打开".into(),
+                Err(error) => format!("VS Code 打开失败：{error}"),
+            });
         }
     }
 
@@ -2563,6 +2546,12 @@ impl App {
                 Setting::PreviewPlacement,
                 "Preview opens in",
                 self.sidebar_state.preview_placement.label().to_string(),
+                true,
+            ),
+            (
+                Setting::OpenVsCode,
+                "Open in VS Code",
+                self.tree.root_name(),
                 true,
             ),
             (
@@ -2721,6 +2710,10 @@ impl App {
                         state.preview_placement.other()
                     };
                 });
+            }
+            Setting::OpenVsCode => {
+                self.overlay = None;
+                self.open_vscode(&self.tree.root_path(), None);
             }
             Setting::CustomEditorCommand => {
                 self.overlay = Some(Overlay::Prompt {
