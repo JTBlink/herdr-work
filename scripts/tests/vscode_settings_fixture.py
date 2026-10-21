@@ -94,6 +94,12 @@ def check(binary, fail=False):
             # Direct settings action opens the current project in both views.
             for view in (b'1', b'3'):
                 send(view)
+                # Real activity-bar click (42-column PTY): Code before Settings.
+                send(b'\x1b[<0;36;2M\x1b[<0;36;2m')
+                wait_for(capture.exists, 'Toolbar action did not open the project in VS Code')
+                assert json.loads(capture.read_text()) == ['--reuse-window', str(root)]
+                capture.unlink()
+                drain(2)  # Let the UI collect the finished launcher before the next action.
                 setting(7)
                 wait_for(capture.exists, 'Settings action did not open the project in VS Code')
                 assert json.loads(capture.read_text()) == ['--reuse-window', str(root)]

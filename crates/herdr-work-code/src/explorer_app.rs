@@ -407,6 +407,7 @@ struct ActivityZones {
     explorer: (u16, u16),
     search: (u16, u16),
     source_control: (u16, u16),
+    vscode: Rect,
 }
 
 impl Default for ActivityZones {
@@ -417,6 +418,7 @@ impl Default for ActivityZones {
             explorer: (0, 0),
             search: (0, 0),
             source_control: (0, 0),
+            vscode: Rect::default(),
         }
     }
 }
@@ -1209,6 +1211,10 @@ impl App {
         if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
             let zones = self.activity;
             if self.merged() {
+                if hits(zones.vscode, mouse.column, mouse.row) {
+                    self.open_vscode(&self.tree.root_path(), None);
+                    return None;
+                }
                 if hits_activity_button(zones.explorer, zones.row, mouse.column, mouse.row) {
                     self.overlay = None;
                     self.sidebar_state = sidebar::update_state(|state| state.search_active = false);
@@ -3634,6 +3640,7 @@ impl App {
             explorer: bounds[1],
             search: bounds[3],
             source_control: bounds[5],
+            vscode: Rect::default(),
         };
         let hovered = |bounds| {
             self.mouse_pos
@@ -3690,6 +3697,8 @@ impl App {
         line.push(Span::raw(" ".repeat(pad)));
         line.push(gear);
         frame.render_widget(Paragraph::new(Line::from(line)), area);
+        self.activity.vscode =
+            herdr_work_code::ui::draw_vscode_button(frame, area, x, gear_x, self.mouse_pos);
         herdr_work_code::ui::draw_activity_badge(
             frame,
             bounds[5],

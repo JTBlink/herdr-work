@@ -28,7 +28,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Position, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 
 use herdr_work_code::actions::{ClipboardWrite, copy_to_clipboard, open_external, reveal};
 use herdr_work_code::branch_ui::{
@@ -307,6 +307,7 @@ struct ClickZones {
     explorer: (u16, u16),
     search: (u16, u16),
     source_control: (u16, u16),
+    vscode: Rect,
     /// The ⚙ button (activity bar in unified mode, header otherwise).
     gear: Rect,
     message: Rect,
@@ -1288,6 +1289,10 @@ impl App {
         let (x, y) = (mouse.column, mouse.row);
         let z = self.zones;
         if self.merged() {
+            if hits(z.vscode, x, y) {
+                self.vscode_open.start(&self.cwd, &self.cwd, None);
+                return None;
+            }
             if hits_activity_button(z.explorer, z.activity_row, x, y) {
                 return self.switch_to(View::Explorer);
             }
@@ -3369,8 +3374,7 @@ impl App {
     fn row_height(&self, row: Row) -> u16 {
         match row {
             Row::Message(r) => 2 + self.message_rows_inline(r) as u16,
-            // A breathing row above and below the button.
-            Row::Commit(_) => 3,
+            Row::Commit(_) => 1,
             _ => 1,
         }
     }
@@ -3496,9 +3500,9 @@ impl App {
         let message_height = if multi {
             0
         } else {
-            2 + self.single_message_rows(area.width) as u16
+            1 + self.single_message_rows(area.width) as u16
         };
-        let button_height = if multi { 0 } else { 3 };
+        let button_height = if multi { 0 } else { 1 };
         let sync_height = u16::from(
             !multi
                 && self.sync_label().is_some()
@@ -3718,6 +3722,8 @@ impl App {
         line.push(Span::raw(" ".repeat(pad)));
         line.push(gear);
         frame.render_widget(Paragraph::new(Line::from(line)), area);
+        self.zones.vscode =
+            herdr_work_code::ui::draw_vscode_button(frame, area, x, gear_x, self.mouse_pos);
         herdr_work_code::ui::draw_activity_badge(
             frame,
             bounds[5],
@@ -3830,7 +3836,10 @@ impl App {
         } else {
             Style::default().dim()
         };
-        let boxed = Block::bordered().border_style(border);
+        // Keep an underline and side edges without spending a row on a top border.
+        let boxed = Block::new()
+            .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
+            .border_style(border);
         let inner = boxed.inner(area);
         frame.render_widget(boxed, area);
         self.zones.message = area;
@@ -3892,17 +3901,12 @@ impl App {
         if focused {
             style = style.add_modifier(Modifier::BOLD);
         }
-        // A breathing row above and below, like the inline variant.
-        let inner = if area.height >= 3 {
-            Rect::new(
-                area.x.saturating_add(1),
-                area.y + 1,
-                area.width.saturating_sub(2),
-                1,
-            )
-        } else {
-            area
-        };
+        let inner = Rect::new(
+            area.x.saturating_add(1),
+            area.y,
+            area.width.saturating_sub(2),
+            area.height.min(1),
+        );
         let label = if self
             .active_repo()
             .is_some_and(|repo| sync_is_primary(&repo.status))
@@ -3912,15 +3916,8 @@ impl App {
         } else {
             "✓ Commit".to_string()
         };
-        draw_activity_caps(
-            frame,
-            (inner.x, inner.x + inner.width),
-            area.y,
-            area.y + area.height.saturating_sub(1),
-            bg,
-        );
         frame.render_widget(Paragraph::new(label).centered().style(style), inner);
-        self.zones.button = Rect::new(inner.x, area.y, inner.width, area.height);
+        self.zones.button = inner;
     }
 
     /// The Sync Changes label, or `None` while there is nothing to sync

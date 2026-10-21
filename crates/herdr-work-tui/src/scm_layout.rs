@@ -64,7 +64,7 @@ impl App {
                         body.width,
                     )
                 }
-                ScmTarget::Commit(_) => 3,
+                ScmTarget::Commit(_) => 1,
                 _ => 1,
             })
             .collect::<Vec<_>>();
