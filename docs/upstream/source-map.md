@@ -33,6 +33,8 @@
 
 ## HerdrWork 必要适配
 
+2026-10-21 补充：复用 Code 的 `actions` 菜单模型及 Explorer 操作，文件菜单采用中文分组，增加现有预览入口；绘制抽至 `context_menu`，按终端列宽计算弹窗，渲染与点击共用滚动视口。viewer 的独立标签页关闭在共存插件下仍返回来源页面，关闭失败保留控制文件并允许重试。来源文件/Git/剪贴板和 takeover 恢复逻辑继续复用，独立插件不参与关闭。
+
 | 来源文件 | 补丁与实际复用 |
 | --- | --- |
 | Projects `src/cli/mod.rs` | 增加启动迁移前的只读 `herdr-work-snapshot`，调用原 tasks::list；增加调度暂停/恢复控制。managed 模式跳过旧安装接管及旧数据自动导入，禁止原更新入口。其他 add/delegate/stop/reopen 仍执行原命令逻辑。 |

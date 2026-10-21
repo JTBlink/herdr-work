@@ -199,7 +199,7 @@ enum Overlay {
         entries: Vec<MenuEntry>,
         selected: usize,
         /// Rendered rect from the last draw, for click hit-testing.
-        rect: Rect,
+        viewport: herdr_work_code::context_menu::Viewport,
     },
     Prompt {
         title: String,
@@ -1403,7 +1403,7 @@ impl App {
             target,
             entries,
             selected,
-            rect: Rect::default(),
+            viewport: Default::default(),
         });
     }
 
@@ -1830,20 +1830,10 @@ impl App {
             Some(Overlay::Menu {
                 entries,
                 selected,
-                rect,
+                viewport,
                 ..
             }) => {
-                let inner = rect.inner(ratatui::layout::Margin::new(1, 1));
-                let item_at = |row: u16, col: u16| -> Option<usize> {
-                    (col >= inner.x
-                        && col < inner.x + inner.width
-                        && row >= inner.y
-                        && row < inner.y + inner.height)
-                        .then(|| usize::from(row - inner.y))
-                        .filter(|i| {
-                            *i < entries.len() && matches!(entries[*i], MenuEntry::Action(..))
-                        })
-                };
+                let item_at = |row, col| viewport.item_at(col, row, entries);
                 match mouse.kind {
                     MouseEventKind::Moved => {
                         if let Some(i) = item_at(mouse.row, mouse.column) {
@@ -1855,12 +1845,23 @@ impl App {
                         if let Some(i) = item_at(mouse.row, mouse.column) {
                             *selected = i;
                             Cmd::Activate
+                        } else if viewport.rect.contains((mouse.column, mouse.row).into()) {
+                            Cmd::Nothing
                         } else {
                             Cmd::Close
                         }
                     }
                     MouseEventKind::Down(MouseButton::Right) => {
                         Cmd::Reopen(mouse.column, mouse.row)
+                    }
+                    MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                        let direction = if mouse.kind == MouseEventKind::ScrollUp {
+                            -1
+                        } else {
+                            1
+                        };
+                        *selected = step_menu(entries, *selected, direction);
+                        Cmd::Nothing
                     }
                     _ => Cmd::Nothing,
                 }
@@ -2822,6 +2823,11 @@ impl App {
             None => self.tree.root_path(),
         };
         match action {
+            MenuAction::Preview => {
+                if let Some((path, false)) = target {
+                    self.open_preview(&path);
+                }
+            }
             MenuAction::NewFile => {
                 self.overlay = Some(Overlay::Prompt {
                     title: "New file".into(),
@@ -2847,11 +2853,11 @@ impl App {
                         .to_string()
                 };
                 self.notice = Some(match actions::copy_to_clipboard(&text) {
-                    Ok(actions::ClipboardWrite::Native) => format!("copied: {text}"),
+                    Ok(actions::ClipboardWrite::Native) => format!("已复制路径：{text}"),
                     Ok(actions::ClipboardWrite::Osc52Unacknowledged) => {
-                        format!("sent to terminal clipboard: {text}")
+                        format!("已发送到终端剪贴板：{text}")
                     }
-                    Err(err) => format!("copy failed: {err}"),
+                    Err(err) => format!("复制路径失败：{err}"),
                 });
             }
             MenuAction::Rename => {
@@ -3627,50 +3633,18 @@ impl App {
             y,
             entries,
             selected,
-            rect,
+            viewport,
             ..
         }) = self.overlay.as_mut()
         else {
             return;
         };
-        let area = frame.area();
-        let label_width = entries
-            .iter()
-            .map(|e| match e {
-                MenuEntry::Action(_, label) => label.chars().count(),
-                MenuEntry::Separator => 0,
-            })
-            .max()
-            .unwrap_or(0) as u16;
-        let width = (label_width + 4).min(area.width);
-        let height = (entries.len() as u16 + 2).min(area.height);
-        let px = (*x).min(area.width.saturating_sub(width));
-        let py = (*y + 1).min(area.height.saturating_sub(height));
-        let popup = Rect::new(px, py, width, height);
-        *rect = popup;
-
-        let items: Vec<ListItem> = entries
-            .iter()
-            .enumerate()
-            .map(|(i, entry)| match entry {
-                MenuEntry::Separator => {
-                    ListItem::new(Line::from("─".repeat(usize::from(width - 2)).dim()))
-                }
-                MenuEntry::Action(_, label) => {
-                    let line = Line::raw(format!(" {label}"));
-                    if i == *selected {
-                        ListItem::new(line).style(selection_style(true))
-                    } else {
-                        ListItem::new(line)
-                    }
-                }
-            })
-            .collect();
-        frame.render_widget(Clear, popup);
-        frame.render_widget(
-            List::new(items)
-                .block(ratatui::widgets::Block::bordered().border_style(Style::default().dim())),
-            popup,
+        *viewport = herdr_work_code::context_menu::draw(
+            frame,
+            ratatui::layout::Position::new(*x, *y),
+            entries,
+            *selected,
+            viewport.offset,
         );
     }
 
@@ -4054,6 +4028,10 @@ impl App {
         }
     }
 }
+
+#[cfg(all(test, not(feature = "reference-ui")))]
+#[path = "explorer_menu_tests.rs"]
+mod menu_tests;
 
 fn pane_focused_in(pane_list_json: &str, pane_id: &str) -> bool {
     let Ok(value) =

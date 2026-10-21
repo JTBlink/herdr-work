@@ -145,6 +145,7 @@ impl App {
                     for entry in actions::menu_entries(Some(file.directory), true) {
                         if let actions::MenuEntry::Action(action, label) = entry {
                             let mapped = match action {
+                                actions::MenuAction::Preview => None,
                                 actions::MenuAction::Stage => {
                                     Some((Command::Key(KeyCode::Char('s')), "暂存文件/目录更改"))
                                 }

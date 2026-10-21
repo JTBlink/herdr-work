@@ -875,18 +875,37 @@ fn close_own_pane(control: &Path, current: &Option<Request>, notice: &mut Option
             .into_iter()
             .find(|preview| preview.pane_id == pane_id)
     });
-    remove_control_file(control);
-    remove_control_file(&control_path_for_pane(&pane_id));
-    if let Some(preview) = preview.filter(|preview| {
+    let closed = if let Some(preview) = preview.as_ref().filter(|preview| {
         preview.dedicated
             && list
                 .as_deref()
                 .is_some_and(|json| tab_is_plugin_only(json, &preview.tab_id))
     }) {
-        close_preview_tab(&preview);
+        close_preview_tab(preview)
     } else {
-        let _ = ipc::call_text("pane.close", serde_json::json!({ "pane_id": pane_id }));
+        // A third-party pane prevents us from owning/closing the whole tab.
+        // Returning to the caller is still part of closing our document.
+        if let Some(preview) = &preview
+            && !preview.origin_tab_id.is_empty()
+            && preview.origin_tab_id != preview.tab_id
+        {
+            focus_tab_for_client(&preview.origin_tab_id, None);
+        }
+        pane_close_succeeded(ipc::call_text(
+            "pane.close",
+            serde_json::json!({ "pane_id": pane_id }),
+        ))
+    };
+    if !closed {
+        if let Some(preview) = &preview {
+            focus_tab_for_client(&preview.tab_id, Some(&pane_id));
+        }
+        restore_current_control(control, current);
+        *notice = Some("关闭失败，预览已保留；请重试".into());
+        return false;
     }
+    remove_control_file(control);
+    remove_control_file(&control_path_for_pane(&pane_id));
     true
 }
 
@@ -921,13 +940,16 @@ pub(crate) fn focus_tab_for_client(tab_id: &str, pane_id: Option<&str>) {
     }
 }
 
-fn close_preview_tab(preview: &PreviewPane) {
+fn close_preview_tab(preview: &PreviewPane) -> bool {
     // Focus first: closing our own tab kills this process, so code after a
     // successful tab.close is not guaranteed to run.
     if !preview.origin_tab_id.is_empty() {
         focus_tab_for_client(&preview.origin_tab_id, None);
     }
-    let _ = ipc::call_text("tab.close", serde_json::json!({ "tab_id": preview.tab_id }));
+    pane_close_succeeded(ipc::call_text(
+        "tab.close",
+        serde_json::json!({ "tab_id": preview.tab_id }),
+    ))
 }
 
 /// The first edit that dirties the buffer pins this document's tab, so the
