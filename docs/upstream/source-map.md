@@ -106,3 +106,7 @@ macOS 本地验证使用临时 Unix socket 运行真实 CLI，覆盖资料锁占
 ## 提交区密度与 VS Code 工具栏（2026-10-21）
 
 在迁入的 SCM 绘制上调整密度：单仓库输入保留侧边和底边，复用的提交按钮取消上下装饰行并同步调用方行高。来源消息换行、草稿、提交/同步、确认与鼠标命中逻辑继续复用。Explorer/SCM 活动栏在设置前加入共享 VS Code 按钮，调用已有后台启动器，不涉及独立插件的资料或生命周期。验证记录见 [提交区与工具栏](../verification/compact-scm-and-toolbar.md)。
+
+## 整列停靠复用布局恢复（2026-10-22）
+
+来源 ensure 的整列修复未接入产品 activation，导致上下分栏时侧栏只停靠到当前 pane。产品接入迁入的 takeover tree/prune、journal、停车与 replay 实现，新增 `takeover/docking` 用例；原预览流程继续使用相同计划准备与恢复逻辑。宿主活动进程通过显式产品资料定位 journal，不配置进程全局资料，也不读取独立插件目录。已有侧栏可在打开与 ensure 时修复，保护工作区分栏比例与进程身份。验证见 [整列侧栏](../verification/full-height-sidebar.md)。

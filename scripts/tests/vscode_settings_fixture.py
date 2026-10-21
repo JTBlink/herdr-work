@@ -88,8 +88,8 @@ def check(binary, fail=False):
             send(b's')
             assert '仅HerdrWork' in text() and 'foreign-editor' not in text(), text()[-1500:]
             send(b'\x1b')
-            # Version, scope, dock, width, icons, colors, file-opening mode.
-            setting(6)
+            # Scope, dock, width, icons, colors, file-opening mode; version is last.
+            setting(5)
             wait_for(lambda: json.loads(saved.read_text())['preview_placement'] == 'vscode', 'VS Code mode was not persisted')
             # Direct settings action opens the current project in both views.
             for view in (b'1', b'3'):
@@ -100,16 +100,16 @@ def check(binary, fail=False):
                 assert json.loads(capture.read_text()) == ['--reuse-window', str(root)]
                 capture.unlink()
                 drain(2)  # Let the UI collect the finished launcher before the next action.
-                setting(7)
+                setting(6)
                 wait_for(capture.exists, 'Settings action did not open the project in VS Code')
                 assert json.loads(capture.read_text()) == ['--reuse-window', str(root)]
                 capture.unlink()
             send(b'1')
             # Toggle HerdrWork auto-open only; inherited Sidebar directory stays byte-identical.
-            setting(12)
+            setting(11)
             assert json.loads(saved.read_text())['auto_open'] is True
-            for index, key in [(2, 'dock_right'), (11, 'hotkeys'), (13, 'strict_toggle'),
-                               (14, 'focus_on_open'), (15, 'follow_cwd')]:
+            for index, key in [(1, 'dock_right'), (10, 'hotkeys'), (12, 'strict_toggle'),
+                               (13, 'focus_on_open'), (14, 'follow_cwd')]:
                 previous = json.loads(saved.read_text())[key]
                 setting(index)
                 assert json.loads(saved.read_text())[key] is not previous, key

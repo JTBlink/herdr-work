@@ -21,10 +21,20 @@ pub fn draw_vscode_button(
     left: u16,
     right: u16,
     mouse: Option<(u16, u16)>,
+    theme: IconTheme,
 ) -> Rect {
     let available = right.saturating_sub(left);
-    let label = if available >= 6 { " Code " } else { "<>" };
-    let width = label.len() as u16;
+    // Nerd Font: VS Code's own glyph. Text theme: a compact code symbol.
+    let icon = match theme {
+        IconTheme::Material => " \u{f0a1e}  ",
+        IconTheme::Emoji => " </> ",
+    };
+    let label = if available >= Span::raw(icon).width() as u16 {
+        icon
+    } else {
+        "<>"
+    };
+    let width = Span::raw(label).width() as u16;
     if available < width {
         return Rect::default();
     }
