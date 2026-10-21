@@ -95,3 +95,7 @@ macOS 本地验证使用临时 Unix socket 运行真实 CLI，覆盖资料锁占
 从原 ensure 机械移出 `request_close` 至 `pane_close`，两入口共用 Ctrl+Q 关闭与草稿保护；产品 Engine 自有 activation 负责 profile/前台程序核验、每标签页实例、自动打开、严格切换和焦点偏好。自动入口与来源 takeover 使用相同 profile 布局锁，UI 实例锁按 socket/pane 隔离；业务存储锁继续独立保留。设置字段及根目录记忆只读取 HerdrWork 的 `sidebar/`。
 
 接管前按独立插件 metadata/前台程序识别受保护 pane，只停车不包含它们的最大自有子树；无安全工作区域时走来源 Tab 预览。viewer 自身分栏，不借独立插件的邻接 pane 分栏。产品收窄列宽改从内侧工作 pane 移动分隔线，来源 resize 适配同一纯几何 helper 并保留原焦点；避免宿主选择外侧插件分隔线。原 takeover journal、身份核验、恢复与失效处理继续复用，相关来源测试保留。
+
+## 提交区密度与 VS Code 工具栏（2026-10-21）
+
+在迁入的 SCM 绘制上调整密度：单仓库输入保留侧边和底边，复用的提交按钮取消上下装饰行并同步调用方行高。来源消息换行、草稿、提交/同步、确认与鼠标命中逻辑继续复用。Explorer/SCM 活动栏在设置前加入共享 VS Code 按钮，调用已有后台启动器，不涉及独立插件的资料或生命周期。验证记录见 [提交区与工具栏](../verification/compact-scm-and-toolbar.md)。

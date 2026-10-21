@@ -12,6 +12,39 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use crate::appearance::ColorTheme;
 use crate::icons::IconTheme;
+
+/// Open the current project in VS Code from the space before Settings.
+/// On narrow panes use a small code glyph; never overlap the view icons.
+pub fn draw_vscode_button(
+    frame: &mut Frame,
+    row: Rect,
+    left: u16,
+    right: u16,
+    mouse: Option<(u16, u16)>,
+) -> Rect {
+    let available = right.saturating_sub(left);
+    let label = if available >= 6 { " Code " } else { "<>" };
+    let width = label.len() as u16;
+    if available < width {
+        return Rect::default();
+    }
+    let rect = Rect::new(right - width, row.y.saturating_sub(1), width, 3);
+    let hovered = mouse.is_some_and(|(x, y)| hits(rect, x, y));
+    if hovered {
+        draw_activity_caps(
+            frame,
+            (rect.x, right),
+            rect.y,
+            rect.y + 2,
+            palette().activity_hover_bg,
+        );
+    }
+    frame.render_widget(
+        Paragraph::new(label).style(activity_button_style(false, hovered)),
+        Rect::new(rect.x, row.y, width, 1),
+    );
+    rect
+}
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 use crate::state::View;
 
@@ -770,6 +803,33 @@ pub fn draw_activity_badge(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn activity_badge_disappears_completely_when_count_returns_to_zero() {
+        use ratatui::{Terminal, backend::TestBackend};
+        let mut terminal = Terminal::new(TestBackend::new(12, 3)).unwrap();
+        for count in [12, 1, 0] {
+            terminal
+                .draw(|frame| draw_activity_badge(frame, (2, 6), 1, count))
+                .unwrap();
+            let cells = terminal.backend().buffer();
+            let label = (2..6).map(|x| cells[(x, 2)].symbol()).collect::<String>();
+            assert_eq!(
+                label.trim(),
+                if count == 0 {
+                    String::new()
+                } else {
+                    count.to_string()
+                }
+            );
+            if count == 0 {
+                assert!(
+                    (2..6).all(|x| cells[(x, 2)].bg == Color::Reset),
+                    "zero must leave no colored badge background"
+                );
+            }
+        }
+    }
 
     /// Perceived brightness on a 0..1 scale, the measure `darken_for_light`
     /// caps.

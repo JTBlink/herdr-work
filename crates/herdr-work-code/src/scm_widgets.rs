@@ -247,7 +247,7 @@ pub fn message_box_item(
     ListItem::new(lines)
 }
 
-/// Sidebar's three-line filled button, shared without commit/sync side effects.
+/// Sidebar's single-line filled button, shared without commit/sync side effects.
 pub fn commit_button_item(
     label: &str,
     active: bool,
@@ -269,27 +269,14 @@ pub fn commit_button_item(
     if focused {
         style = style.add_modifier(Modifier::BOLD);
     }
-    let cap_style = Style::default().fg(bg);
-    ListItem::new(vec![
-        Line::from(vec![
-            Span::raw(" "),
-            Span::styled("▄".repeat(button_width), cap_style),
-            Span::raw(" "),
-        ]),
-        Line::from(vec![
-            Span::raw(" "),
-            Span::styled(
-                format!("{}{label}{}", " ".repeat(left_pad), " ".repeat(right_pad)),
-                style,
-            ),
-            Span::raw(" "),
-        ]),
-        Line::from(vec![
-            Span::raw(" "),
-            Span::styled("▀".repeat(button_width), cap_style),
-            Span::raw(" "),
-        ]),
-    ])
+    ListItem::new(vec![Line::from(vec![
+        Span::raw(" "),
+        Span::styled(
+            format!("{}{label}{}", " ".repeat(left_pad), " ".repeat(right_pad)),
+            style,
+        ),
+        Span::raw(" "),
+    ])])
 }
 
 /// Where the list body was drawn last frame, for mouse hit-testing.

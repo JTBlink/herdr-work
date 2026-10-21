@@ -84,10 +84,11 @@ fn sidebar_source_commit_box_and_button_are_visible_in_the_workdesk() {
     );
     assert!(row(body.y + 3).contains('└'));
     assert!(
-        row(body.y + 4).contains("▄▄▄▄"),
-        "Sidebar commit button cap is missing"
+        row(body.y + 4).replace(' ', "").contains("提交"),
+        "Sidebar single-line commit button is missing: {}",
+        row(body.y + 4)
     );
-    assert!(row(body.y + 6).contains("▀▀▀▀"));
+    assert!(!row(body.y + 5).contains("▀▀▀▀"));
     assert_eq!(
         app.icon_theme(),
         herdr_work_code::icons::IconTheme::Material,
@@ -553,7 +554,10 @@ fn source_control_activity_and_pointer_show_real_diff() {
     .unwrap();
     assert!(app.tab == Tab::Scm);
     let rendered = screen(&mut app);
-    assert!(rendered.contains("SOURCECONTROL") && rendered.contains("Changes(1)"));
+    assert!(
+        rendered.contains("SOURCECONTROL") && rendered.contains("visible.txt"),
+        "{rendered}"
+    );
     let row = app.scm_rows().iter().position(|r| r.0 == Some(0)).unwrap();
     let body = app.sidebar_block(String::new()).inner(panes.sidebar);
     app.mouse(
