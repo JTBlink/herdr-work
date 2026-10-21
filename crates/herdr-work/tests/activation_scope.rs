@@ -13,7 +13,7 @@ use std::{
 };
 
 #[test]
-fn auto_open_ignores_preview_tab_created_events_before_contacting_host() {
+fn auto_open_ignores_preview_and_parking_tab_events_before_contacting_host() {
     let temp = tempfile::tempdir().unwrap();
     let profile = temp.path().join("profile");
     std::fs::create_dir_all(profile.join("sidebar")).unwrap();
@@ -21,6 +21,8 @@ fn auto_open_ignores_preview_tab_created_events_before_contacting_host() {
     for data in [
         json!({"tab":{"tab_id":"w1:t2","label":"example.md · preview"}}),
         json!({"tab_id":"w1:t2","label":"example.md · preview"}),
+        json!({"tab":{"tab_id":"w1:t2","label":"Working panes (temporary preview)"}}),
+        json!({"tab_id":"w1:t2","label":"Working panes (temporary preview)"}),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_herdr-work"))
             .args(["--home", profile.to_str().unwrap(), "sidebar-ensure"])

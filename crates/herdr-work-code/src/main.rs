@@ -16,7 +16,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
-use herdr_work_code::{ensure, launch, state, viewer};
+use herdr_work_code::{ensure, launch, settings_view, state, viewer};
 use state::{Exit, View};
 
 /// How often the source-control view re-reads `git status` while idle.

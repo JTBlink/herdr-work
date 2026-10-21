@@ -1776,7 +1776,7 @@ pub fn open_in_pane(
     doc_key: &str,
     payload: &str,
 ) -> Result<PreviewTarget, String> {
-    let mut state = crate::state::load_state();
+    let state = crate::state::load_state();
     let list = ipc::call_text("pane.list", serde_json::json!({}))
         .map_err(|e| format!("preview failed: {e}"))?;
     let caller_tab_id = crate::launch::tab_of(&list, my_pane_id);
@@ -1785,18 +1785,20 @@ pub fn open_in_pane(
     if let Err(error) = crate::takeover::recover(&caller_tab_id) {
         eprintln!("herdr-work-code: temporary preview restore deferred: {error}");
     }
-    if crate::state::product_profile().is_some() {
-        let registry = ipc::call_text("plugin.list", serde_json::json!({}))
-            .ok()
-            .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok());
-        state.preview_placement = coexistence_placement(state.preview_placement, registry.as_ref());
-        if state.preview_placement == crate::state::PreviewPlacement::Replace
-            && !crate::takeover::has_working_region(my_pane_id, &caller_tab_id)?
-        {
-            state.preview_placement = crate::state::PreviewPlacement::Pane;
-        }
-    }
-    let inline = state.preview_placement.is_inline();
+    // Honor the requested placement. Takeover already selects the working
+    // subtree that excludes independent plugins, or opens a dedicated tab
+    // when no safe subtree exists. A plain split leaves working panes exposed.
+    // Resolve the fallback before finding reusable viewers, so a dedicated
+    // fallback tab is reused on the next click instead of spawning another.
+    let placement = if crate::state::product_profile().is_some()
+        && state.preview_placement == crate::state::PreviewPlacement::Replace
+        && !crate::takeover::has_working_region(my_pane_id, &caller_tab_id)?
+    {
+        crate::state::PreviewPlacement::Tab
+    } else {
+        state.preview_placement
+    };
+    let inline = placement.is_inline();
     let list =
         ipc::call_text("pane.list", serde_json::json!({})).map_err(|error| error.to_string())?;
     // Route only within OUR space. A session-wide search reused another
@@ -1865,7 +1867,7 @@ pub fn open_in_pane(
     }
 
     // 3. Nothing reusable — a pane beside the sidebar, or a tab of its own.
-    if state.preview_placement == crate::state::PreviewPlacement::Replace {
+    if placement == crate::state::PreviewPlacement::Replace {
         crate::takeover::open(
             my_pane_id,
             spawn_cwd,
@@ -1887,29 +1889,6 @@ pub fn open_in_pane(
         )
     } else {
         spawn_preview_tab(my_pane_id, spawn_cwd, doc_key, payload, &origin_tab_id)
-    }
-}
-
-/// Parking tabs trigger other plugins' auto-open hooks. Prefer an ordinary
-/// inline preview while those plugins are enabled; their settings stay untouched.
-fn coexistence_placement(
-    requested: crate::state::PreviewPlacement,
-    registry: Option<&serde_json::Value>,
-) -> crate::state::PreviewPlacement {
-    let independent_enabled = registry
-        .and_then(|value| value["result"]["plugins"].as_array())
-        .is_none_or(|plugins| {
-            plugins.iter().any(|plugin| {
-                plugin["enabled"].as_bool() != Some(false)
-                    && plugin["plugin_id"]
-                        .as_str()
-                        .is_some_and(crate::takeover::independent_plugin_name)
-            })
-        });
-    if independent_enabled {
-        crate::state::PreviewPlacement::Pane
-    } else {
-        requested
     }
 }
 
@@ -2845,27 +2824,6 @@ mod tests {
     use super::*;
     use crossterm::event::MouseEvent;
     use ratatui::style::Color;
-
-    #[test]
-    fn coexisting_plugins_use_inline_preview_without_parking_tabs() {
-        use crate::state::PreviewPlacement::{Pane, Replace, Tab};
-        for enabled in [true, false] {
-            let registry = serde_json::json!({"result":{"plugins":[
-                {"plugin_id":"herdr-sidebar","enabled":enabled},
-                {"plugin_id":"jtblink.herdr-work","enabled":true}
-            ]}});
-            assert_eq!(
-                coexistence_placement(Replace, Some(&registry)),
-                if enabled { Pane } else { Replace }
-            );
-            assert_eq!(coexistence_placement(Pane, Some(&registry)), Pane);
-            assert_eq!(
-                coexistence_placement(Tab, Some(&registry)),
-                if enabled { Pane } else { Tab }
-            );
-        }
-        assert_eq!(coexistence_placement(Replace, None), Pane);
-    }
 
     #[test]
     fn product_preview_never_splits_an_independent_plugin_neighbor() {

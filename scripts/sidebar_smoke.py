@@ -85,6 +85,12 @@ def read(pane):
     return rpc("pane.read", {"pane_id": pane, "source": "visible"})["read"]["text"]
 
 
+def contains_output(pane, text):
+    # A narrow fixture or a pending client resize can wrap a source line.
+    # Geometry is asserted separately; content checks allow terminal wraps.
+    return "".join(text.split()) in "".join(read(pane).split())
+
+
 def wait(predicate, label, timeout=25):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -137,7 +143,7 @@ try:
         + " one",
         ["Enter"],
     )
-    wait(lambda: "WORKING one" in read(original), "original working process")
+    wait(lambda: contains_output(original, "WORKING one"), "original working process")
     independent = None
     if args.independent_side:
         independent = rpc(
@@ -163,7 +169,7 @@ try:
             + " independent",
             ["Enter"],
         )
-        wait(lambda: "WORKING independent" in read(independent), "independent fixture")
+        wait(lambda: contains_output(independent, "WORKING independent"), "independent fixture")
         rpc(
             "pane.report_metadata",
             {
@@ -204,7 +210,7 @@ try:
             + label,
             ["Enter"],
         )
-        wait(lambda p=pane, l=label: "WORKING " + l in read(p), "working " + label)
+        wait(lambda p=pane, l=label: contains_output(p, "WORKING " + l), "working " + label)
     originals = [original, second, third]
     independent_rect = next((p["rect"] for p in layout(original)["panes"] if p["pane_id"] == independent), None)
     context = {
@@ -415,7 +421,13 @@ try:
         (BASE / "failed-screen.txt").write_text(read(owner))
         (BASE / "failed-layout.json").write_text(json.dumps(layout(owner),indent=2))
         raise
-    wait(lambda: "a-file.txt fixture line 001" in read(viewer), "viewer document")
+    try:
+        wait(lambda: contains_output(viewer, "a-file.txt fixture line 001"), "viewer document")
+    except AssertionError:
+        (BASE / "failed-viewer.txt").write_text(read(viewer))
+        (BASE / "failed-viewer-process.json").write_text(json.dumps(process(viewer), indent=2))
+        (BASE / "failed-layout.json").write_text(json.dumps(layout(owner), indent=2))
+        raise
     during = layout(owner)
     assert {p["pane_id"] for p in during["panes"]} == {owner, viewer} | (
         {independent} if independent else set()
@@ -454,7 +466,7 @@ try:
     send(owner, "b-file")
     send(owner, keys=["Enter"])
     wait(
-        lambda: "b-file.txt fixture line 001" in read(viewer),
+        lambda: contains_output(viewer, "b-file.txt fixture line 001"),
         "same viewer switches document",
     )
     assert active_viewer()["pane_id"] == viewer
@@ -518,7 +530,7 @@ try:
     send(owner, keys=["Enter"])
     interrupted = wait(active_viewer, "second takeover viewer")["pane_id"]
     wait(
-        lambda: "a-file.txt fixture line 001" in read(interrupted), "recovery document"
+        lambda: contains_output(interrupted, "a-file.txt fixture line 001"), "recovery document"
     )
     rpc("pane.close", {"pane_id": interrupted})
     wait(lambda: shape(layout(owner)) == shape(before), "background journal recovery")

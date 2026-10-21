@@ -390,7 +390,8 @@ pub(crate) fn is_preview_label(label: &str) -> bool {
         || label.ends_with(" · editor")
 }
 
-/// Preview tabs are document surfaces, not new workspaces to auto-dock into.
+/// Preview and parking tabs must not start another sidebar before their
+/// ownership/snooze metadata has been written after tab.create returns.
 pub fn is_preview_tab_event(event_json: &str) -> bool {
     if event_kind(event_json) != "tab_created" {
         return false;
@@ -402,7 +403,7 @@ pub fn is_preview_tab_event(event_json: &str) -> bool {
     data["tab"]["label"]
         .as_str()
         .or_else(|| data["label"].as_str())
-        .is_some_and(is_preview_label)
+        .is_some_and(|label| is_preview_label(label) || label == crate::takeover::PARKING_LABEL)
 }
 
 /// Eligible panes in our tab, sorted by pane id so the fallback is stable.

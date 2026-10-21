@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import pty
 import select
-import signal
 import socket
 import struct
 import subprocess
@@ -16,7 +15,47 @@ import threading
 import time
 
 
-def check(binary, placement):
+class Layout:
+    """Small host split tree, so assertions measure occupied space after clicks."""
+    def __init__(self, root):
+        self.root = root
+
+    @staticmethod
+    def split(target, incoming, ratio=.5, direction='right'):
+        return (direction, ratio, target, incoming)
+
+    def replace(self, target, replacement):
+        def visit(node):
+            if isinstance(node, str):
+                return replacement if node == target else node
+            direction, ratio, first, second = node
+            first, second = visit(first), visit(second)
+            return (direction, ratio, first, second) if first and second else first or second
+        self.root = visit(self.root)
+
+    def snapshot(self):
+        panes, splits = [], []
+
+        def visit(node, rect):
+            if isinstance(node, str):
+                panes.append({'pane_id': node, 'rect': rect})
+                return
+            direction, ratio, first, second = node
+            splits.append({'direction': direction, 'ratio': ratio, 'rect': rect})
+            a, b = rect.copy(), rect.copy()
+            axis, size = ('x', 'width') if direction == 'right' else ('y', 'height')
+            a[size] = round(rect[size] * ratio)
+            b[axis] += a[size]
+            b[size] -= a[size]
+            visit(first, a)
+            visit(second, b)
+
+        area = {'x': 0, 'y': 0, 'width': 120, 'height': 40}
+        visit(self.root, area)
+        return {'area': area, 'panes': panes, 'splits': splits}
+
+
+def check(binary, placement, blocked=False):
     with tempfile.TemporaryDirectory(prefix='herdr-work-preview-') as directory:
         base = Path(directory)
         root = base / 'project'
@@ -39,13 +78,25 @@ def check(binary, placement):
         original_tokens = {'herdr-sidebar-explorer': '1', 'herdr-sidebar-git': '1'}
         panes = {
             name: {'pane_id': name, 'tab_id': 'w1:t1', 'workspace_id': 'w1',
+                   'terminal_id': 'terminal-' + name,
                    'tokens': original_tokens.copy() if name == 'original' else {},
                    'cwd': str(root), 'foreground_cwd': str(root)}
             for name in ['owner', 'original', 'working']
         }
+        # The independent Sidebar sits outside owner + working, as in the
+        # reported layout. Replace must fill that working region, not split
+        # another narrow preview into it.
+        layouts = {'w1:t1': Layout(
+            Layout.split('owner', Layout.split('original', 'working', 28 / 92), 28 / 120)
+            if blocked else Layout.split(
+                Layout.split('owner', 'working', 28 / 92), 'original', 92 / 120))}
+        before = layouts['w1:t1'].snapshot()
+        original_rect = next(p['rect'] for p in before['panes'] if p['pane_id'] == 'original')
+        next_tab = 1
         argv = [binary, '--home', str(profile), 'ui', '--sidebar', str(root)]
 
         def serve():
+            nonlocal next_tab
             while not stopped.is_set():
                 try:
                     stream, _ = server.accept()
@@ -68,15 +119,35 @@ def check(binary, placement):
                         result = {'process_info': {'pane_id': pane, 'foreground_processes': [
                             {'argv0': command[0], 'argv': command}]}}
                     elif method == 'pane.layout':
-                        result = {'layout': {'tab_id': 'w1:t1',
-                            'area': {'x': 0, 'y': 0, 'width': 120, 'height': 40},
-                            'panes': [{'pane_id': name, 'rect': {'x': x, 'y': 0, 'width': width, 'height': 40}}
-                                      for name, x, width in [('owner', 0, 28), ('original', 28, 28), ('working', 56, 64)]],
-                            'splits': []}}
+                        tab = panes[params['pane_id']]['tab_id']
+                        result = {'layout': dict(layouts[tab].snapshot(), tab_id=tab)}
+                    elif method == 'tab.create':
+                        next_tab += 1
+                        tab = f'w1:t{next_tab}'
+                        name = 'parking' if params['label'] == 'Working panes (temporary preview)' else 'viewer'
+                        panes[name] = {'pane_id': name, 'tab_id': tab, 'workspace_id': 'w1',
+                                       'terminal_id': 'terminal-' + name, 'tokens': {}}
+                        layouts[tab] = Layout(name)
+                        result = {'tab': {'tab_id': tab}, 'root_pane': {'pane_id': name}}
                     elif method == 'pane.split':
-                        panes['viewer'] = {'pane_id': 'viewer', 'tab_id': 'w1:t1',
-                                           'workspace_id': 'w1', 'tokens': {}}
+                        target = params['target_pane_id']
+                        tab = panes[target]['tab_id']
+                        panes['viewer'] = {'pane_id': 'viewer', 'tab_id': tab,
+                                           'workspace_id': 'w1', 'terminal_id': 'terminal-viewer', 'tokens': {}}
+                        layouts[tab].replace(target, Layout.split(target, 'viewer', params['ratio']))
                         result = {'pane': {'pane_id': 'viewer'}}
+                    elif method == 'pane.move':
+                        name, dest = params['pane_id'], params['destination']
+                        layouts[panes[name]['tab_id']].replace(name, None)
+                        panes[name]['tab_id'] = dest['tab_id']
+                        target = dest['target_pane_id']
+                        layouts[dest['tab_id']].replace(target, Layout.split(
+                            target, name, dest['ratio'], dest['split']))
+                    elif method == 'pane.swap':
+                        for layout in layouts.values():
+                            layout.replace(params['source_pane_id'], '__swap__')
+                            layout.replace(params['target_pane_id'], params['source_pane_id'])
+                            layout.replace('__swap__', params['target_pane_id'])
                     elif method == 'pane.report_metadata':
                         panes[params['pane_id']]['tokens'].update(params.get('tokens', {}))
                     stream.sendall((json.dumps({'result': result}) + '\n').encode())
@@ -125,14 +196,27 @@ def check(binary, placement):
             wait_for(lambda: any(b'example-b.txt' in path.read_bytes()
                                 for path in (profile / 'sidebar/scratch').glob('*') if path.is_file()))
             splits = [r for r in requests if r['method'] == 'pane.split']
-            assert len(splits) == 1, ('viewer not reused', splits)
-            assert splits[0]['params']['target_pane_id'] == 'owner'
-            assert not any(r['method'] in ['tab.create', 'pane.move'] for r in requests)
+            current = layouts['w1:t1'].snapshot()
+            if placement == 'replace' and not blocked:
+                assert panes['working']['tab_id'] != 'w1:t1', 'Replace left the working terminal visible behind the preview'
+                assert len(splits) == 1, ('viewer not reused', splits)
+                assert splits[0]['params']['target_pane_id'] == 'owner'
+                viewer_rect = next(p['rect'] for p in current['panes'] if p['pane_id'] == 'viewer')
+                assert viewer_rect == {'x': 28, 'y': 0, 'width': 64, 'height': 40}, viewer_rect
+                assert {p['pane_id'] for p in current['panes']} == {'owner', 'viewer', 'original'}
+            elif placement == 'tab' or blocked:
+                assert panes['viewer']['tab_id'] != 'w1:t1', 'Tab preview silently became a split'
+                assert not splits and current == before
+                assert len([r for r in requests if r['method'] == 'tab.create']) == 1, 'Second click opened a duplicate preview tab'
+            else:
+                assert len(splits) == 1 and panes['working']['tab_id'] == 'w1:t1'
+                assert not any(r['method'] in ['tab.create', 'pane.move'] for r in requests)
+            assert next(p['rect'] for p in current['panes'] if p['pane_id'] == 'original') == original_rect
             mutations = [r for r in requests if r['method'] not in ['pane.list', 'pane.layout', 'pane.process_info', 'workspace.list', 'plugin.list']]
             assert not any(r['params'].get(key) == 'original' for r in mutations
                            for key in ['pane_id', 'source_pane_id', 'target_pane_id'])
             assert panes['original']['tokens'] == original_tokens
-            print(f'{placement}: real mouse clicks reuse one inline viewer; independent plugin untouched')
+            print(f'{placement} (blocked={blocked}): mouse clicks honor preview placement and reuse; independent plugin geometry untouched')
         finally:
             os.close(master)
             stopped.set()
@@ -144,5 +228,6 @@ def check(binary, placement):
 
 
 if __name__ == '__main__':
-    for mode in ['replace', 'tab']:
+    for mode in ['replace', 'tab', 'pane']:
         check(str(Path(sys.argv[1]).resolve()), mode)
+    check(str(Path(sys.argv[1]).resolve()), 'replace', blocked=True)
