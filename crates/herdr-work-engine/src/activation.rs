@@ -393,7 +393,26 @@ impl HerdrWork {
         );
         if let Some((pane, instance)) = verified.pop() {
             if mode == SidebarOpen::Ensure {
-                return Ok(json!({"action":"kept","pane_id":pane}));
+                let warning = target_tab.and_then(|tab| {
+                    herdr_work_code::takeover::dock_column(
+                        &profile,
+                        &pane,
+                        &root,
+                        tab,
+                        settings.dock_right,
+                        settings.sidebar_width,
+                    )
+                    .err()
+                });
+                // Reparenting can change focus; automatic docking must preserve it.
+                if let Some(previous) = panes
+                    .iter()
+                    .find(|p| p["focused"].as_bool() == Some(true))
+                    .and_then(|p| p["pane_id"].as_str())
+                {
+                    rpc(&socket, "pane.focus", json!({"pane_id":previous}))?;
+                }
+                return Ok(json!({"action":"kept","pane_id":pane,"layout_warning":warning}));
             }
             if mode == SidebarOpen::Toggle {
                 let focused = own.iter().any(|p| {
@@ -442,9 +461,20 @@ impl HerdrWork {
                 view,
             };
             storage::save(&request_path(&profile, &pane, &instance), &request)?;
+            let warning = target_tab.and_then(|tab| {
+                herdr_work_code::takeover::dock_column(
+                    &profile,
+                    &pane,
+                    &request.root,
+                    tab,
+                    settings.dock_right,
+                    settings.sidebar_width,
+                )
+                .err()
+            });
             rpc(&socket, "pane.focus", json!({"pane_id":pane}))?;
             return Ok(
-                json!({"action":"focused","pane_id":pane,"view":view,"request":request.nonce}),
+                json!({"action":"focused","pane_id":pane,"view":view,"request":request.nonce,"layout_warning":warning}),
             );
         }
         if mode == SidebarOpen::Ensure && !own.is_empty() {
@@ -518,6 +548,9 @@ impl HerdrWork {
         let focus =
             mode == SidebarOpen::Show || (mode == SidebarOpen::Toggle && settings.focus_on_open);
         let mut layout = rpc(&socket, "pane.layout", json!({"pane_id":target}))?;
+        let needs_column = layout["layout"]["panes"]
+            .as_array()
+            .is_some_and(|panes| panes.len() > 1);
         // Keep the caller's existing pane. Never split or adopt another plugin.
         if let Some(entries) = layout["layout"]["panes"].as_array_mut() {
             entries.retain(|p| p["pane_id"].as_str() == Some(&target));
@@ -572,6 +605,19 @@ impl HerdrWork {
                 json!({"pane_id":target,"direction":if preferences.dock_right {"right"} else {"left"},"amount":amount}),
             )?;
         }
+        let warning = if needs_column {
+            herdr_work_code::takeover::dock_column(
+                &profile,
+                pane,
+                &root,
+                target_tab.context("missing tab")?,
+                preferences.dock_right,
+                preferences.sidebar_width,
+            )
+            .err()
+        } else {
+            None
+        };
         if focus {
             rpc(&socket, "pane.focus", json!({"pane_id":pane}))?;
         } else if let Some(previous) = panes
@@ -587,7 +633,7 @@ impl HerdrWork {
         {
             let _ = herdr_work_code::snooze::clear(&snooze_dir, tab);
         }
-        Ok(json!({"action":"opened","pane_id":pane,"view":view}))
+        Ok(json!({"action":"opened","pane_id":pane,"view":view,"layout_warning":warning}))
     }
     /// Host-provided identity is accepted only for this product's entrypoint.
     pub fn ui_registration(&self) -> Option<UiRegistration> {

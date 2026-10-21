@@ -189,7 +189,24 @@ trait Env {
     fn session(&self) -> String;
 }
 
-struct RealEnv;
+#[derive(Default)]
+struct RealEnv {
+    // Product activation runs before the UI configures process-global state.
+    profile: Option<PathBuf>,
+}
+
+impl RealEnv {
+    fn dir(&self, name: &str) -> PathBuf {
+        self.profile
+            .as_ref()
+            .map_or_else(|| rundir::dir(name), |p| p.join("sidebar").join(name))
+    }
+
+    fn path(&self, tab: &str) -> PathBuf {
+        let key = crate::viewer::document_token(&format!("{}:{tab}", self.session()));
+        self.dir("takeover").join(format!("{key}.json"))
+    }
+}
 
 impl Env for RealEnv {
     fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
@@ -203,7 +220,7 @@ impl Env for RealEnv {
     }
 
     fn load(&mut self, tab: &str) -> Result<Option<Plan>, String> {
-        match std::fs::read(path(tab)) {
+        match std::fs::read(self.path(tab)) {
             Ok(bytes) => serde_json::from_slice(&bytes)
                 .map(Some)
                 .map_err(|error| error.to_string()),
@@ -213,15 +230,15 @@ impl Env for RealEnv {
     }
 
     fn store(&mut self, plan: &Plan) -> Result<(), String> {
-        let dir = rundir::dir("takeover");
+        let dir = self.dir("takeover");
         rundir::ensure_private(&dir).map_err(|error| error.to_string())?;
         let text = serde_json::to_string(plan).map_err(|error| error.to_string())?;
-        crate::viewer::write_scratch_file_in(&path(&plan.tab), &text, &dir)
+        crate::viewer::write_scratch_file_in(&self.path(&plan.tab), &text, &dir)
             .map_err(|error| error.to_string())
     }
 
     fn discard(&mut self, tab: &str) -> Result<(), String> {
-        match std::fs::remove_file(path(tab)) {
+        match std::fs::remove_file(self.path(tab)) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error.to_string()),
@@ -229,7 +246,7 @@ impl Env for RealEnv {
     }
 
     fn plans(&mut self) -> Vec<Plan> {
-        let dir = rundir::dir("takeover");
+        let dir = self.dir("takeover");
         if !rundir::is_private(&dir) {
             return Vec::new();
         }
@@ -245,7 +262,7 @@ impl Env for RealEnv {
     }
 
     fn set_snoozed(&mut self, tab: &str, snoozed: bool) -> Result<(), String> {
-        let dir = snooze::dir();
+        let dir = self.dir("snooze");
         if snoozed {
             snooze::set(&dir, tab)
         } else {
@@ -620,7 +637,7 @@ pub fn restore(tab: &str, closing_viewer: &str) -> Result<bool, String> {
         return Ok(false);
     }
     let _lock = LaunchLock::acquire(true).ok_or("could not lock the sidebar layout")?;
-    let mut env = RealEnv;
+    let mut env = RealEnv::default();
     let Some(plan) = env.load(tab)? else {
         return Ok(false);
     };
@@ -642,7 +659,7 @@ pub fn abandon_tab(tab: &str) -> Result<(), String> {
         return Ok(());
     }
     let _lock = LaunchLock::acquire(true).ok_or("could not lock the sidebar layout")?;
-    let mut env = RealEnv;
+    let mut env = RealEnv::default();
     let Some(plan) = env.load(tab)? else {
         return Ok(());
     };
@@ -658,7 +675,7 @@ pub fn recover(tab: &str) -> Result<(), String> {
         return Ok(());
     }
     let _lock = LaunchLock::acquire(true).ok_or("could not lock the sidebar layout")?;
-    let mut env = RealEnv;
+    let mut env = RealEnv::default();
     if let Some(plan) = env.load(tab)? {
         restore_with(&mut env, &plan, Trigger::Recover)?;
     }
@@ -676,7 +693,7 @@ pub fn recover_owned_session(tab: &str) -> Result<(), String> {
 }
 
 pub(crate) fn recover_locked(tab: &str, panes_json: &str) {
-    let mut env = RealEnv;
+    let mut env = RealEnv::default();
     sweep_with(&mut env, panes_json);
     let _ = recover_from_hook(&mut env, tab);
 }
@@ -805,12 +822,12 @@ fn protect_independent_plugins(
 /// A protected neighbor can leave the owner with no safe working subtree.
 /// Use the source tab-preview route in that case, rather than resizing it.
 pub fn has_working_region(owner: &str, tab: &str) -> Result<bool, String> {
-    let protected = protect_independent_plugins(&mut RealEnv, owner, tab)?;
+    let protected = protect_independent_plugins(&mut RealEnv::default(), owner, tab)?;
     if protected.is_empty() {
         return Ok(true);
     }
     let layout: Layout = serde_json::from_value(
-        RealEnv.call("pane.layout", json!({"pane_id":owner}))?["layout"].clone(),
+        RealEnv::default().call("pane.layout", json!({"pane_id":owner}))?["layout"].clone(),
     )
     .map_err(|e| e.to_string())?;
     Ok(tree(&layout, layout.area)?
@@ -829,7 +846,7 @@ pub fn open(
 ) -> Result<crate::viewer::PreviewTarget, String> {
     let _lock = LaunchLock::acquire(true).ok_or("could not lock the sidebar layout")?;
     let protected = if crate::state::product_profile().is_some() {
-        protect_independent_plugins(&mut RealEnv, owner, tab)?
+        protect_independent_plugins(&mut RealEnv::default(), owner, tab)?
     } else {
         BTreeSet::new()
     };
@@ -840,9 +857,9 @@ pub fn open(
         crate::viewer::spawn_takeover_pane(owner, cwd, doc, payload, tab, dock_right, width)
     };
     if protected.is_empty() {
-        open_with(&mut RealEnv, owner, cwd, tab, spawn)
+        open_with(&mut RealEnv::default(), owner, cwd, tab, spawn)
     } else {
-        open_scoped_with(&mut RealEnv, owner, cwd, tab, &protected, spawn)
+        open_scoped_with(&mut RealEnv::default(), owner, cwd, tab, &protected, spawn)
     }
 }
 
@@ -856,35 +873,13 @@ fn open_with<E: Env>(
     open_scoped_with(env, owner, cwd, tab, &BTreeSet::new(), spawn)
 }
 
-fn open_scoped_with<E: Env>(
-    env: &mut E,
+fn prepare_plan(
+    env: &mut impl Env,
     owner: &str,
     cwd: &Path,
     tab: &str,
-    protected: &BTreeSet<String>,
-    spawn: impl FnOnce(&mut E) -> Result<crate::viewer::PreviewTarget, String>,
-) -> Result<crate::viewer::PreviewTarget, String> {
-    if let Some(plan) = env.load(tab)?
-        && restore_with(env, &plan, Trigger::Recover)? == Outcome::ViewerPresent
-    {
-        return Err(
-            "the previous temporary preview is still open; close it (q) to bring your \
-             working panes back"
-                .into(),
-        );
-    }
-    let layout: Layout = serde_json::from_value(
-        env.call("pane.layout", json!({"pane_id": owner}))?["layout"].clone(),
-    )
-    .map_err(|error| error.to_string())?;
-    let full_tree = tree(&layout, layout.area)?;
-    let original = full_tree
-        .working_scope(owner, protected)
-        .cloned()
-        .ok_or("sidebar is missing from its working region")?;
-    if !original.contains(owner) {
-        return Err("sidebar is missing from the current layout".into());
-    }
+    original: Node,
+) -> Result<Plan, String> {
     let list = env.call("pane.list", json!({}))?;
     let panes = live_panes(&list)?;
     let mut ids = Vec::new();
@@ -917,7 +912,7 @@ fn open_scoped_with<E: Env>(
         .as_str()
         .ok_or("missing parking pane")?
         .to_string();
-    let mut plan = Plan {
+    let plan = Plan {
         tab: tab.into(),
         owner: owner.into(),
         parking_tab,
@@ -936,6 +931,44 @@ fn open_scoped_with<E: Env>(
         let _ = env.call("pane.close", json!({"pane_id": plan.parking_pane}));
         return Err(error);
     }
+    Ok(plan)
+}
+
+mod docking;
+pub use docking::dock_column;
+
+fn open_scoped_with<E: Env>(
+    env: &mut E,
+    owner: &str,
+    cwd: &Path,
+    tab: &str,
+    protected: &BTreeSet<String>,
+    spawn: impl FnOnce(&mut E) -> Result<crate::viewer::PreviewTarget, String>,
+) -> Result<crate::viewer::PreviewTarget, String> {
+    if let Some(plan) = env.load(tab)?
+        && restore_with(env, &plan, Trigger::Recover)? == Outcome::ViewerPresent
+    {
+        return Err(
+            "the previous temporary preview is still open; close it (q) to bring your \
+             working panes back"
+                .into(),
+        );
+    }
+    let layout: Layout = serde_json::from_value(
+        env.call("pane.layout", json!({"pane_id": owner}))?["layout"].clone(),
+    )
+    .map_err(|error| error.to_string())?;
+    let full_tree = tree(&layout, layout.area)?;
+    let original = full_tree
+        .working_scope(owner, protected)
+        .cloned()
+        .ok_or("sidebar is missing from its working region")?;
+    if !original.contains(owner) {
+        return Err("sidebar is missing from the current layout".into());
+    }
+    let mut plan = prepare_plan(env, owner, cwd, tab, original)?;
+    let mut ids = Vec::new();
+    plan.tree.panes(&mut ids);
     let mut result = Ok(());
     for pane in &ids {
         if pane != owner
@@ -1454,6 +1487,121 @@ mod tests {
     }
 
     #[test]
+    fn docking_replays_the_original_working_tree_and_is_idempotent() {
+        for right in [false, true] {
+            for protected in [false, true] {
+                let work = Node::Split {
+                    direction: "down".into(),
+                    ratio: 0.6,
+                    first: Box::new(Node::Pane("top".into())),
+                    second: Box::new(Node::Pane("bottom".into())),
+                };
+                let mut truncated = work.clone();
+                split_leaf(&mut truncated, "bottom", "sidebar", "right", 0.5);
+                let original = if protected {
+                    Node::Split {
+                        direction: "right".into(),
+                        ratio: 0.2,
+                        first: Box::new(Node::Pane("independent".into())),
+                        second: Box::new(truncated),
+                    }
+                } else {
+                    truncated
+                };
+                let mut fake = Fake::default();
+                fake.add_tab("w1:main", original);
+                let identities = fake.terminals.clone();
+                let excluded = if protected {
+                    BTreeSet::from(["independent".into()])
+                } else {
+                    BTreeSet::new()
+                };
+                assert!(
+                    docking::dock_column_with(
+                        &mut fake,
+                        "sidebar",
+                        Path::new("/work"),
+                        "w1:main",
+                        right,
+                        28,
+                        &excluded
+                    )
+                    .unwrap()
+                );
+                let share = 28.0 / if protected { 96.0 } else { 120.0 };
+                let (first, second) = if right {
+                    (work, Node::Pane("sidebar".into()))
+                } else {
+                    (Node::Pane("sidebar".into()), work)
+                };
+                let column = Node::Split {
+                    direction: "right".into(),
+                    ratio: if right { 1.0 - share } else { share },
+                    first: Box::new(first),
+                    second: Box::new(second),
+                };
+                let expected = if protected {
+                    Node::Split {
+                        direction: "right".into(),
+                        ratio: 0.2,
+                        first: Box::new(Node::Pane("independent".into())),
+                        second: Box::new(column),
+                    }
+                } else {
+                    column
+                };
+                assert_eq!(fake.root("w1:main"), Some(&expected));
+                assert_eq!(fake.terminals, identities);
+                assert_eq!(fake.tabs.len(), 1);
+                assert!(fake.plans.is_empty());
+                fake.mutations.clear();
+                assert!(
+                    !docking::dock_column_with(
+                        &mut fake,
+                        "sidebar",
+                        Path::new("/work"),
+                        "w1:main",
+                        right,
+                        28,
+                        &excluded
+                    )
+                    .unwrap()
+                );
+                assert!(fake.mutations.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn failed_docking_keeps_every_working_terminal_visible() {
+        let mut original = working_layout(false);
+        // Turn the column back into a lower-slot sidebar.
+        original = original.prune(&|id| id != "sidebar").unwrap();
+        split_leaf(&mut original, "bottom", "sidebar", "right", 0.5);
+        let mut fake = Fake::default();
+        fake.add_tab("w1:main", original);
+        let identities = fake.terminals.clone();
+        fake.fail_moves_of.insert("bottom".into());
+        assert!(
+            docking::dock_column_with(
+                &mut fake,
+                "sidebar",
+                Path::new("/work"),
+                "w1:main",
+                false,
+                28,
+                &BTreeSet::new()
+            )
+            .is_err()
+        );
+        for (id, terminal) in identities {
+            assert_eq!(fake.terminals.get(&id), Some(&terminal));
+            assert!(fake.tab_of(&id).is_some());
+        }
+        assert!(fake.plans.is_empty());
+    }
+
+    #[test]
     fn coexisting_independent_sidebar_does_not_block_the_working_region() {
         for protected_on_right in [false, true] {
             for dock_right in [false, true] {
@@ -1929,7 +2077,7 @@ mod tests {
     #[ignore = "M1: needs an attached Herdr session (HERDR_ENV=1) and a freshly built herdr-work-code on PATH; uses only its own disposable tab"]
     fn live_parked_running_tui_still_takes_input_after_restore() {
         assert_eq!(std::env::var("HERDR_ENV").as_deref(), Ok("1"));
-        let mut env = RealEnv;
+        let mut env = RealEnv::default();
         let focused = env.call("pane.list", json!({})).unwrap()["panes"]
             .as_array()
             .unwrap()
@@ -2052,7 +2200,7 @@ mod tests {
 
     fn live_takeover_case(dock_right: bool, force_close: bool) {
         assert_eq!(std::env::var("HERDR_ENV").as_deref(), Ok("1"));
-        let mut env = RealEnv;
+        let mut env = RealEnv::default();
         let list = env.call("pane.list", json!({})).unwrap();
         let focused = list["panes"]
             .as_array()

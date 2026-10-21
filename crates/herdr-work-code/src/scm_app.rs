@@ -1933,16 +1933,6 @@ impl App {
         let update = herdr_work_code::updates::row();
         vec![
             (
-                Setting::Version,
-                if sidebar::product_profile().is_some() {
-                    "HerdrWork version"
-                } else {
-                    "Sidebar version"
-                },
-                env!("CARGO_PKG_VERSION").into(),
-                false,
-            ),
-            (
                 Setting::Scope,
                 "Settings scope",
                 if sidebar::product_profile().is_some() {
@@ -2096,6 +2086,16 @@ impl App {
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| self.cwd.display().to_string()),
                 true,
+            ),
+            (
+                Setting::Version,
+                if sidebar::product_profile().is_some() {
+                    "HerdrWork version"
+                } else {
+                    "Sidebar version"
+                },
+                env!("CARGO_PKG_VERSION").into(),
+                false,
             ),
         ]
     }
@@ -3722,8 +3722,14 @@ impl App {
         line.push(Span::raw(" ".repeat(pad)));
         line.push(gear);
         frame.render_widget(Paragraph::new(Line::from(line)), area);
-        self.zones.vscode =
-            herdr_work_code::ui::draw_vscode_button(frame, area, x, gear_x, self.mouse_pos);
+        self.zones.vscode = herdr_work_code::ui::draw_vscode_button(
+            frame,
+            area,
+            x,
+            gear_x,
+            self.mouse_pos,
+            self.theme,
+        );
         herdr_work_code::ui::draw_activity_badge(
             frame,
             bounds[5],
