@@ -26,7 +26,7 @@ use serde_json::{Value, json};
 
 use crate::{ipc, pane_lock::LaunchLock, rundir, snooze};
 
-const PARKING_LABEL: &str = "Working panes (temporary preview)";
+pub(crate) const PARKING_LABEL: &str = "Working panes (temporary preview)";
 /// A parking tab that still holds panes after its journal is gone. The label
 /// tells the user the panes are theirs to move; the tab is also un-snoozed so
 /// a sidebar docks there like in any ordinary tab.

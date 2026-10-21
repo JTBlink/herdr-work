@@ -2,7 +2,7 @@
 #![cfg(unix)]
 
 #[test]
-fn file_clicks_stay_in_current_tab_and_leave_independent_sidebar_untouched() {
+fn file_clicks_honor_preview_placement_and_leave_independent_sidebar_untouched() {
     let output = std::process::Command::new("python3")
         .arg(concat!(
             env!("CARGO_MANIFEST_DIR"),
