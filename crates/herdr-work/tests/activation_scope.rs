@@ -23,6 +23,8 @@ fn auto_open_ignores_preview_and_parking_tab_events_before_contacting_host() {
         json!({"tab_id":"w1:t2","label":"example.md · preview"}),
         json!({"tab":{"tab_id":"w1:t2","label":"Working panes (temporary preview)"}}),
         json!({"tab_id":"w1:t2","label":"Working panes (temporary preview)"}),
+        json!({"tab":{"tab_id":"w1:t2","label":"HerdrWork · example.md [preview]"}}),
+        json!({"tab_id":"w1:t2","label":"HerdrWork · example.md [pinned]"}),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_herdr-work"))
             .args(["--home", profile.to_str().unwrap(), "sidebar-ensure"])

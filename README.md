@@ -76,6 +76,8 @@ python3 scripts/package.py create --target aarch64-apple-darwin
 python3 scripts/smoke.py --archives dist
 ```
 
+真实双插件共存验证见 [Sidebar 共存验证](docs/verification/sidebar-coexistence.md)。测试复制 Sidebar 程序到临时目录，用独立配置和宿主会话运行双方自动事件，不修改已安装插件或现有窗格。
+
 将 target 替换为 `x86_64-unknown-linux-gnu` 或 `x86_64-pc-windows-msvc` 可在对应原生平台构建。CI 编译、测试、打包并执行隔离安装验证；Release 工作流只在所有平台成功后发布附件。流程参考固定版本 Reviewr 的矩阵与打包方式，采用 draft 创建、附件校验、最后发布。
 
 Sidebar 的实际实现已迁入 `crates/herdr-work-code`，专属任务后端入口为 `crates/herdr-work-projects`。HerdrWork 与独立安装的 Sidebar、Projects、Reviewr 插件各自维护配置、数据和生命周期。其余来源模块后续按[内部模块架构](docs/architecture/herdr-work-internal-modules.md)统一工程，实施进度见[任务索引](docs/plans/internal-modules/README.md)，实际复用见[源码来源与补丁](docs/upstream/source-map.md)。GitHub 仓库仍使用 `JTBlink/herdr-work` 地址。

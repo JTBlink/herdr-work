@@ -231,10 +231,8 @@ pub fn doc_key_for_show(root: &Path, spec: &str, path: Option<&str>) -> String {
     }
 }
 
-/// The tab name for a document. A textual `· preview` suffix marks the tab as
-/// ephemeral without borrowing `*`, which users reasonably read as an unsaved
-/// edit marker. A pinned tab reads as a plain name. `tab.rename` is the only
-/// display lever herdr gives a plugin.
+/// The document tab title. Product titles have an explicit namespace and
+/// preview/pinned marker; the reference UI retains its source label format.
 pub fn tab_label(doc_key: &str, pinned: bool) -> String {
     let display_key = if let Some(diff) = doc_key.strip_prefix("diff:") {
         diff.rsplit_once(':').map(|(path, _)| path).unwrap_or(diff)
@@ -248,7 +246,9 @@ pub fn tab_label(doc_key: &str, pinned: bool) -> String {
         .next()
         .filter(|s| !s.is_empty())
         .unwrap_or(doc_key);
-    if pinned {
+    if crate::state::product_profile().is_some() {
+        product_document_label(name, if pinned { "pinned" } else { "preview" })
+    } else if pinned {
         name.to_string()
     } else {
         format!("{name} · preview")
@@ -257,6 +257,14 @@ pub fn tab_label(doc_key: &str, pinned: bool) -> String {
 
 /// Inverse of [`tab_label`]: the displayed name and whether it is pinned.
 pub fn parse_tab_label(label: &str) -> (String, bool) {
+    if let Some(name) = label.strip_prefix("HerdrWork · ") {
+        if let Some(name) = name.strip_suffix(" [preview]") {
+            return (name.to_string(), false);
+        }
+        if let Some(name) = name.strip_suffix(" [pinned]") {
+            return (name.to_string(), true);
+        }
+    }
     match label.strip_suffix(" · preview") {
         Some(rest) => (rest.to_string(), false),
         None => (label.to_string(), true),
@@ -777,11 +785,33 @@ fn runs_inline() -> bool {
 }
 
 fn preview_pane_label(doc_name: &str) -> String {
-    format!("{doc_name} · preview")
+    if crate::state::product_profile().is_some() {
+        product_document_label(doc_name, "preview")
+    } else {
+        format!("{doc_name} · preview")
+    }
 }
 
 fn editor_pane_label(doc_name: &str) -> String {
-    format!("{doc_name} · editor")
+    if crate::state::product_profile().is_some() {
+        product_document_label(doc_name, "editor")
+    } else {
+        format!("{doc_name} · editor")
+    }
+}
+
+// Independent Sidebar releases reclaim generic preview/editor labels as
+// resumed shells. Both a product prefix and a final marker keep even names
+// ending in " · preview" outside that other plugin's recovery namespace.
+fn product_document_label(name: &str, mode: &str) -> String {
+    format!("HerdrWork · {name} [{mode}]")
+}
+
+pub(crate) fn is_product_document_label(label: &str) -> bool {
+    label.starts_with("HerdrWork · ")
+        && [" [preview]", " [editor]", " [pinned]"]
+            .iter()
+            .any(|suffix| label.ends_with(suffix))
 }
 
 /// What the control file must hold after a close that did not happen: the
@@ -2606,7 +2636,7 @@ fn create_viewer_tab(
 }
 
 /// Stamp a freshly spawned shell pane as ours: the document/control tokens
-/// the sidebar routes clicks by, plus the "Preview" label. Closes the pane
+/// the sidebar routes clicks by, plus an initial preview label. Closes the pane
 /// (and drops the control file) when the stamp does not land, so an unowned
 /// shell never lingers.
 fn register_viewer_pane(
@@ -2640,9 +2670,14 @@ fn register_viewer_pane(
         cleanup_spawn(new_pane, control);
         return Err("preview pane could not be identified".into());
     }
+    let label = if crate::state::product_profile().is_some() {
+        product_document_label("Preview", "preview")
+    } else {
+        "Preview".into()
+    };
     let _ = ipc::call_text(
         "pane.rename",
-        serde_json::json!({ "pane_id": new_pane, "label": "Preview" }),
+        serde_json::json!({ "pane_id": new_pane, "label": label }),
     );
     Ok(())
 }
@@ -4015,6 +4050,33 @@ mod tests {
         assert_eq!(tab_label("show:/repo:abc123:src/lib.rs", true), "lib.rs");
         assert_eq!(preview_pane_label("main.rs"), "main.rs · preview");
         assert_eq!(editor_pane_label("main.rs"), "main.rs · editor");
+    }
+
+    #[test]
+    fn product_document_labels_keep_preview_and_editor_outside_generic_recovery_labels() {
+        for name in [
+            "main.rs",
+            "中文 · preview",
+            "Preview · routes.rs",
+            "file [preview]",
+        ] {
+            for mode in ["preview", "editor", "pinned"] {
+                let label = product_document_label(name, mode);
+                assert!(crate::launch::is_preview_label(&label));
+                assert!(!label.starts_with("Preview · "));
+                assert!(!label.starts_with("Editor · "));
+                assert!(!label.ends_with(" · preview"));
+                assert!(!label.ends_with(" · editor"));
+            }
+            assert_eq!(
+                parse_tab_label(&product_document_label(name, "preview")),
+                (name.into(), false)
+            );
+            assert_eq!(
+                parse_tab_label(&product_document_label(name, "pinned")),
+                (name.into(), true)
+            );
+        }
     }
 
     #[test]
