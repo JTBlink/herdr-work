@@ -7,6 +7,43 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// One editor launch per view; old-root results cannot overwrite its notice.
+#[derive(Default)]
+pub struct Launcher {
+    pending: Option<std::sync::mpsc::Receiver<(PathBuf, Result<(), String>)>>,
+}
+
+impl Launcher {
+    pub fn start(&mut self, root: &Path, path: &Path, line: Option<usize>) -> bool {
+        if self.pending.is_some() {
+            return false;
+        }
+        let (root, path) = (root.to_path_buf(), path.to_path_buf());
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = open(&path, line).map_err(|error| error.to_string());
+            let _ = sender.send((root, result));
+        });
+        self.pending = Some(receiver);
+        true
+    }
+
+    pub fn poll(&mut self, root: &Path) -> Option<Result<(), String>> {
+        let receiver = self.pending.as_ref()?;
+        match receiver.try_recv() {
+            Ok((origin, result)) => {
+                self.pending = None;
+                (origin == root).then_some(result)
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.pending = None;
+                Some(Err("VS Code 启动任务中断，请重试".into()))
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => None,
+        }
+    }
+}
+
 /// Run on a worker: a broken editor launcher must not block the TUI.
 pub fn open(path: &Path, line: Option<usize>) -> io::Result<()> {
     let path = path.canonicalize()?;

@@ -283,6 +283,7 @@ enum Setting {
     IconTheme,
     ColorTheme,
     PreviewPlacement,
+    OpenVsCode,
     AutoOpen,
     StrictToggle,
     FocusOnOpen,
@@ -438,6 +439,7 @@ pub struct App {
     history_target: Option<String>,
     /// One-shot footer notice: (text, is_error). Cleared on the next key press.
     flash: Option<(String, bool)>,
+    vscode_open: herdr_work_code::vscode::Launcher,
     /// Pending ✧ commit-message generation, polled from tick().
     suggesting: Option<Receiver<String>>,
     /// Pending Sync Changes run, polled from tick().
@@ -581,6 +583,7 @@ impl App {
             drawers,
             history_target,
             flash: None,
+            vscode_open: Default::default(),
             suggesting: None,
             syncing: None,
             overlay: None,
@@ -820,6 +823,12 @@ impl App {
     /// Periodic timer tick: retry repo discovery if we started outside one,
     /// pick up external changes, and collect finished ✧ suggestion / sync runs.
     pub fn tick(&mut self) {
+        if let Some(result) = self.vscode_open.poll(&self.cwd) {
+            self.flash = Some(match result {
+                Ok(()) => ("已通过 VS Code 打开".into(), false),
+                Err(error) => (format!("VS Code 打开失败：{error}"), true),
+            });
+        }
         let shared = sidebar::load_state();
         self.sidebar_state.git_deco = shared.git_deco;
         self.sidebar_state.show_git_footer = shared.show_git_footer;
@@ -1988,6 +1997,15 @@ impl App {
                 true,
             ),
             (
+                Setting::OpenVsCode,
+                "Open in VS Code",
+                self.cwd
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| self.cwd.display().to_string()),
+                true,
+            ),
+            (
                 Setting::Hotkeys,
                 "Footer hotkeys",
                 if self.show_hotkeys() {
@@ -2121,6 +2139,19 @@ impl App {
                         state.preview_placement.other()
                     };
                 });
+            }
+            Setting::OpenVsCode => {
+                self.overlay = None;
+                let started = self.vscode_open.start(&self.cwd, &self.cwd, None);
+                self.flash = Some((
+                    if started {
+                        "正在通过 VS Code 打开…"
+                    } else {
+                        "正在启动 VS Code，请稍候"
+                    }
+                    .into(),
+                    false,
+                ));
             }
             Setting::Hotkeys => {
                 self.sidebar_state =

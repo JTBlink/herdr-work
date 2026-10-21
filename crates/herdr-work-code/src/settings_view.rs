@@ -13,6 +13,7 @@ pub fn text(value: &str) -> &str {
         "Icon theme" => "图标主题",
         "Color theme" => "颜色主题",
         "Preview opens in" => "文件打开方式",
+        "Open in VS Code" => "通过 VS Code 打开",
         "Settings scope" => "配置范围",
         "HerdrWork only" => "仅 HerdrWork",
         "Current profile" => "当前资料目录",
@@ -74,9 +75,8 @@ pub fn row(label: &str, value: &str) -> (String, String) {
     let translated = match label {
         "Sidebar width" => value.replace(" cols", " 列"),
         "Custom editor..." if value == "not set" => text(value).into(),
-        "Custom editor..." | "Change folder…" | "HerdrWork version" | "Sidebar version" => {
-            value.into()
-        }
+        "Custom editor..." | "Change folder…" | "Open in VS Code" | "HerdrWork version"
+        | "Sidebar version" => value.into(),
         _ => text(value).into(),
     };
     (text(label).into(), translated)

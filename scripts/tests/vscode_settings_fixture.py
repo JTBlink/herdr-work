@@ -91,11 +91,19 @@ def check(binary, fail=False):
             # Version, scope, dock, width, icons, colors, file-opening mode.
             setting(6)
             wait_for(lambda: json.loads(saved.read_text())['preview_placement'] == 'vscode', 'VS Code mode was not persisted')
+            # Direct settings action opens the current project in both views.
+            for view in (b'1', b'3'):
+                send(view)
+                setting(7)
+                wait_for(capture.exists, 'Settings action did not open the project in VS Code')
+                assert json.loads(capture.read_text()) == ['--reuse-window', str(root)]
+                capture.unlink()
+            send(b'1')
             # Toggle HerdrWork auto-open only; inherited Sidebar directory stays byte-identical.
-            setting(11)
+            setting(12)
             assert json.loads(saved.read_text())['auto_open'] is True
-            for index, key in [(2, 'dock_right'), (10, 'hotkeys'), (12, 'strict_toggle'),
-                               (13, 'focus_on_open'), (14, 'follow_cwd')]:
+            for index, key in [(2, 'dock_right'), (11, 'hotkeys'), (13, 'strict_toggle'),
+                               (14, 'focus_on_open'), (15, 'follow_cwd')]:
                 previous = json.loads(saved.read_text())[key]
                 setting(index)
                 assert json.loads(saved.read_text())[key] is not previous, key
