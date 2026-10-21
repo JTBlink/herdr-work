@@ -7,7 +7,7 @@ exact restoration, then closes only that workspace. Never pass a user session.
 
 import argparse
 from pathlib import Path
-import json, os, socket, subprocess, time, shlex
+import json, os, socket, subprocess, time, shlex, tempfile
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument(
@@ -16,7 +16,11 @@ parser.add_argument(
     help="Explicit socket of an isolated, disposable Herdr test session",
 )
 parser.add_argument("--binary", required=True)
+parser.add_argument("--profile", help="Optional disposable HerdrWork profile for registered auto-open hooks")
 parser.add_argument("--independent-side", choices=["left", "right"])
+parser.add_argument("--independent-binary", help="Copy of the real Sidebar binary in a disposable test directory")
+parser.add_argument("--independent-profile", help="Disposable Sidebar profile; never use the user's plugin profile")
+parser.add_argument("--coexistence-hooks", action="store_true", help="Enable the fixture's HerdrWork auto-open before previewing")
 parser.add_argument("--lifecycle", action="store_true")
 parser.add_argument(
     "--activation-binary",
@@ -26,6 +30,8 @@ parser.add_argument(
     "--output", required=True, help="Directory for temporary fixture evidence"
 )
 args = parser.parse_args()
+if bool(args.independent_binary) != bool(args.independent_profile):
+    parser.error("--independent-binary and --independent-profile must be used together")
 SOCKET = Path(args.socket).resolve()
 if str(SOCKET) == os.environ.get("HERDR_SOCKET_PATH"):
     raise SystemExit(
@@ -33,11 +39,22 @@ if str(SOCKET) == os.environ.get("HERDR_SOCKET_PATH"):
     )
 BINARY = Path(args.binary).resolve()
 BASE = Path(args.output).resolve()
+if args.independent_binary:
+    copied_binary = Path(args.independent_binary).resolve()
+    disposable = [Path("/tmp").resolve(), Path(tempfile.gettempdir()).resolve(), BASE]
+    if not any(copied_binary.is_relative_to(root) for root in disposable):
+        parser.error("Independent Sidebar must be copied into the disposable test directory")
+    if not Path(args.independent_profile).resolve().is_relative_to(copied_binary.parent):
+        parser.error("Independent Sidebar profile must stay beside its disposable binary copy")
 BASE.mkdir(parents=True)
 REPO = BASE / "repo"
 REPO.mkdir(exist_ok=True)
-PROFILE = BASE / "ui-profile"
-(PROFILE / "sidebar").mkdir(parents=True)
+PROFILE = Path(args.profile).resolve() if args.profile else BASE / "ui-profile"
+if args.profile and not any(PROFILE.is_relative_to(root) for root in [
+    BASE, Path("/tmp").resolve(), Path(tempfile.gettempdir()).resolve()
+]):
+    parser.error("HerdrWork profile must stay in the disposable test directory")
+(PROFILE / "sidebar").mkdir(parents=True, exist_ok=True)
 (PROFILE / "sidebar/state.json").write_text(
     json.dumps(
         {
@@ -113,6 +130,19 @@ def process(pane):
     return rpc("pane.process_info", {"pane_id": pane})["process_info"]
 
 
+def assert_independent_process(pane, expected):
+    observed = process(pane)
+    def identity(info):
+        group = info["foreground_process_group_id"]
+        primary = next((p for p in info["foreground_processes"] if p["pid"] == group), None)
+        assert primary is not None, "independent foreground program is gone"
+        # git status children may start/finish while the sidebar stays alive.
+        return info["pane_id"], info["shell_pid"], group, primary
+    if identity(observed) != identity(expected):
+        (BASE / "independent-process.json").write_text(json.dumps({"before": expected, "after": observed}, indent=2))
+    assert identity(observed) == identity(expected), (expected, observed)
+
+
 def shape(value):
     return {
         "panes": sorted([(p["pane_id"], p["rect"]) for p in value["panes"]]),
@@ -146,6 +176,15 @@ try:
     wait(lambda: contains_output(original, "WORKING one"), "original working process")
     independent = None
     if args.independent_side:
+        independent_env = {}
+        if args.independent_binary:
+            independent_profile = Path(args.independent_profile).resolve()
+            independent_profile.mkdir(parents=True, exist_ok=True)
+            (independent_profile / "state.json").write_text(json.dumps({
+                "merged": True, "font_prompt": True, "auto_open": False,
+                "dock_right": args.independent_side == "right", "sidebar_width": 28,
+            }))
+            independent_env["HERDR_PLUGIN_STATE_DIR"] = str(independent_profile)
         independent = rpc(
             "pane.split",
             {
@@ -154,30 +193,40 @@ try:
                 "ratio": 0.15 if args.independent_side == "left" else 0.85,
                 "cwd": str(REPO),
                 "focus": False,
+                "env": independent_env,
             },
         )["pane"]["pane_id"]
         if args.independent_side == "left":
             rpc(
                 "pane.swap", {"source_pane_id": original, "target_pane_id": independent}
             )
-        send(
-            independent,
-            "python3 -u "
-            + shlex.quote(str(worker))
-            + " "
-            + shlex.quote(str(REPO))
-            + " independent",
-            ["Enter"],
-        )
-        wait(lambda: contains_output(independent, "WORKING independent"), "independent fixture")
-        rpc(
-            "pane.report_metadata",
-            {
-                "pane_id": independent,
-                "source": "herdr-sidebar-explorer",
-                "tokens": {"herdr-sidebar-explorer": "1"},
-            },
-        )
+        if args.independent_binary:
+            send(independent, shlex.quote(str(Path(args.independent_binary).resolve())), ["Enter"])
+            wait(lambda: any(p["pane_id"] == independent and p.get("tokens", {}).get("herdr-sidebar-explorer")
+                             for p in panes()), "real independent Sidebar readiness")
+            assert "herdr-sidebar" in json.dumps(process(independent)), "independent Sidebar process missing"
+            saved = json.loads((independent_profile / "state.json").read_text())
+            saved["auto_open"] = True
+            (independent_profile / "state.json").write_text(json.dumps(saved))
+        else:
+            send(
+                independent,
+                "python3 -u "
+                + shlex.quote(str(worker))
+                + " "
+                + shlex.quote(str(REPO))
+                + " independent",
+                ["Enter"],
+            )
+            wait(lambda: contains_output(independent, "WORKING independent"), "independent fixture")
+            rpc(
+                "pane.report_metadata",
+                {
+                    "pane_id": independent,
+                    "source": "herdr-sidebar-explorer",
+                    "tokens": {"herdr-sidebar-explorer": "1"},
+                },
+            )
         independent_process = process(independent)
     second = rpc(
         "pane.split",
@@ -245,6 +294,10 @@ try:
         "owned Sidebar readiness",
     )
     wait(lambda: "repo" in read(owner).casefold(), "source Explorer header")
+    if args.coexistence_hooks:
+        saved = json.loads((PROFILE / "sidebar/state.json").read_text())
+        saved["auto_open"] = True
+        (PROFILE / "sidebar/state.json").write_text(json.dumps(saved))
 
     def title():
         return next(p.get("label") for p in panes() if p["pane_id"] == owner)
@@ -433,7 +486,7 @@ try:
         {independent} if independent else set()
     ), during
     if independent:
-        assert process(independent) == independent_process
+        assert_independent_process(independent, independent_process)
         assert next(
             p["rect"] for p in during["panes"] if p["pane_id"] == independent
         ) == next(p["rect"] for p in before["panes"] if p["pane_id"] == independent)
@@ -445,6 +498,8 @@ try:
     assert next(p for p in during["panes"] if p["pane_id"] == owner)["rect"][
         "width"
     ] in (min_width, min_width + 2), during
+    owner_profile = next(p["tokens"]["herdr-work-profile"] for p in panes() if p["pane_id"] == owner)
+    assert [p["pane_id"] for p in panes() if p.get("tokens", {}).get("herdr-work-profile") == owner_profile] == [owner], "preview/parking event opened a duplicate HerdrWork sidebar"
 
     parked = {p["pane_id"]: p["tab_id"] for p in panes() if p["pane_id"] in originals}
     assert set(parked) == set(originals) and all(
@@ -459,6 +514,31 @@ try:
         "Takeover occupies real space; all three working processes parked and alive.",
         flush=True,
     )
+    if args.independent_binary:
+        # Run the other plugin's own input handler too. It must allocate its
+        # own viewer, leaving our document/control identity and process alive.
+        own_tokens = next(p["tokens"] for p in panes() if p["pane_id"] == viewer)
+        document_identity = {key: own_tokens.get(key) for key in [
+            "herdr-work-preview-path", "herdr-work-preview-control", "herdr-work-preview-profile"
+        ]}
+        send(independent, keys=["ctrl+p"])
+        wait(lambda: contains_output(independent, "Quick Open"), "independent Quick Open")
+        send(independent, "b-file")
+        send(independent, keys=["Enter"])
+        def independent_viewer():
+            return next((p for p in panes() if p.get("tokens", {}).get("herdr-sidebar-preview")
+                         and p["workspace_id"] == workspace), None)
+        foreign_viewer = wait(independent_viewer, "independent preview identity")["pane_id"]
+        assert foreign_viewer != viewer
+        wait(lambda: contains_output(foreign_viewer, "b-file.txt fixture line 001"), "independent viewer document")
+        own_tokens = next(p["tokens"] for p in panes() if p["pane_id"] == viewer)
+        assert {key: own_tokens.get(key) for key in document_identity} == document_identity
+        assert contains_output(viewer, "a-file.txt fixture line 001"), "independent preview overwrote HerdrWork"
+        send(foreign_viewer, keys=["q"])
+        wait(lambda: all(p["pane_id"] != foreign_viewer for p in panes()), "independent viewer close")
+        assert shape(layout(owner)) == shape(during), "independent close changed HerdrWork takeover"
+        assert_independent_process(independent, independent_process)
+        print("Real Sidebar opens/closes its own viewer; HerdrWork document/control and layout unchanged.", flush=True)
     # Reuse viewer for a second file; never create another working-area pane.
     rpc("pane.focus", {"pane_id": owner})
     send(owner, keys=["ctrl+p"])
@@ -505,7 +585,7 @@ try:
     )
     after = layout(owner)
     if independent:
-        assert process(independent) == independent_process
+        assert_independent_process(independent, independent_process)
     for pane in originals:
         assert (
             process(pane)["foreground_processes"]
@@ -551,6 +631,9 @@ try:
                 "exact_layout": True,
                 "processes_preserved": True,
                 "interrupted_viewer_recovered": True,
+                "real_independent_sidebar": bool(args.independent_binary),
+                "coexistence_auto_open_hooks": args.coexistence_hooks,
+                "independent_preview_isolated": bool(args.independent_binary),
             },
             indent=2,
         )

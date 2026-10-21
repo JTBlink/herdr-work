@@ -383,7 +383,8 @@ fn pane_spawn_target(pane: &Pane) -> String {
 }
 
 pub(crate) fn is_preview_label(label: &str) -> bool {
-    label == "Preview"
+    crate::viewer::is_product_document_label(label)
+        || label == "Preview"
         || label.starts_with("Preview · ")
         || label.starts_with("Editor · ")
         || label.ends_with(" · preview")

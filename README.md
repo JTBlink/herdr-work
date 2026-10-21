@@ -76,6 +76,8 @@ python3 scripts/package.py create --target aarch64-apple-darwin
 python3 scripts/smoke.py --archives dist
 ```
 
+真实双插件共存验证见 [Sidebar 共存验证](docs/verification/sidebar-coexistence.md)。测试复制 Sidebar 程序到临时目录，用独立配置和宿主会话运行双方自动事件，不修改已安装插件或现有窗格。
+
 
 
 ## 来源与许可
