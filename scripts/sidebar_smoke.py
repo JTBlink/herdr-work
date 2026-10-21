@@ -577,8 +577,9 @@ try:
         "leave clean editor",
     )
     print("Source editor dirty close/cancel/save/preview passed.", flush=True)
-    # Close the running viewer itself: this runs source restore before pane close.
-    send(viewer, keys=["q"])
+    # Click the document header's close button through the real mouse handler.
+    # This must restore parked working panes before closing the viewer.
+    send(viewer, "\x1b[<0;1;1M\x1b[<0;1;1m")
     wait(
         lambda: shape(layout(owner)) == shape(before),
         "exact original split tree restored",

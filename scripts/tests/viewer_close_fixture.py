@@ -1,0 +1,155 @@
+"""Click the real viewer's close button against an isolated host (macOS/Linux)."""
+import fcntl
+import json
+import os
+from pathlib import Path
+import pty
+import select
+import socket
+import struct
+import subprocess
+import sys
+import tempfile
+import termios
+import threading
+import time
+
+
+def document_token(value):
+    token = 0xcbf29ce484222325
+    for byte in str(value).encode():
+        token = ((token ^ byte) * 0x100000001b3) & ((1 << 64) - 1)
+    return f'{token:016x}'
+
+
+def check(binary, neighbor=False, reject_close=False):
+    with tempfile.TemporaryDirectory(prefix='hw-viewer-close-') as directory:
+        base = Path(directory).resolve()
+        profile = base / 'profile'
+        scratch = profile / 'sidebar/scratch'
+        scratch.mkdir(parents=True, mode=0o700)
+        control = scratch / 'p-fixture.ctl'
+        document = base / 'example.md'
+        document.write_text('viewer close fixture\n')
+        control.write_text(f'file\t{document}')
+        control.chmod(0o600)
+        tokens = {'herdr-work-code-preview': str(int(time.time())),
+                  'herdr-work-preview-path': document_token(document),
+                  'herdr-work-preview-control': control.name,
+                  'herdr-work-preview-profile': document_token(profile.resolve()),
+                  'herdr-work-preview-origin-tab': 'w1:t1',
+                  'herdr-work-preview-dedicated': '1'}
+        panes = {
+            'w1:p1': {'pane_id': 'w1:p1', 'tab_id': 'w1:t1', 'workspace_id': 'w1'},
+            'w1:p2': {'pane_id': 'w1:p2', 'tab_id': 'w1:t2', 'workspace_id': 'w1',
+                       'tokens': tokens},
+        }
+        if neighbor:
+            panes['w1:p3'] = {'pane_id': 'w1:p3', 'tab_id': 'w1:t2', 'workspace_id': 'w1',
+                              'label': 'Explorer', 'tokens': {'herdr-sidebar-explorer': '1'}}
+        requests, errors = [], []
+        focus, remaining_rejections = 'w1:p2', int(reject_close)
+        server = socket.socket(socket.AF_UNIX)
+        address = str(base / 'host.sock')
+        server.bind(address)
+        server.listen()
+        server.settimeout(.1)
+        stopped = threading.Event()
+
+        def serve():
+            nonlocal focus, remaining_rejections
+            while not stopped.is_set():
+                try:
+                    stream, _ = server.accept()
+                except socket.timeout:
+                    continue
+                with stream:
+                    stream.settimeout(2)
+                    try:
+                        request = json.loads(stream.makefile().readline())
+                        requests.append(request)
+                        method, params = request['method'], request.get('params', {})
+                        result = {}
+                        if method == 'pane.list':
+                            result = {'panes': [dict(p, focused=p['pane_id'] == focus) for p in panes.values()]}
+                        elif method == 'pane.report_metadata':
+                            panes[params['pane_id']].setdefault('tokens', {}).update(params['tokens'])
+                        elif method == 'pane.rename':
+                            panes[params['pane_id']]['label'] = params['label']
+                        elif method == 'pane.focus':
+                            focus = params['pane_id']
+                        elif method in ('pane.close', 'tab.close'):
+                            if remaining_rejections:
+                                remaining_rejections -= 1
+                                stream.sendall(b'{"error":{"code":"busy","message":"close rejected"}}\n')
+                                continue
+                            if method == 'pane.close':
+                                assert params['pane_id'] == 'w1:p2', 'Closed an unrelated pane'
+                                panes.pop('w1:p2')
+                            else:
+                                assert params['tab_id'] == 'w1:t2' and not neighbor, 'Closed an unrelated tab or plugin'
+                                panes.pop('w1:p2')
+                        stream.sendall((json.dumps({'result': result}) + '\n').encode())
+                    except Exception as error:
+                        errors.append(error)
+                        stream.sendall(b'{"error":{"message":"fixture assertion failed"}}\n')
+
+        worker = threading.Thread(target=serve)
+        worker.start()
+        env = {k: v for k, v in os.environ.items() if not k.startswith('HERDR_')}
+        env.update(TERM='xterm-256color', HERDR_ENV='1', HERDR_SOCKET_PATH=address,
+                   HERDR_PANE_ID='w1:p2', HERDR_TAB_ID='w1:t2', HERDR_WORKSPACE_ID='w1')
+        master, slave = pty.openpty()
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 90, 0, 0))
+
+        def seat():
+            os.setsid()
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+        process = subprocess.Popen([binary, '--home', str(profile), 'sidebar-viewer', str(control)],
+                                   stdin=slave, stdout=slave, stderr=slave, env=env, preexec_fn=seat)
+        os.close(slave)
+        output = bytearray()
+
+        def wait_for(predicate, message):
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if select.select([master], [], [], .03)[0]:
+                    try:
+                        output.extend(os.read(master, 65536))
+                    except OSError:
+                        pass
+                if predicate():
+                    return
+            raise AssertionError(message + ': ' + str([r['method'] for r in requests]) + '; output=' + repr(bytes(output[-800:])))
+
+        try:
+            wait_for(lambda: b'viewer close fixture' in output, 'Viewer did not load')
+            os.write(master, b'\x1b[<0;1;1M\x1b[<0;1;1m')
+            if reject_close:
+                wait_for(lambda: remaining_rejections == 0, 'Close was not attempted')
+                time.sleep(.2)
+                assert process.poll() is None and control.exists(), 'Rejected close exited viewer or discarded its control'
+                os.write(master, b'\x1b[<0;1;1M\x1b[<0;1;1m')
+            wait_for(lambda: 'w1:p2' not in panes, 'Viewer did not close')
+            assert focus == 'w1:p1', 'Close did not return to the original page'
+            assert 'w1:p1' in panes and ('w1:p3' in panes) == neighbor
+            assert not errors, errors
+            wait_for(lambda: process.poll() is not None, 'Viewer process did not exit')
+            assert process.returncode == 0
+            print(f'viewer close: original page restored; neighbor={neighbor}, retry={reject_close}')
+        finally:
+            os.close(master)
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
+            stopped.set()
+            worker.join(timeout=2)
+            server.close()
+
+
+if __name__ == '__main__':
+    binary = str(Path(sys.argv[1]).resolve(strict=True))
+    for neighbor in (False, True):
+        for retry in (False, True):
+            check(binary, neighbor, retry)

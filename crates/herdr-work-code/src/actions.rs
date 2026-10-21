@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MenuAction {
+    Preview,
     NewFile,
     NewFolder,
     CopyPath,
@@ -29,47 +30,56 @@ pub enum MenuEntry {
 
 /// VS Code-style context menu for a tree row (`target` = `Some(is_dir)` for a
 /// row; `None` for a right-click on empty space, which targets the workspace
-/// root: creation only). "Open with Default App" is offered for files only —
+/// root). Preview and the default application are offered for files only —
 /// a directory's shell association is the file manager, which is what
 /// "Reveal in File Explorer" already does. `in_repo` adds "Stage Changes"
 /// (issue #20) — it stays out of the menu entirely when the target is not
 /// inside a git repository, so the entry never offers an action that can only
 /// fail.
 pub fn menu_entries(target: Option<bool>, in_repo: bool) -> Vec<MenuEntry> {
-    let mut entries = vec![
-        MenuEntry::Action(MenuAction::NewFile, "New File…"),
-        MenuEntry::Action(MenuAction::NewFolder, "New Folder…"),
-    ];
+    let mut entries = vec![];
     if target == Some(false) {
         entries.extend([
-            MenuEntry::Separator,
-            MenuEntry::Action(MenuAction::OpenExternal, "Open with Default App"),
+            MenuEntry::Action(MenuAction::Preview, "预览文件"),
+            MenuEntry::Action(MenuAction::OpenExternal, "使用默认应用打开"),
         ]);
     }
+    entries.extend([
+        MenuEntry::Action(MenuAction::Reveal, reveal_label()),
+        MenuEntry::Separator,
+        MenuEntry::Action(MenuAction::NewFile, "新建文件…"),
+        MenuEntry::Action(MenuAction::NewFolder, "新建文件夹…"),
+    ]);
     if target.is_some() && in_repo {
         entries.extend([
             MenuEntry::Separator,
-            MenuEntry::Action(MenuAction::Stage, "Stage Changes"),
+            MenuEntry::Action(MenuAction::Stage, "暂存更改"),
         ]);
     }
     if target.is_some() {
         entries.extend([
             MenuEntry::Separator,
-            MenuEntry::Action(MenuAction::CopyPath, "Copy Path"),
-            MenuEntry::Action(MenuAction::CopyRelativePath, "Copy Relative Path"),
+            MenuEntry::Action(MenuAction::CopyPath, "复制路径"),
+            MenuEntry::Action(MenuAction::CopyRelativePath, "复制相对路径"),
             MenuEntry::Separator,
-            MenuEntry::Action(MenuAction::Rename, "Rename…"),
-            MenuEntry::Action(MenuAction::Delete, "Delete"),
+            MenuEntry::Action(MenuAction::Rename, "重命名…"),
+            MenuEntry::Action(MenuAction::Delete, "删除…"),
         ]);
     }
     entries.extend([
         MenuEntry::Separator,
-        MenuEntry::Action(MenuAction::Reveal, "Reveal in File Explorer"),
-        MenuEntry::Separator,
-        MenuEntry::Action(MenuAction::ChangeFolder, "Change Folder…"),
-        MenuEntry::Action(MenuAction::ChangeFolderTyped, "Change Folder (Type Path)…"),
+        MenuEntry::Action(MenuAction::ChangeFolder, "打开文件夹…"),
+        MenuEntry::Action(MenuAction::ChangeFolderTyped, "输入文件夹路径…"),
     ]);
     entries
+}
+
+fn reveal_label() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "在 Finder 中显示"
+    } else {
+        "在文件管理器中显示"
+    }
 }
 
 /// A usable file name from prompt input: trimmed, non-empty, no path
@@ -884,7 +894,7 @@ mod tests {
     #[test]
     fn menu_shape_for_rows_and_root() {
         let row = menu_entries(Some(false), true);
-        assert!(matches!(row[0], MenuEntry::Action(MenuAction::NewFile, _)));
+        assert!(matches!(row[0], MenuEntry::Action(MenuAction::Preview, _)));
         assert!(has(&row, MenuAction::Delete));
         let root = menu_entries(None, true);
         assert!(!has(&root, MenuAction::Rename));

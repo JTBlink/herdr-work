@@ -107,6 +107,9 @@ def smoke(archive):
                 raise ValueError('Installed backend missing')
             projects_smoke(binary, prefix / 'bin' / 'herdr-work-projects', profile, root)
         ui_smoke(binary)
+        if os.name != 'nt':
+            subprocess.run([sys.executable, str(Path(__file__).parent / 'tests/viewer_close_fixture.py'),
+                            str(binary)], check=True, timeout=60)
         install(stage, prefix)
         rollback(prefix)
         output([binary, '--version'])
