@@ -61,6 +61,7 @@ def check(binary, fail=False):
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 38, 0, 0))
         env = {key: value for key, value in os.environ.items() if not key.startswith('HERDR_')}
         env.update(TERM='xterm-256color', HERDR_SOCKET_PATH=address, HERDR_BIN_PATH=str(tools),
+                   HERDR_PANE_ID='w1:p1', HERDR_TAB_ID='w1:t1', HERDR_WORKSPACE_ID='w1',
                    HERDR_PROJECTS_DATA_DIR=str(foreign), HERDR_PROJECTS_CONFIG_DIR=str(foreign),
                    HERDR_PLUGIN_STATE_DIR=str(foreign))
 
@@ -95,12 +96,16 @@ def check(binary, fail=False):
             os.write(master, b'\x1b[<0;32;2M' * 3)
             expected = 'Projects 打开失败' if fail else '已打开 HerdrWork Projects'
             wait_for(lambda: expected.replace(' ', '').encode() in re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', output).replace(b' ', b''))
-            assert len(requests) == 1, 'Repeated clicks must share the pending request'
-            request = requests[0]
+            opens = lambda: [request for request in requests if request['method'] == 'plugin.pane.open']
+            assert len(opens()) == 1, 'Repeated clicks must share the pending request'
+            assert not any(request['method'] == 'workspace.focus' for request in requests)
+            request = opens()[0]
             assert request['method'] == 'plugin.pane.open'
             params = request['params']
             assert params['plugin_id'] == 'jtblink.herdr-work'
             assert params['entrypoint'] == 'board' and params['placement'] == 'tab'
+            assert params['workspace_id'] == 'w1'
+            assert params['env']['HERDR_WORK_BOARD_FROM_PANE'] == 'w1:p1'
             assert params['cwd'] == str(root)
             assert params['env']['HERDR_WORK_HOME'] == str(profile)
             assert params['env']['HERDR_PROJECTS_DATA_DIR'] == str(profile / 'projects/data')
@@ -109,7 +114,7 @@ def check(binary, fail=False):
             if fail:
                 # A failed request leaves the entry available for retry.
                 os.write(master, b'\x1b[<0;32;2M')
-                wait_for(lambda: len(requests) == 2)
+                wait_for(lambda: len(opens()) == 2)
             os.write(master, b'q')
             wait_for(lambda: process.poll() is not None)
             assert process.returncode == 0

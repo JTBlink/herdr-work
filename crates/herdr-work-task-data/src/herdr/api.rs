@@ -497,7 +497,30 @@ impl Herdr {
         }
         self.call(a)
     }
-    /// Managed boards always use the product's own entrypoint and profile.
+    /// The caller's workspace, never a different client's focused workspace.
+    pub fn board_workspace(&self) -> String {
+        let context: Value =
+            serde_json::from_str(&std::env::var("HERDR_PLUGIN_CONTEXT_JSON").unwrap_or_default())
+                .unwrap_or(Value::Null);
+        context
+            .so("workspace_id")
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .or_else(|| {
+                std::env::var("HERDR_WORKSPACE_ID")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+            })
+            .or_else(|| {
+                context
+                    .so("focused_pane_id")
+                    .filter(|id| !id.is_empty())
+                    .and_then(|id| self.pane_get(id))
+                    .map(|p| p.t("workspace_id"))
+            })
+            .unwrap_or_default()
+    }
+    /// Managed boards always use the product's own entrypoint, profile and caller workspace.
     fn open_product_board(&self, placement: &str, width: &str, height: &str) -> HRes<Value> {
         let context: Value =
             serde_json::from_str(&std::env::var("HERDR_PLUGIN_CONTEXT_JSON").unwrap_or_default())
@@ -507,6 +530,13 @@ impl Herdr {
             "placement": placement, "focus": true,
             "env": crate::store::files::board_env().into_iter().collect::<std::collections::BTreeMap<_, _>>()
         });
+        let workspace = self.board_workspace();
+        if !workspace.is_empty() {
+            params["workspace_id"] = json!(workspace);
+        }
+        if let Some(from) = context.so("focused_pane_id").filter(|s| !s.is_empty()) {
+            params["env"]["HERDR_WORK_BOARD_FROM_PANE"] = json!(from);
+        }
         if let Some(cwd) = context.so("focused_pane_cwd").filter(|s| !s.is_empty()) {
             params["cwd"] = json!(cwd);
         }

@@ -39,7 +39,8 @@ fn managed_board_opens_the_product_entrypoint_with_its_own_profile() {
         std::env::set_var("HERDR_PLUGIN_ID", "herdr-projects");
         std::env::set_var(
             "HERDR_PLUGIN_CONTEXT_JSON",
-            json!({"focused_pane_cwd":project}).to_string(),
+            json!({"focused_pane_cwd":project,"focused_pane_id":"w1:p1","workspace_id":"w1"})
+                .to_string(),
         );
     }
     let host = Rc::new(Host(RefCell::new(vec![])));
@@ -51,6 +52,8 @@ fn managed_board_opens_the_product_entrypoint_with_its_own_profile() {
         assert_eq!(request["plugin_id"], "jtblink.herdr-work");
         assert_eq!(request["entrypoint"], "board");
         assert_eq!(request["placement"], placement);
+        assert_eq!(request["workspace_id"], "w1");
+        assert_eq!(request["env"]["HERDR_WORK_BOARD_FROM_PANE"], "w1:p1");
         assert_eq!(request["cwd"], json!(project));
         assert_eq!(request["env"]["HERDR_WORK_HOME"], json!(home));
         assert_eq!(

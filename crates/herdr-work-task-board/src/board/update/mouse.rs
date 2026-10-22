@@ -39,6 +39,13 @@ pub fn wheel(s: &mut State, y: usize, by: i64, _fx: &mut Vec<Effect>) {
 }
 /// A click on a row of the list selects it; on the selected one it does nothing more. On a heading it folds or unfolds it.
 pub fn click(s: &mut State, x: usize, y: usize, fx: &mut Vec<Effect>) {
+    if !s.leaving
+        && s.close_button
+            .is_some_and(|(left, row, width)| y == row && x >= left && x < left + width)
+    {
+        fx.extend([Effect::Save, Effect::Close]);
+        return;
+    }
     if s.leaving
         || s.setup.is_some()
         || s.ask.is_some()

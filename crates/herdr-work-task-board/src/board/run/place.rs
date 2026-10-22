@@ -11,7 +11,24 @@ use crate::store::files::{data_dir, pid_alive, read_json, write_json};
 use crate::store::settings::lookup::setting;
 
 fn note_file(socket: &str) -> std::path::PathBuf {
-    data_dir().join(format!("board-pane-{}.json", session_name(socket)))
+    let workspace = if crate::store::files::herdr_work_managed() {
+        Herdr::new(Some(socket.into())).board_workspace()
+    } else {
+        String::new()
+    };
+    // Host ids are opaque; encode them rather than treating them as path components.
+    let scope = if workspace.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "-{}",
+            workspace
+                .bytes()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        )
+    };
+    data_dir().join(format!("board-pane-{}{scope}.json", session_name(socket)))
 }
 fn popup_file(socket: &str) -> std::path::PathBuf {
     data_dir().join(format!("board-popup-{}.json", session_name(socket)))
@@ -62,7 +79,11 @@ pub fn arrive() {
         return;
     }
     let old = read_json(&note_file(&socket));
-    let came = if env("HERDR_PLUGIN_ID").is_empty() {
+    let came = if crate::store::files::herdr_work_managed()
+        && !env("HERDR_WORK_BOARD_FROM_PANE").is_empty()
+    {
+        env("HERDR_WORK_BOARD_FROM_PANE")
+    } else if env("HERDR_PLUGIN_ID").is_empty() {
         String::new()
     } else {
         context().0
@@ -96,9 +117,31 @@ pub fn depart() {
     }
 }
 fn go_to(api: &Herdr, pane: &Value) {
+    if crate::store::files::herdr_work_managed() {
+        let socket = api.socket_path();
+        let from = context().0;
+        if !from.is_empty() && from != pane.s("pane_id") {
+            let _ =
+                crate::herdr::socket::ask("pane.focus", &json!({"pane_id":from}), Some(&socket));
+        }
+        let _ = crate::herdr::socket::ask(
+            "pane.focus",
+            &json!({"pane_id":pane.s("pane_id")}),
+            Some(&socket),
+        );
+        return;
+    }
     let _ = api.workspace_focus(pane.s("workspace_id"));
     let _ = api.tab_focus(pane.s("tab_id"));
     let _ = api.pane_focus(pane.s("pane_id"));
+}
+/// The last page that opened this workspace's board, falling back to its launcher.
+pub fn return_pane() -> String {
+    read_json(&note_file(&current_socket()))
+        .filter(|n| n.s("pane") == own_pane())
+        .map(|n| n.t("from"))
+        .filter(|from| !from.is_empty())
+        .unwrap_or_else(|| env("HERDR_WORK_BOARD_FROM_PANE"))
 }
 /// The board that runs in a pane of this herdr: its note and its pane as herdr has it.
 fn running(socket: &str) -> Option<(Herdr, Value, Value)> {
@@ -108,6 +151,12 @@ fn running(socket: &str) -> Option<(Herdr, Value, Value)> {
     }
     let api = Herdr::new(Some(socket.into()));
     let pane = api.pane_get(n.s("pane"))?;
+    if crate::store::files::herdr_work_managed() {
+        let workspace = api.board_workspace();
+        if !workspace.is_empty() && pane.s("workspace_id") != workspace {
+            return None;
+        }
+    }
     Some((api, n, pane))
 }
 /// Go to the running board. False when there is none.
