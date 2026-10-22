@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "herdr-work"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "clap",
@@ -1234,7 +1234,7 @@ dependencies = [
 
 [[package]]
 name = "herdr-work-code"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "crossterm",
  "globset",
@@ -1256,14 +1256,14 @@ dependencies = [
 
 [[package]]
 name = "herdr-work-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "herdr-work-engine"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "fs2",
@@ -1278,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "herdr-work-projects"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "chrono",
  "crossterm",
@@ -1294,7 +1294,7 @@ dependencies = [
 
 [[package]]
 name = "herdr-work-task-board"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "crossterm",
  "herdr-work-task-flow",
@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "herdr-work-task-data"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "chrono",
  "crossterm",
@@ -1325,7 +1325,7 @@ dependencies = [
 
 [[package]]
 name = "herdr-work-task-flow"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "chrono",
  "herdr-work-task-data",
@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "herdr-work-task-web"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "chrono",
  "herdr-work-task-board",
@@ -1355,7 +1355,7 @@ dependencies = [
 
 [[package]]
 name = "herdr-work-tui"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "crossterm",
