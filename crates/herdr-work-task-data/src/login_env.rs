@@ -84,6 +84,32 @@ fn login_shell() -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+fn joined_path(cached: Option<&Obj>) -> String {
+    let current = std::env::var("PATH").unwrap_or_default();
+    let remembered = cached.map(|c| c.t("PATH")).unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    remembered
+        .split(':')
+        .chain(current.split(':'))
+        .filter(|p| !p.is_empty() && seen.insert(*p))
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+/// UI startup must not launch a login shell. Use its cached PATH when available;
+/// keep ENV_OK unset so execution workers can still recover credentials normally.
+/// Called before the board starts its threads.
+pub fn cached_user_path() {
+    if env_set("HERDR_PROJECTS_ENV_OK") || !env_set("HERDR_PLUGIN_ID") {
+        return;
+    }
+    let cached = read_obj(&data_dir().join("env.json"));
+    let path = joined_path(cached.as_ref());
+    unsafe {
+        std::env::set_var("PATH", path);
+    }
+}
+
 /// A login shell is asked once and its PATH remembered for a while (`env.json`); the PATH of this process takes it in.
 /// gh's login and the SSH agent are never written down: where the login shell has one (the names are remembered) and
 /// this process has none, the shell is asked for it, and this process and all it starts take it in.
@@ -117,31 +143,12 @@ pub fn user_env() {
         let _ = write_json(&file, &Value::Object(c.clone()));
         cached = Some(c);
     }
-    let mut seen = std::collections::HashSet::new();
-    let mut all = vec![];
-    for p in cached
-        .map(|c| c.t("PATH"))
-        .unwrap_or_default()
-        .split(':')
-        .chain(
-            std::env::var("PATH")
-                .unwrap_or_default()
-                .split(':')
-                .map(|s| s.to_owned())
-                .collect::<Vec<_>>()
-                .iter()
-                .map(|s| s.as_str()),
-        )
-    {
-        if !p.is_empty() && seen.insert(p.to_string()) {
-            all.push(p.to_string());
-        }
-    }
+    let path = joined_path(cached.as_ref());
     let login: Vec<_> = shell
         .map(|out| [gh_login(&out, env_set), ssh_agent(&out, env_set)].concat())
         .unwrap_or_default();
     unsafe {
-        std::env::set_var("PATH", all.join(":"));
+        std::env::set_var("PATH", path);
         for (k, v) in login {
             std::env::set_var(k, v);
         }
