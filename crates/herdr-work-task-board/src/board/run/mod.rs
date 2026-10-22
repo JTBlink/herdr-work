@@ -7,6 +7,7 @@ pub mod input;
 pub mod mouse;
 pub mod place;
 pub mod prefs;
+pub mod product;
 pub mod say;
 pub mod start;
 pub mod term;
@@ -24,6 +25,7 @@ pub enum Msg {
     Mouse(ce::MouseEvent),
     Resize,
     Close,
+    TabClosed(Result<(), String>),
     Load,
 }
 static STOP: AtomicBool = AtomicBool::new(false);
@@ -188,6 +190,19 @@ pub fn open_board(folder: &std::path::Path) -> i32 {
                 },
                 Msg::Resize => vec![],
                 Msg::Close => vec![Effect::Save, Effect::Close],
+                Msg::TabClosed(result) => {
+                    match result {
+                        Ok(()) => close = true,
+                        Err(error) => {
+                            s.leaving = false;
+                            s.flash(
+                                format!("关闭失败，看板已保留；请重试：{error}"),
+                                crate::shown::ink::Ink::Red,
+                            );
+                        }
+                    }
+                    vec![]
+                }
                 Msg::Load => vec![Effect::Load],
             };
             for e in fx {
@@ -204,7 +219,21 @@ pub fn open_board(folder: &std::path::Path) -> i32 {
                         use std::io::Write;
                         let _ = std::io::stdout().write_all(bytes.as_bytes());
                     }
-                    Effect::Close => close = true,
+                    Effect::Close => {
+                        if !s.ctx.popup && product::owns_tab() {
+                            if !s.leaving || s.leave_at != i64::MAX {
+                                prefs::save(&s);
+                                s.leaving = true;
+                                s.leave_at = i64::MAX;
+                                let tx = tx.clone();
+                                std::thread::spawn(move || {
+                                    let _ = tx.send(Msg::TabClosed(product::close_tab()));
+                                });
+                            }
+                        } else {
+                            close = true;
+                        }
+                    }
                     Effect::Reload => reload = true,
                     Effect::Take { cols, rows } => held::take(&tx, &s.ctx.pane, cols, rows),
                     Effect::LookWebUi => {

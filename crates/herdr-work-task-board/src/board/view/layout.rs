@@ -185,11 +185,35 @@ pub fn screen(s: &mut State, t: &Theme, width: usize, rows: usize) -> Screen {
             out
         }
     };
-    let lines: Vec<Inked> = sc.lines.into_iter().skip(skip).map(clip).collect();
+    let mut lines: Vec<Inked> = sc.lines.into_iter().skip(skip).map(clip).collect();
+    s.close_button = None;
+    // Match Preview's three-cell header control. Apply after clipping so the
+    // painted button and the click target stay together during a resize.
+    if want.0 >= 4
+        && want.1 >= 3
+        && let Some(first) = lines.first_mut()
+    {
+        *first = Inked::of(" ✕ ", Ink::Accent)
+            .bold()
+            .add(first.clone().skip(1))
+            .cut(want.0);
+        s.close_button = Some((0, 0, 3));
+    }
     let cursor = sc
         .cursor
         .filter(|(x, y)| *y as usize >= skip && (*x as usize) < want.0)
-        .map(|(x, y)| (x, y - skip as u16));
+        .map(|(x, y)| {
+            let y = y - skip as u16;
+            (
+                if y == 0 && s.close_button.is_some() {
+                    x.saturating_add(2)
+                } else {
+                    x
+                },
+                y,
+            )
+        })
+        .filter(|(x, _)| (*x as usize) < want.0);
     Screen {
         lines: pad(lines, rows.max(1)),
         cursor,

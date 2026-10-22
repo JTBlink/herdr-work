@@ -270,6 +270,8 @@ pub struct State {
     pub unread_top: usize,
     pub unread_max: usize,
     pub list_at: Option<(usize, usize)>,
+    /// The close control in the last visible frame, after resize clipping.
+    pub close_button: Option<(usize, usize, usize)>,
     pub list_ids: Vec<String>,
     pub told: i64,
     pub rang: i64,
@@ -371,6 +373,7 @@ impl State {
             unread_top: 0,
             unread_max: 0,
             list_at: None,
+            close_button: None,
             list_ids: vec![],
             told: 0,
             rang: 0,

@@ -23,7 +23,7 @@ def document_token(value):
     return f'{token:016x}'
 
 
-def check(binary, neighbor=False, reject_close=False, history=False):
+def check(binary, neighbor=False, reject_close=False, history=False, edit=None):
     with tempfile.TemporaryDirectory(prefix='hw-viewer-close-') as directory:
         base = Path(directory).resolve()
         profile = base / 'profile'
@@ -162,7 +162,36 @@ def check(binary, neighbor=False, reject_close=False, history=False):
                          and control.read_text().endswith('\texample.md'), 'File History lost its file scope')
             else:
                 wait_for(lambda: b'viewer close fixture' in output, 'Viewer did not load')
-            os.write(master, b'\x1b[<0;1;1M\x1b[<0;1;1m')
+            if edit:
+                output.clear()
+                os.write(master, b'e')
+                wait_for(lambda: shows(b'EDIT (experimental)'), 'Editor did not open')
+                os.write(master, b'changed ')
+                output.clear()
+                os.write(master, b'\x1b[<0;1;1M\x1b[<0;1;1m')
+                wait_for(lambda: shows('保存修改？'.encode()), 'Close did not open a confirmation menu')
+                assert not any(r['method'] in ('pane.close', 'tab.close') for r in requests)
+                assert document.read_text() == 'viewer close fixture\n'
+                # The menu's top-right x cancels, retaining both the dirty editor and file.
+                output.clear()
+                os.write(master, b'\x1b[<0;88;1M\x1b[<0;88;1m')
+                wait_for(lambda: shows(b'EDIT (experimental)'), 'Menu x did not return to editing')
+                assert process.poll() is None and document.read_text() == 'viewer close fixture\n'
+                output.clear()
+                os.write(master, b'\x1b[<0;1;1M\x1b[<0;1;1m')
+                wait_for(lambda: shows('保存修改？'.encode()), 'Close menu did not reopen')
+                if edit == 'conflict':
+                    document.write_text('external version\n')
+                # Select the centered save/discard button with the mouse.
+                row = 12 if edit == 'discard' else 11
+                output.clear()
+                os.write(master, f'\x1b[<0;46;{row}M\x1b[<0;46;{row}m'.encode())
+                if edit == 'conflict':
+                    wait_for(lambda: shows('文件已在磁盘上修改'.encode()), 'Save lost the external-change guard')
+                    assert document.read_text() == 'external version\n'
+                    os.write(master, b'o')
+            else:
+                os.write(master, b'\x1b[<0;1;1M\x1b[<0;1;1m')
             if reject_close:
                 wait_for(lambda: remaining_rejections == 0, 'Close was not attempted')
                 time.sleep(.2)
@@ -174,7 +203,10 @@ def check(binary, neighbor=False, reject_close=False, history=False):
             assert not errors, errors
             wait_for(lambda: process.poll() is not None, 'Viewer process did not exit')
             assert process.returncode == 0
-            print(f'viewer close: original page restored; neighbor={neighbor}, retry={reject_close}, history={history}')
+            if edit:
+                saved = document.read_text()
+                assert saved == 'viewer close fixture\n' if edit == 'discard' else 'changed ' in saved
+            print(f'viewer close: original page restored; neighbor={neighbor}, retry={reject_close}, history={history}, edit={edit}')
         finally:
             os.close(master)
             if process.poll() is None:
@@ -190,3 +222,5 @@ if __name__ == '__main__':
     for neighbor in (False, True):
         for retry in (False, True):
             check(binary, neighbor, retry)
+    for edit in ('save', 'discard', 'conflict'):
+        check(binary, edit=edit)

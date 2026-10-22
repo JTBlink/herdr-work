@@ -29,6 +29,8 @@ use crate::preview::*;
 use crate::scm::Drawer;
 use crate::ui::{icon_style as ui_icon_style, palette};
 
+mod prompt;
+
 /// Metadata source/token that marks the viewer pane, so the sidebar can find
 /// and reuse it (distinct from the sidebar's own identity tokens).
 pub const METADATA_SOURCE: &str = "herdr-work-code-preview";
@@ -715,17 +717,6 @@ enum Prompt {
     Conflict(Option<Pending>),
 }
 
-impl Prompt {
-    fn text(&self) -> &'static str {
-        match self {
-            Self::Unsaved(_) => " Unsaved changes: [s] save  [d] discard  [Esc] cancel",
-            Self::Conflict(_) => {
-                " File changed on disk: [o] overwrite  [r] reload disk version  [Esc] cancel"
-            }
-        }
-    }
-}
-
 fn mode_pane_label(mode: &ViewMode) -> String {
     match mode {
         ViewMode::Preview(doc) => preview_pane_label(&doc.name),
@@ -1203,6 +1194,7 @@ pub fn run(control: &Path) -> std::io::Result<()> {
     )> = None;
     let mut copier: Option<ReleaseCopier> = None;
     let mut identity_pending = false;
+    let mut prompt_choice = 0;
     let result = loop {
         let mut navigate = None;
         let loaded =
@@ -1226,28 +1218,40 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                 *doc = loaded;
             }
         }
-        let prompt_text = prompt.as_ref().map(Prompt::text);
-        let draw = terminal.draw(|frame| match &mut mode {
-            ViewMode::Preview(doc) => {
-                let navigation_hint = match &current {
-                    Some(Request::History { .. }) => {
-                        Some("q 关闭 · ↑↓ 滚动 · Enter 查看顶部提交 · 双击查看提交 · r 刷新")
-                    }
-                    Some(Request::Show { .. }) if history_return.is_some() => {
-                        Some("q 关闭 · Backspace 返回历史列表 · ↑↓ 滚动")
-                    }
-                    _ => None,
+        let draw = terminal.draw(|frame| {
+            if let Some(prompt) = &prompt {
+                let error = if let ViewMode::Edit(editor) = &mode {
+                    editor
+                        .status()
+                        .filter(|status| status.starts_with("save failed:"))
+                } else {
+                    None
                 };
-                (page, preview_body) = draw_doc(
-                    frame,
-                    doc,
-                    theme,
-                    matches!(current, Some(Request::File { .. })),
-                    notice.as_deref().or(navigation_hint),
-                );
+                prompt::draw(frame, prompt, prompt_choice, error);
+                return;
             }
-            ViewMode::Edit(editor) => {
-                (page, edit_width, edit_body) = draw_editor(frame, editor, theme, prompt_text);
+            match &mut mode {
+                ViewMode::Preview(doc) => {
+                    let navigation_hint = match &current {
+                        Some(Request::History { .. }) => {
+                            Some("q 关闭 · ↑↓ 滚动 · Enter 查看顶部提交 · 双击查看提交 · r 刷新")
+                        }
+                        Some(Request::Show { .. }) if history_return.is_some() => {
+                            Some("q 关闭 · Backspace 返回历史列表 · ↑↓ 滚动")
+                        }
+                        _ => None,
+                    };
+                    (page, preview_body) = draw_doc(
+                        frame,
+                        doc,
+                        theme,
+                        matches!(current, Some(Request::File { .. })),
+                        notice.as_deref().or(navigation_hint),
+                    );
+                }
+                ViewMode::Edit(editor) => {
+                    (page, edit_width, edit_body) = draw_editor(frame, editor, theme);
+                }
             }
         });
         if let Err(e) = draw {
@@ -1277,7 +1281,14 @@ pub fn run(control: &Path) -> std::io::Result<()> {
             POLL
         };
         if event::poll(poll)? {
-            match event::read()? {
+            let event = event::read()?;
+            let event = if let Some(prompt) = &prompt {
+                prompt::event(prompt, event, terminal.size()?.into(), &mut prompt_choice)
+            } else {
+                prompt_choice = 0;
+                event
+            };
+            match event {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     if let Some(active_prompt) = prompt.take() {
                         match (active_prompt, key.code) {
@@ -1835,12 +1846,7 @@ fn preview_hint(optional: &[&str], width: u16) -> String {
     hint
 }
 
-fn draw_editor(
-    frame: &mut Frame,
-    editor: &mut Editor,
-    theme: IconTheme,
-    prompt: Option<&str>,
-) -> (usize, usize, Rect) {
+fn draw_editor(frame: &mut Frame, editor: &mut Editor, theme: IconTheme) -> (usize, usize, Rect) {
     let area = frame.area();
     let [header, body, footer] = Layout::vertical([
         Constraint::Length(1),
@@ -1887,7 +1893,7 @@ fn draw_editor(
     let mut spans = left;
     spans.push(Span::styled(format!("  {shown}"), Style::default().dim()));
     frame.render_widget(Paragraph::new(Line::from(spans)), header);
-    editor.draw(frame, body, footer, prompt);
+    editor.draw(frame, body, footer, None);
     (
         usize::from(body.height).saturating_sub(1).max(1),
         editor.wrap_width(body.width),
