@@ -4,7 +4,7 @@
 
 HerdrWork 是 Rust 终端工作台。当前发布基线的根 workspace 包含 `crates/herdr-work-core`（契约）、`crates/herdr-work-engine`（编排与持久化）、`crates/herdr-work-tui`（唯一终端与输入）、`crates/herdr-work`（CLI），以及 `crates/herdr-work-code`（迁移的文件/Git/搜索/编辑实现）和 `crates/herdr-work-projects`（独立产品后端入口）。
 
-Sidebar 已迁入 `crates/herdr-work-code`，生产默认库排除独立插件生命周期；Projects、Reviewr 暂留 `upstream/`。两个产品二进制统一从根构建及 target 输出，任务 worker 通过本地 Rust 依赖复用 Projects，避免原后端直接启动时使用第三方默认资料。用户已确认后续作为产品内部模块长期维护，全部生产 Rust package 迁入 `crates/`，统一 workspace、锁文件和构建；实施规范见 `docs/architecture/herdr-work-internal-modules.md`、`docs/adr/0001-first-party-workspace.md`。这替代必须保留原工程布局及仅四个 crate 的长期约束，完整九模块迁移尚未完成，不能把目标结构写成当前实现。
+Sidebar 已迁入 `crates/herdr-work-code`，生产默认库排除独立插件生命周期；Projects 的 CLI 库已合入 `crates/herdr-work-projects`，底层实现位于 `crates/herdr-work-task-{data,flow,board,web}`；Reviewr 暂留 `upstream/`。两个产品二进制统一从根构建及 target 输出，任务 worker 通过本地 Rust 依赖复用 Projects，避免原后端直接启动时使用第三方默认资料。用户已确认后续作为产品内部模块长期维护，全部生产 Rust package 迁入 `crates/`，统一 workspace、锁文件和构建；实施规范见 `docs/architecture/herdr-work-internal-modules.md`、`docs/adr/0001-first-party-workspace.md`。这替代必须保留原工程布局及仅四个 crate 的长期约束，完整九模块迁移尚未完成，不能把目标结构写成当前实现。
 
 必须实际复用和迁移来源业务逻辑、测试与资源，保留许可证、版权和来源记录，不能用重写同名功能替代复用。采用先机械迁移、后整理模块接口的步骤，移除不再使用的原插件安装、更新及重复界面。当前补丁记录仍在 `docs/upstream/source-map.md`，任务完成后转入 `docs/provenance/`。参考副本 `reference-plugins/` 不参与构建或 Git。
 

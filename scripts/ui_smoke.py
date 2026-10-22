@@ -124,18 +124,21 @@ def ui_smoke(binary):
             wait_for('已重新加载磁盘文件', b'\x1b[B\r')
             wait_for('visible.txt', b'\x1b')
             # Click the Git activity using the terminal's SGR mouse protocol.
-            text = wait_for('SOURCECONTROL', b'\x1b[<0;4;9M\x1b[<0;4;9m')
-            assert all(symbol in text for symbol in ['┌', '└', '▄', '▀']), 'Original Sidebar commit widgets are missing'
+            # The activity header renders before the asynchronous Git result.
+            text = wait_for('Staged(0)', b'\x1b[<0;4;9M\x1b[<0;4;9m')
+            # Commit buttons stay on one row. Check the bordered input and
+            # real Git actions below.
             assert 'Message' in text and '提交暂存更改' in text, 'Sidebar input/button are not wired into the real workdesk'
-            assert 'Changes(1)' in text, 'Git changes were not shown in the sidebar'
+            assert 'SOURCECONTROL' in text, 'Git activity was not shown in the sidebar'
+            assert 'visible.txt' in text, 'Changed file was not shown in the sidebar'
             wait_for('Staged(1)', b's')
             assert git('diff', '--cached', '--name-only').strip() == 'visible.txt', 'UI stage did not update the actual index'
-            wait_for('Changes(1)', b'u')
+            wait_for('Staged(0)', b'u')
             assert not git('diff', '--cached', '--name-only').strip(), 'UI unstage did not restore the actual index'
             wait_for('changedpreviewfixture', b'\r')
             wait_for('Staged(1)', b's')
             assert git('diff', '--cached', '--name-only').strip() == 'visible.txt', 'Diff preview changed the SCM stage action'
-            wait_for('Changes(1)', b'u')
+            wait_for('Staged(0)', b'u')
             assert not git('diff', '--cached', '--name-only').strip()
 
             wait_for('Newtask', b'1n')

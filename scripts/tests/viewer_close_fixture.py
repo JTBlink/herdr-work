@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import socket
 import struct
@@ -22,7 +23,7 @@ def document_token(value):
     return f'{token:016x}'
 
 
-def check(binary, neighbor=False, reject_close=False):
+def check(binary, neighbor=False, reject_close=False, history=False):
     with tempfile.TemporaryDirectory(prefix='hw-viewer-close-') as directory:
         base = Path(directory).resolve()
         profile = base / 'profile'
@@ -32,6 +33,13 @@ def check(binary, neighbor=False, reject_close=False):
         document = base / 'example.md'
         document.write_text('viewer close fixture\n')
         control.write_text(f'file\t{document}')
+        if history:
+            for args in [['init', '-q'], ['add', 'example.md'],
+                         ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                          '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=.git/no-hooks',
+                          'commit', '-qm', 'history viewer fixture']]:
+                subprocess.run(['git', *args], cwd=base, check=True, capture_output=True)
+            control.write_text(f'history\t{base}\tCommits\t')
         control.chmod(0o600)
         tokens = {'herdr-work-code-preview': str(int(time.time())),
                   'herdr-work-preview-path': document_token(document),
@@ -111,6 +119,11 @@ def check(binary, neighbor=False, reject_close=False):
         os.close(slave)
         output = bytearray()
 
+        def shows(text):
+            # Ratatui may emit cursor jumps instead of spaces between spans.
+            plain = re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', bytes(output))
+            return re.sub(rb'\s+', b'', text) in re.sub(rb'\s+', b'', plain)
+
         def wait_for(predicate, message):
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
@@ -124,7 +137,31 @@ def check(binary, neighbor=False, reject_close=False):
             raise AssertionError(message + ': ' + str([r['method'] for r in requests]) + '; output=' + repr(bytes(output[-800:])))
 
         try:
-            wait_for(lambda: b'viewer close fixture' in output, 'Viewer did not load')
+            if history:
+                wait_for(lambda: shows(b'history viewer fixture'), 'History did not load')
+                os.write(master, b'\r')
+                wait_for(lambda: shows(b'+viewer close fixture'), 'Enter did not show the commit patch')
+                assert control.read_text().startswith(f'show\t{base}\t')
+                output.clear()
+                os.write(master, b'\x7f')
+                wait_for(lambda: control.read_text().startswith('history\t')
+                         and shows(b'history viewer fixture'), 'Backspace did not return to history')
+                output.clear()
+                # Double-click the first entry in the history body.
+                click = b'\x1b[<0;5;2M\x1b[<0;5;2m'
+                os.write(master, click)
+                time.sleep(.1)
+                os.write(master, click)
+                wait_for(lambda: shows(b'+viewer close fixture'), 'Double-click did not show the commit patch')
+                # A sidebar request must replace the old navigation context.
+                output.clear()
+                control.write_text(f'history\t{base}\tFile History\texample.md')
+                wait_for(lambda: shows(b'history viewer fixture'), 'File History did not replace Commits')
+                os.write(master, b'\r')
+                wait_for(lambda: control.read_text().startswith('show\t')
+                         and control.read_text().endswith('\texample.md'), 'File History lost its file scope')
+            else:
+                wait_for(lambda: b'viewer close fixture' in output, 'Viewer did not load')
             os.write(master, b'\x1b[<0;1;1M\x1b[<0;1;1m')
             if reject_close:
                 wait_for(lambda: remaining_rejections == 0, 'Close was not attempted')
@@ -137,7 +174,7 @@ def check(binary, neighbor=False, reject_close=False):
             assert not errors, errors
             wait_for(lambda: process.poll() is not None, 'Viewer process did not exit')
             assert process.returncode == 0
-            print(f'viewer close: original page restored; neighbor={neighbor}, retry={reject_close}')
+            print(f'viewer close: original page restored; neighbor={neighbor}, retry={reject_close}, history={history}')
         finally:
             os.close(master)
             if process.poll() is None:

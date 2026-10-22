@@ -1,6 +1,6 @@
 # 固定源码与导入映射
 
-用户已确定[产品内部模块整合方向](../architecture/herdr-work-internal-modules.md)：本页记录当前来源位置与实际调用，后续迁至根 workspace 和 `crates/`，来源记录最终进入 `docs/provenance/`。Sidebar 已迁入 `crates/herdr-work-code`，其余来源仍待迁移；见[当前迁移记录](../provenance/sidebar-source.md)。
+用户已确定[产品内部模块整合方向](../architecture/herdr-work-internal-modules.md)：本页记录当前来源位置与实际调用，后续迁至根 workspace 和 `crates/`，来源记录最终进入 `docs/provenance/`。Sidebar 已迁入 `crates/herdr-work-code`，Projects 已迁入根 workspace，Reviewr 仍待迁移；见 [Sidebar 记录](../provenance/sidebar-source.md)与 [Projects 记录](../provenance/projects-source.md)。
 
 ## 当前获取状态
 
@@ -20,11 +20,11 @@
 
 | 来源根目录 | 目标目录 | 保留内容 |
 | --- | --- | --- |
-| Projects 完整仓库 | `upstream/herdr-projects/` | 原根 package/CLI、crates/core、crates/flow、crates/board、crates/web、资源和测试 |
+| Projects | `crates/herdr-work-projects`、`crates/herdr-work-task-{data,flow,board,web}` | 原 CLI 库、core/flow/board/web、资源及测试；旧脚本仅作测试夹具，原说明和清单归档至 docs/provenance/projects |
 | Sidebar package | `crates/herdr-work-code/` | 原算法、资源及测试；独立插件入口移为显式测试特性，原说明/清单归档到 docs/provenance |
 | Reviewr 完整仓库 | `upstream/herdr-reviewr/` | 原根 package、src、资源和测试 |
 
-Code 已作为产品内部 crate 命名和维护，原说明、清单及版权留有记录。Projects、Reviewr 当前保持原源码布局。根 workspace 现有六个成员：core、engine、tui、主 CLI、Code、专属 Projects worker；worker 通过本地库依赖复用原任务实现。主程序与 worker 均使用根 Cargo.lock 和 target 构建，不再从另一个 target 取后端。来源工程自身的 manifest/锁仍供原测试基线核对，不能据此宣称全部 package 已扁平化。
+Code 与 Projects 已作为产品内部 crate 命名和维护。根 workspace 现有十个成员：core、engine、tui、主 CLI、Code、Projects worker 与 task-data/flow/board/web。Projects 原 CLI 库合入现有 worker，原五个 package 已迁入，使用根 Cargo.lock 和 target；旧目录已删除。Reviewr 仍在 upstream，最终九模块职责整理尚未完成。
 
 ## 复用与升级约束
 
@@ -35,6 +35,8 @@ Code 已作为产品内部 crate 命名和维护，原说明、清单及版权�
 - 关闭旧更新器、安装下载器和自动开窗格逻辑，通过工作台统一构建和版本验收。
 
 ## HerdrWork 必要适配
+
+2026-10-22 顶部 Projects 入口：复用 Code 的活动栏与 Projects 的 `board::place::show`，将原 VS Code 按钮改为后台宿主请求。托管看板通过自有插件 `board` 入口分配终端，传递当前仓库与 HerdrWork 资料；跳过独立插件配置同步、安装提示和旧目录提示。已运行看板沿用原聚焦逻辑，设置与文件菜单中的 VS Code 功能保留。验证见 [Projects 入口](../verification/projects-entry.md)。
 
 VS Code 直接设置入口：Explorer 与 SCM 在文件打开方式后增加当前目录打开动作，共用 `vscode::Launcher` 的有界后台任务和过期结果处理；保留原设置数据与内置预览行为。
 
@@ -105,7 +107,7 @@ macOS 本地验证使用临时 Unix socket 运行真实 CLI，覆盖资料锁占
 
 ## 提交区密度与 VS Code 工具栏（2026-10-21）
 
-在迁入的 SCM 绘制上调整密度：单仓库输入保留侧边和底边，复用的提交按钮取消上下装饰行并同步调用方行高。来源消息换行、草稿、提交/同步、确认与鼠标命中逻辑继续复用。Explorer/SCM 活动栏在设置前加入共享 VS Code 按钮，调用已有后台启动器，不涉及独立插件的资料或生命周期。验证记录见 [提交区与工具栏](../verification/compact-scm-and-toolbar.md)。
+在迁入的 SCM 绘制上调整密度：单仓库输入恢复完整边框，复用的提交按钮取消上下装饰行并同步调用方行高。2026-10-22 修正输入框压缩后的缺边与空框获焦提示消失，减少底部空行补回列表空间；见[提交输入框修复](../verification/scm-input-layout.md)。来源消息换行、草稿、提交/同步、确认与鼠标命中逻辑继续复用。Explorer/SCM 活动栏在设置前加入共享 VS Code 按钮，调用已有后台启动器，不涉及独立插件的资料或生命周期。验证记录见 [提交区与工具栏](../verification/compact-scm-and-toolbar.md)。
 
 ## 整列停靠复用布局恢复（2026-10-22）
 

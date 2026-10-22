@@ -8,7 +8,7 @@ date: 2026-10-19
 
 用户已确认：来源代码属于 HerdrWork 自身功能，由本项目长期开发、定制和重构。按产品职责组织代码，以一个 Cargo workspace 管理全部生产 Rust package。实际复用已有实现、测试和资源，保留许可证与来源记录。
 
-本文是后续实施依据。发布基线 v0.1.4 保留为历史；当前开发已将 Sidebar 实际源码迁入 `crates/herdr-work-code`，加入 `crates/herdr-work-projects` 专属后端入口，两个产品程序统一从根 Cargo 构建。文件、搜索、SCM 模型和内置编辑器实际复用；第三方插件生命周期从 Code 默认编译中排除。Projects、Reviewr 的其余源码仍在原位置，**完整九模块和全部生产 package 的目录迁移未完成**。详见[Sidebar 来源与能力迁移](../provenance/sidebar-source.md)。旧“四个 crate 上限、保留来源原布局、双构建”的约束已被替代，领域术语保持不变。
+本文是后续实施依据。发布基线 v0.1.4 保留为历史；当前开发已将 Sidebar 实际源码迁入 `crates/herdr-work-code`，加入 `crates/herdr-work-projects` 专属后端入口，两个产品程序统一从根 Cargo 构建。文件、搜索、SCM 模型和内置编辑器实际复用；第三方插件生命周期从 Code 默认编译中排除。Projects 的 CLI 库和四个底层 crate 已迁入根 workspace，Reviewr 仍在原位置，**完整九模块和全部生产 package 的目录迁移未完成**。详见 [Sidebar 来源与能力迁移](../provenance/sidebar-source.md)与 [Projects 迁移](../provenance/projects-source.md)。旧“四个 crate 上限、保留来源原布局、双构建”的约束已被替代，领域术语保持不变。
 
 ## 产品约定
 
@@ -23,11 +23,11 @@ date: 2026-10-19
 | --- | --- | --- |
 | `crates/herdr-work-engine/Cargo.toml` | Sidebar、Reviewr 通过本地 path 编译；Code 借用 Reviewr 的进程执行、Git 指纹、Diff | 抽出运行设施，避免 Code 长期反向依赖 Review |
 | `crates/herdr-work-engine/src/tasks.rs` | 前台任务操作启动后端 CLI，传目录/托管环境并解析 JSON | 迁为产品 Tasks Rust 接口；后台进程保留独立生命周期 |
-| `upstream/herdr-projects/Cargo.toml` | 根 CLI 依赖 `sw-web → sw-board → sw-flow → sw-core`，含独立 workspace/锁文件 | 先迁入现有 package，再切断任务业务对旧看板/Web 的依赖 |
+| `crates/herdr-work-projects`、`crates/herdr-work-task-*` | 原 CLI 库合入 worker，四个底层实现已纳入根 workspace/锁文件；内部沿用 sw 模块别名 | 后续切断任务业务对旧看板/Web 的依赖，整理为 Tasks |
 | Projects core/flow | 含 Ratatui、宿主调用、环境、格式化与业务流程 | 不能将其标成已经纯化的领域模块；分阶段移交 UI 与运行设施 |
 | Code / Reviewr lib | Code 已分离 appearance、搜索、SCM 模型并门控旧插件模块；Reviewr 待迁移 | 默认构建不得接入独立插件的配置、接管、更新或补 pane |
 | 来源资源和测试 | 有相对 `include_str!`、`include_bytes!`、`CARGO_MANIFEST_DIR` 与原 CLI fixture | 移动时更新资源定位及测试入口，记录保留/迁移/移除的理由 |
-| 根构建与打包脚本 | 已改为根构建主程序和专属 worker，从根 target 取文件；Projects 作为源码库依赖 | 后续将其余 package 声明一并迁入根 workspace |
+| 根构建与打包脚本 | 主程序、worker 及 Projects 各层已从根 workspace/target 构建，打包从迁入位置读取许可证 | Reviewr 仍待迁入，保留 Windows 的 Unix Tasks 限制 |
 
 ## 最终目录与职责
 

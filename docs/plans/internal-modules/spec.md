@@ -9,9 +9,11 @@ Projects、Sidebar、Reviewr 的代码作为 HerdrWork 自身功能长期开发�
 
 本规格是新一轮规划；不改写已关闭的首版父规格 #1 或原 13 项实施任务。本轮只执行用户追加的 M01 旧兼容清理、M02 默认 Explorer 修复；其余为后续实施任务。ready-for-agent 表示描述充分，开始前仍需满足依赖。
 
-## 当前事实
+## 规格起草时的事实
 
-当前四个产品 crate 在 crates/，三个来源工程已完整纳入 Git 的 upstream/ 并实际参与编译；Projects 另有 workspace 与锁，Sidebar/Reviewr 通过本地 path 链接。内部模块源码迁移尚未实施，目录改名本身不视为完成。
+以下保留规格起草时的基线；当前 Sidebar 与 Projects 已迁入根 workspace，见 [Projects 迁移记录](../../provenance/projects-source.md)；实时任务状态仍以 GitHub Issues 为准。
+
+当时四个产品 crate 在 crates/，三个来源工程已完整纳入 Git 的 upstream/ 并实际参与编译；Projects 另有 workspace 与锁，Sidebar/Reviewr 通过本地 path 链接。内部模块源码迁移尚未实施，目录改名本身不视为完成。
 
 ## 目标模块
 

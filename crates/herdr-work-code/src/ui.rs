@@ -13,9 +13,9 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use crate::appearance::ColorTheme;
 use crate::icons::IconTheme;
 
-/// Open the current project in VS Code from the space before Settings.
-/// On narrow panes use a small code glyph; never overlap the view icons.
-pub fn draw_vscode_button(
+/// Open the product Projects board from the space before Settings.
+/// Keep the task glyph visible on narrow panes without overlapping view icons.
+pub fn draw_projects_button(
     frame: &mut Frame,
     row: Rect,
     left: u16,
@@ -24,15 +24,12 @@ pub fn draw_vscode_button(
     theme: IconTheme,
 ) -> Rect {
     let available = right.saturating_sub(left);
-    // Nerd Font: VS Code's own glyph. Text theme: a compact code symbol.
-    let icon = match theme {
-        IconTheme::Material => " \u{f0a1e}  ",
-        IconTheme::Emoji => " </> ",
-    };
-    let label = if available >= Span::raw(icon).width() as u16 {
-        icon
+    let icon = activity_icon(theme, ActivityIcon::Tasks);
+    let chip = format!(" {icon}  ");
+    let label = if available >= Span::raw(chip.as_str()).width() as u16 {
+        chip.as_str()
     } else {
-        "<>"
+        icon
     };
     let width = Span::raw(label).width() as u16;
     if available < width {

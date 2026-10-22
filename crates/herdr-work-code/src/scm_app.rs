@@ -9,6 +9,7 @@
 //! When herdr-aa-filetree is also installed, the panel can merge with it into
 //! a single "Sidebar" pane with an activity-bar view switcher (see sidebar.rs).
 
+use herdr_work_code::notice::Notice;
 use herdr_work_code::scm_widgets::{
     BodyGeom, MESSAGE_MAX_ROWS, inline_field_width, message_placeholder, message_window,
     row_hit_with_heights, wrap_message,
@@ -307,7 +308,7 @@ struct ClickZones {
     explorer: (u16, u16),
     search: (u16, u16),
     source_control: (u16, u16),
-    vscode: Rect,
+    projects: Rect,
     /// The ⚙ button (activity bar in unified mode, header otherwise).
     gear: Rect,
     message: Rect,
@@ -438,8 +439,8 @@ pub struct App {
     drawers: [DrawerPanel; 8],
     /// The file the FILE HISTORY drawer follows: the last selected file row.
     history_target: Option<String>,
-    /// One-shot footer notice: (text, is_error). Cleared on the next key press.
-    flash: Option<(String, bool)>,
+    /// Footer notice: (text, is_error). Cleared on input or after three seconds.
+    flash: Notice<(String, bool)>,
     vscode_open: herdr_work_code::vscode::Launcher,
     /// Pending ✧ commit-message generation, polled from tick().
     suggesting: Option<Receiver<String>>,
@@ -498,7 +499,7 @@ impl App {
         self.overlay.is_some() || matches!(self.focus, Focus::Message)
     }
     pub fn host_notice(&mut self, message: String) {
-        self.flash = Some((message, false));
+        self.flash = Notice::new((message, false));
     }
 
     pub fn new(
@@ -535,7 +536,8 @@ impl App {
         let tree_view = sidebar_state.scm_tree_view;
         let mut drawers: [DrawerPanel; 8] = Default::default();
         for kind in Drawer::ALL {
-            drawers[kind.index()].expanded = saved.drawers.iter().any(|d| d == kind.title());
+            drawers[kind.index()].expanded =
+                !kind.opens_preview() && saved.drawers.iter().any(|d| d == kind.title());
         }
         let active = saved
             .active_root
@@ -583,7 +585,7 @@ impl App {
             theme,
             drawers,
             history_target,
-            flash: None,
+            flash: Default::default(),
             vscode_open: Default::default(),
             suggesting: None,
             syncing: None,
@@ -701,19 +703,19 @@ impl App {
             let tab = match herdr_work_code::ipc::call_text("pane.list", serde_json::json!({})) {
                 Ok(json) => herdr_work_code::launch::tab_of(&json, &ctl.pane_id),
                 Err(e) => {
-                    self.flash = Some((format!("hide failed: {e}"), true));
+                    self.flash = Notice::new((format!("hide failed: {e}"), true));
                     return;
                 }
             };
             if tab.is_empty() {
-                self.flash = Some(("hide failed: could not resolve this tab".into(), true));
+                self.flash = Notice::new(("hide failed: could not resolve this tab".into(), true));
                 return;
             }
             // Set the marker BEFORE closing: if it fails, closing anyway
             // would let the very next focus event re-dock a sidebar the
             // user just asked to hide.
             if let Err(e) = herdr_work_code::snooze::set(&herdr_work_code::snooze::dir(), &tab) {
-                self.flash = Some((format!("hide failed: {e}"), true));
+                self.flash = Notice::new((format!("hide failed: {e}"), true));
                 return;
             }
         }
@@ -735,7 +737,7 @@ impl App {
             }
         }
         if let Some(e) = error {
-            self.flash = Some((e, true));
+            self.flash = Notice::new((e, true));
         }
         self.reload_expanded_drawers();
         self.rebuild();
@@ -779,7 +781,7 @@ impl App {
                 state.active = MY_VIEW;
             });
             self.apply_identity();
-            self.flash = Some(("Explorer stayed open; unified mode cancelled".into(), true));
+            self.flash = Notice::new(("Explorer stayed open; unified mode cancelled".into(), true));
         }
         false
     }
@@ -825,7 +827,7 @@ impl App {
     /// pick up external changes, and collect finished ✧ suggestion / sync runs.
     pub fn tick(&mut self) {
         if let Some(result) = self.vscode_open.poll(&self.cwd) {
-            self.flash = Some(match result {
+            self.flash = Notice::new(match result {
                 Ok(()) => ("已通过 VS Code 打开".into(), false),
                 Err(error) => (format!("VS Code 打开失败：{error}"), true),
             });
@@ -860,12 +862,13 @@ impl App {
                         repo.cursor = repo.message.len();
                     }
                     self.focus = Focus::Message;
-                    self.flash = Some(("✧ suggestion ready — edit or ⏎ to commit".into(), false));
+                    self.flash =
+                        Notice::new(("✧ suggestion ready — edit or ⏎ to commit".into(), false));
                     self.suggesting = None;
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.flash = Some(("✧ generation failed".into(), true));
+                    self.flash = Notice::new(("✧ generation failed".into(), true));
                     self.suggesting = None;
                 }
             }
@@ -876,12 +879,12 @@ impl App {
                     self.syncing = None;
                 }
                 Ok(Err(e)) => {
-                    self.flash = Some((e, true));
+                    self.flash = Notice::new((e, true));
                     self.syncing = None;
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.flash = Some(("sync failed".into(), true));
+                    self.flash = Notice::new(("sync failed".into(), true));
                     self.syncing = None;
                 }
             }
@@ -958,7 +961,7 @@ impl App {
         };
         let git = &git;
         for kind in Drawer::ALL {
-            if !self.drawers[kind.index()].expanded {
+            if kind.opens_preview() || !self.drawers[kind.index()].expanded {
                 continue;
             }
             let lines = kind.load(git, self.history_target.as_deref(), DRAWER_LIMIT);
@@ -1044,7 +1047,7 @@ impl App {
         }
         for kind in Drawer::ALL {
             self.rows.push(Row::DrawerHeader(kind));
-            if self.drawers[kind.index()].expanded {
+            if !kind.opens_preview() && self.drawers[kind.index()].expanded {
                 for i in 0..self.drawers[kind.index()].lines.len() {
                     self.rows.push(Row::DrawerLine(kind, i));
                 }
@@ -1130,7 +1133,7 @@ impl App {
             self.close(crate::state::product_profile().is_some());
             return None;
         }
-        self.flash = None;
+        self.flash = Default::default();
         if ((key.code == KeyCode::Char('p')
             && key.modifiers.contains(KeyModifiers::CONTROL)
             && !key.modifiers.contains(KeyModifiers::ALT))
@@ -1147,6 +1150,12 @@ impl App {
         // 1/2/3 type into the draft — Ctrl+1/2/3 mirror VS Code's activity bar
         // from any focus (1 Explorer, 2 Search, 3 Source Control). Bare 1/2/3
         // still switch from the file list.
+        if key.code == KeyCode::Char('4')
+            && key.modifiers == KeyModifiers::CONTROL
+            && self.overlay.is_none()
+        {
+            return Some(Exit::Projects);
+        }
         let injected_view = match key.code {
             KeyCode::F(9) => Some('1'),
             KeyCode::F(10) => Some('2'),
@@ -1272,7 +1281,7 @@ impl App {
             MouseEventKind::Down(MouseButton::Right) => {
                 // Reaches us only as Ctrl+right-click (herdr's passthrough
                 // modifier); plain right-click opens herdr's own pane menu.
-                self.flash = None;
+                self.flash = Default::default();
                 self.open_context_menu(mouse.column, mouse.row);
             }
             _ => {}
@@ -1281,7 +1290,7 @@ impl App {
     }
 
     fn left_click(&mut self, mouse: MouseEvent) -> Option<Exit> {
-        self.flash = None;
+        self.flash = Default::default();
         if hits_collapse_button(mouse.column, mouse.row, self.last_width, self.last_height) {
             self.hide();
             return None;
@@ -1289,9 +1298,8 @@ impl App {
         let (x, y) = (mouse.column, mouse.row);
         let z = self.zones;
         if self.merged() {
-            if hits(z.vscode, x, y) {
-                self.vscode_open.start(&self.cwd, &self.cwd, None);
-                return None;
+            if hits(z.projects, x, y) {
+                return Some(Exit::Projects);
             }
             if hits_activity_button(z.explorer, z.activity_row, x, y) {
                 return self.switch_to(View::Explorer);
@@ -1407,7 +1415,7 @@ impl App {
                             Some(FileHoverAction::Open) => self.open_diff(r, &entry, true),
                             Some(FileHoverAction::Unstage) => {
                                 if let Err(error) = self.repos[r].git.unstage(&entry) {
-                                    self.flash = Some((error, true));
+                                    self.flash = Notice::new((error, true));
                                 }
                                 self.refresh();
                             }
@@ -1432,7 +1440,7 @@ impl App {
                             }
                             Some(FileHoverAction::Stage) => {
                                 if let Err(error) = self.repos[r].git.stage(&entry) {
-                                    self.flash = Some((error, true));
+                                    self.flash = Notice::new((error, true));
                                 }
                                 self.refresh();
                             }
@@ -1499,7 +1507,7 @@ impl App {
                         if let Some(repo) = self.repos.get(r)
                             && let Err(e) = repo.git.unstage_all()
                         {
-                            self.flash = Some((e, true));
+                            self.flash = Notice::new((e, true));
                         }
                         self.refresh();
                     } else {
@@ -1521,7 +1529,9 @@ impl App {
                 Row::DrawerHeader(_) => {
                     self.focus = Focus::List;
                     self.select(index);
-                    self.activate();
+                    if !(double && self.pin_if_open(index)) {
+                        self.activate();
+                    }
                 }
                 Row::DrawerLine(kind, i) => {
                     self.focus = Focus::List;
@@ -1754,8 +1764,10 @@ impl App {
                     None => Err("repository is gone".to_string()),
                 };
                 match result {
-                    Ok(()) => self.flash = Some((format!("discarded {}", entry.path), false)),
-                    Err(e) => self.flash = Some((e, true)),
+                    Ok(()) => {
+                        self.flash = Notice::new((format!("discarded {}", entry.path), false))
+                    }
+                    Err(e) => self.flash = Notice::new((e, true)),
                 }
                 self.refresh();
             }
@@ -1880,7 +1892,7 @@ impl App {
         self.active = repo;
         match BranchPicker::open(git) {
             Ok(picker) => self.overlay = Some(Overlay::BranchPicker(picker)),
-            Err(error) => self.flash = Some((error, true)),
+            Err(error) => self.flash = Notice::new((error, true)),
         }
     }
 
@@ -1894,10 +1906,10 @@ impl App {
                 };
                 match picker.git.checkout_branch(&branch) {
                     Ok(()) => {
-                        self.flash = Some((format!("switched to {}", branch.name), false));
+                        self.flash = Notice::new((format!("switched to {}", branch.name), false));
                         self.refresh();
                     }
-                    Err(error) => self.flash = Some((error, true)),
+                    Err(error) => self.flash = Notice::new((error, true)),
                 }
             }
             PickerAction::Create(name) => {
@@ -1906,10 +1918,10 @@ impl App {
                 };
                 match picker.git.create_branch(&name) {
                     Ok(()) => {
-                        self.flash = Some((format!("created {name}"), false));
+                        self.flash = Notice::new((format!("created {name}"), false));
                         self.refresh();
                     }
-                    Err(error) => self.flash = Some((error, true)),
+                    Err(error) => self.flash = Notice::new((error, true)),
                 }
             }
         }
@@ -1932,6 +1944,15 @@ impl App {
         #[cfg(feature = "reference-ui")]
         let update = herdr_work_code::updates::row();
         vec![
+            (
+                Setting::OpenVsCode,
+                "Open in VS Code",
+                self.cwd
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| self.cwd.display().to_string()),
+                true,
+            ),
             (
                 Setting::Scope,
                 "Settings scope",
@@ -1989,15 +2010,6 @@ impl App {
                 Setting::PreviewPlacement,
                 "Preview opens in",
                 self.sidebar_state.preview_placement.label().to_string(),
-                true,
-            ),
-            (
-                Setting::OpenVsCode,
-                "Open in VS Code",
-                self.cwd
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| self.cwd.display().to_string()),
                 true,
             ),
             (
@@ -2111,7 +2123,7 @@ impl App {
             Setting::Version | Setting::Scope => {}
             #[cfg(feature = "reference-ui")]
             Setting::Update => {
-                self.flash = Some(match herdr_work_code::updates::activate() {
+                self.flash = Notice::new(match herdr_work_code::updates::activate() {
                     Ok(()) => ("Update requested".into(), false),
                     Err(error) => (error, true),
                 });
@@ -2148,7 +2160,7 @@ impl App {
             Setting::OpenVsCode => {
                 self.overlay = None;
                 let started = self.vscode_open.start(&self.cwd, &self.cwd, None);
-                self.flash = Some((
+                self.flash = Notice::new((
                     if started {
                         "正在通过 VS Code 打开…"
                     } else {
@@ -2221,7 +2233,7 @@ impl App {
             let _ = tx.send(herdr_work_code::actions::pick_folder(&start));
         });
         self.picking = Some(rx);
-        self.flash = Some((
+        self.flash = Notice::new((
             "folder picker open… (check your other windows)".into(),
             false,
         ));
@@ -2229,7 +2241,7 @@ impl App {
 
     #[cfg(not(any(windows, target_os = "macos")))]
     fn change_folder_dialog(&mut self) {
-        self.flash = Some((
+        self.flash = Notice::new((
             "no native picker here — use c in the Files view".into(),
             true,
         ));
@@ -2249,12 +2261,12 @@ impl App {
                     let cwd_follower = std::rc::Rc::clone(&self.cwd_follower);
                     *self = App::new(root, cwd_follower);
                 } else {
-                    self.flash = Some((format!("cannot open {}", path.display()), true));
+                    self.flash = Notice::new((format!("cannot open {}", path.display()), true));
                 }
             }
             Ok(None) => {
                 self.picking = None;
-                self.flash = None;
+                self.flash = Default::default();
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
             Err(_) => self.picking = None,
@@ -2384,7 +2396,7 @@ impl App {
                 } else {
                     rel
                 };
-                self.flash = Some(match copy_to_clipboard(&text) {
+                self.flash = Notice::new(match copy_to_clipboard(&text) {
                     Ok(ClipboardWrite::Native) => (format!("copied: {text}"), false),
                     Ok(ClipboardWrite::Osc52Unacknowledged) => {
                         (format!("sent to terminal clipboard: {text}"), false)
@@ -2478,7 +2490,7 @@ impl App {
                     None => Err("repository is gone".to_string()),
                 };
                 if let Err(e) = result {
-                    self.flash = Some((e, true));
+                    self.flash = Notice::new((e, true));
                 }
                 self.refresh();
             }
@@ -2495,7 +2507,7 @@ impl App {
                 } else {
                     rel
                 };
-                self.flash = Some(match copy_to_clipboard(&text) {
+                self.flash = Notice::new(match copy_to_clipboard(&text) {
                     Ok(ClipboardWrite::Native) => (format!("copied: {text}"), false),
                     Ok(ClipboardWrite::Osc52Unacknowledged) => {
                         (format!("sent to terminal clipboard: {text}"), false)
@@ -2511,7 +2523,7 @@ impl App {
             MenuAction::OpenExternal => {
                 let rel = entry.path.replace('/', std::path::MAIN_SEPARATOR_STR);
                 let path = repo_root.unwrap_or_else(|| self.cwd.clone()).join(&rel);
-                self.flash = Some(match open_external(&path) {
+                self.flash = Notice::new(match open_external(&path) {
                     Ok(()) => (format!("opened: {rel}"), false),
                     Err(err) => (format!("open failed: {err}"), true),
                 });
@@ -2547,7 +2559,7 @@ impl App {
                     DrawerRef::Remote { url, .. } if !url.is_empty() => url.clone(),
                     _ => spec,
                 };
-                self.flash = Some(match copy_to_clipboard(&text) {
+                self.flash = Notice::new(match copy_to_clipboard(&text) {
                     Ok(ClipboardWrite::Native) => (format!("copied: {text}"), false),
                     Ok(ClipboardWrite::Osc52Unacknowledged) => {
                         (format!("sent to terminal clipboard: {text}"), false)
@@ -2586,8 +2598,8 @@ impl App {
             None => Err("repository is gone".to_string()),
         };
         match result {
-            Ok(_) => self.flash = Some((format!("git {} ✓", args.join(" ")), false)),
-            Err(e) => self.flash = Some((e, true)),
+            Ok(_) => self.flash = Notice::new((format!("git {} ✓", args.join(" ")), false)),
+            Err(e) => self.flash = Notice::new((e, true)),
         }
         self.refresh();
     }
@@ -2603,17 +2615,17 @@ impl App {
         let git = match self.repos.get(repo) {
             Some(r) => r.git.clone(),
             None => {
-                self.flash = Some(("repository is gone".to_string(), true));
+                self.flash = Notice::new(("repository is gone".to_string(), true));
                 return;
             }
         };
         match git.delete_branch(&branch) {
             Ok(()) => {
-                self.flash = Some((format!("deleted {branch}"), false));
+                self.flash = Notice::new((format!("deleted {branch}"), false));
                 self.refresh();
             }
             Err(DeleteRefused::Failed(error)) => {
-                self.flash = Some((error, true));
+                self.flash = Notice::new((error, true));
                 self.refresh();
             }
             Err(DeleteRefused::NotMerged) => self.confirm_git(
@@ -2638,7 +2650,7 @@ impl App {
                 if let Some(repo) = self.repos.get(repo)
                     && let Err(error) = repo.git.stage_all()
                 {
-                    self.flash = Some((error, true));
+                    self.flash = Notice::new((error, true));
                 }
                 self.refresh();
             }
@@ -2647,22 +2659,42 @@ impl App {
 
     fn discard_all(&mut self, repo: usize) {
         let Some(repo) = self.repos.get(repo) else {
-            self.flash = Some(("repository is gone".to_string(), true));
+            self.flash = Notice::new(("repository is gone".to_string(), true));
             return;
         };
         let entries = repo.status.unstaged.clone();
-        self.flash = Some(match repo.git.discard_entries(&entries) {
+        self.flash = Notice::new(match repo.git.discard_entries(&entries) {
             Ok(count) => (format!("discarded {count} changes"), false),
             Err(error) => (error, true),
         });
         self.refresh();
     }
 
+    /// History lists use the same preview placement, ownership and reuse as files.
+    fn open_history(&mut self, kind: Drawer) {
+        let Some(pane_id) = self.pane_ctl.as_ref().map(|c| c.pane_id.clone()) else {
+            self.flash = Notice::new(("preview needs a herdr pane".into(), true));
+            return;
+        };
+        let Some(repo) = self.active_repo() else {
+            return;
+        };
+        let path = (kind == Drawer::FileHistory)
+            .then_some(self.history_target.as_deref())
+            .flatten();
+        let payload = herdr_work_code::viewer::history_request(repo.git.root(), kind, path);
+        let doc_key = herdr_work_code::viewer::doc_key_for_history(repo.git.root(), kind, path);
+        match herdr_work_code::viewer::open_in_pane(&pane_id, repo.git.root(), &doc_key, &payload) {
+            Ok(target) => self.last_preview = Some((doc_key, target)),
+            Err(error) => self.flash = Notice::new((error, true)),
+        }
+    }
+
     /// Click/⏎ on a drawer line: show the commit / stash / tag / branch tip
     /// in the preview pane (scrollable colored `git show`).
     fn open_drawer_ref(&mut self, kind: Drawer, index: usize) {
         let Some(pane_id) = self.pane_ctl.as_ref().map(|c| c.pane_id.clone()) else {
-            self.flash = Some(("preview needs a herdr pane".into(), true));
+            self.flash = Notice::new(("preview needs a herdr pane".into(), true));
             return;
         };
         let Some(repo) = self.repos.get(self.active) else {
@@ -2687,7 +2719,7 @@ impl App {
                 self.last_preview = Some((doc_key, target));
             }
             Err(e) => {
-                self.flash = Some((e, true));
+                self.flash = Notice::new((e, true));
             }
         }
     }
@@ -2696,7 +2728,7 @@ impl App {
     /// rows show the staged diff; untracked files render as one addition.
     fn open_diff(&mut self, repo: usize, entry: &FileEntry, staged: bool) {
         let Some(pane_id) = self.pane_ctl.as_ref().map(|c| c.pane_id.clone()) else {
-            self.flash = Some(("diff preview needs a herdr pane".into(), true));
+            self.flash = Notice::new(("diff preview needs a herdr pane".into(), true));
             return;
         };
         let Some(repo) = self.repos.get(repo) else {
@@ -2716,7 +2748,7 @@ impl App {
                 self.last_preview = Some((doc_key, target));
             }
             Err(e) => {
-                self.flash = Some((e, true));
+                self.flash = Notice::new((e, true));
             }
         }
     }
@@ -2758,6 +2790,17 @@ impl App {
                     repo.git.root(),
                     &spec,
                     path.as_deref(),
+                ))
+            }
+            Row::DrawerHeader(kind) if kind.opens_preview() => {
+                let repo = self.active_repo()?;
+                let path = (*kind == Drawer::FileHistory)
+                    .then_some(self.history_target.as_deref())
+                    .flatten();
+                Some(herdr_work_code::viewer::doc_key_for_history(
+                    repo.git.root(),
+                    *kind,
+                    path,
                 ))
             }
             _ => None,
@@ -2838,7 +2881,7 @@ impl App {
     fn snapshot_scm(&self) -> sidebar::ScmState {
         let drawers = Drawer::ALL
             .iter()
-            .filter(|k| self.drawers[k.index()].expanded)
+            .filter(|k| !k.opens_preview() && self.drawers[k.index()].expanded)
             .map(|k| k.title().to_string())
             .collect();
         let active_root = self
@@ -2904,7 +2947,7 @@ impl App {
             self.persisted_draft_roots
                 .extend(snapshot.drafts.keys().cloned());
         } else {
-            self.flash = Some((
+            self.flash = Notice::new((
                 "Could not save Source Control state; action cancelled.".into(),
                 true,
             ));
@@ -2961,7 +3004,7 @@ impl App {
                         state.active = MY_VIEW;
                     });
                     self.apply_identity();
-                    self.flash = Some((format!("unified mode cancelled: {error}"), true));
+                    self.flash = Notice::new((format!("unified mode cancelled: {error}"), true));
                 }
             }
         } else {
@@ -3137,6 +3180,7 @@ impl App {
                 self.repos[r].changes_collapsed = !self.repos[r].changes_collapsed;
                 self.rebuild();
             }
+            Row::DrawerHeader(kind) if kind.opens_preview() => self.open_history(kind),
             Row::DrawerHeader(kind) => {
                 self.drawers[kind.index()].expanded = !self.drawers[kind.index()].expanded;
                 self.reload_expanded_drawers();
@@ -3167,7 +3211,7 @@ impl App {
         };
         let Some(entry) = list.get(index) else { return };
         if let Err(e) = op(&repo.git, entry) {
-            self.flash = Some((e, true));
+            self.flash = Notice::new((e, true));
         }
         self.refresh();
     }
@@ -3177,7 +3221,7 @@ impl App {
             return;
         };
         if let Err(e) = repo.git.stage_all() {
-            self.flash = Some((e, true));
+            self.flash = Notice::new((e, true));
         }
         self.refresh();
     }
@@ -3187,7 +3231,7 @@ impl App {
             return;
         };
         if let Err(e) = repo.git.unstage_all() {
-            self.flash = Some((e, true));
+            self.flash = Notice::new((e, true));
         }
         self.refresh();
     }
@@ -3246,7 +3290,7 @@ impl App {
             .git
             .root()
             .join(dir_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-        self.flash = Some(match repo.git.stage_under(&target) {
+        self.flash = Notice::new(match repo.git.stage_under(&target) {
             Ok(done) if done.count == 0 && done.skipped_nested > 0 => (
                 format!(
                     "{dir_path}: nothing staged — {} path(s) belong to a nested repo",
@@ -3274,7 +3318,7 @@ impl App {
         let Some(repo) = self.repos.get(repo_idx) else {
             return;
         };
-        self.flash = Some(match repo.git.unstage_under(dir_path) {
+        self.flash = Notice::new(match repo.git.unstage_under(dir_path) {
             Ok(count) => (format!("unstaged {count} path(s) under {dir_path}"), false),
             Err(error) => (error, true),
         });
@@ -3291,13 +3335,13 @@ impl App {
         };
         match repo.git.diff_for_message() {
             Ok((diff, files)) if diff.trim().is_empty() && files.is_empty() => {
-                self.flash = Some(("no changes to describe".into(), true));
+                self.flash = Notice::new(("no changes to describe".into(), true));
             }
             Ok((diff, files)) => {
                 self.suggesting = Some(suggest::spawn(diff, files));
-                self.flash = Some(("✧ generating commit message…".into(), false));
+                self.flash = Notice::new(("✧ generating commit message…".into(), false));
             }
-            Err(e) => self.flash = Some((e, true)),
+            Err(e) => self.flash = Notice::new((e, true)),
         }
     }
 
@@ -3315,7 +3359,7 @@ impl App {
             return;
         };
         if !repo.status.has_upstream {
-            self.flash = Some(("no upstream to sync with".into(), true));
+            self.flash = Notice::new(("no upstream to sync with".into(), true));
             return;
         }
         let git = repo.git.clone();
@@ -3348,22 +3392,22 @@ impl App {
         let message: String = repo.message.iter().collect();
         if message.trim().is_empty() {
             self.active = index;
-            self.flash = Some(("Commit message is empty.".to_string(), true));
+            self.flash = Notice::new(("Commit message is empty.".to_string(), true));
             self.focus = Focus::Message;
             return;
         }
         if repo.status.staged.is_empty() {
-            self.flash = Some(("No staged changes to commit.".to_string(), true));
+            self.flash = Notice::new(("No staged changes to commit.".to_string(), true));
             return;
         }
         match repo.git.commit(message.trim()) {
             Ok(summary) => {
-                self.flash = Some((summary, false));
+                self.flash = Notice::new((summary, false));
                 repo.message.clear();
                 repo.cursor = 0;
                 self.focus = Focus::List;
             }
-            Err(e) => self.flash = Some((e, true)),
+            Err(e) => self.flash = Notice::new((e, true)),
         }
         self.refresh();
         self.persist_scm();
@@ -3500,7 +3544,7 @@ impl App {
         let message_height = if multi {
             0
         } else {
-            1 + self.single_message_rows(area.width) as u16
+            2 + self.single_message_rows(area.width) as u16
         };
         let button_height = if multi { 0 } else { 1 };
         let sync_height = u16::from(
@@ -3530,7 +3574,7 @@ impl App {
         let mut footer_lines = self.footer_lines(area.width);
         let mut menu_hint = git_footer && footer_lines.is_empty();
         let mut sections = layout(
-            (footer_lines.len() as u16 + 2 * u16::from(menu_hint) + u16::from(git_footer)).max(1),
+            (footer_lines.len() as u16 + u16::from(menu_hint) + u16::from(git_footer)).max(1),
         );
         self.prepare_list(sections[5]);
         let mut action_hint = self.hovered_action_hint();
@@ -3539,7 +3583,7 @@ impl App {
         }
         menu_hint = git_footer && footer_lines.is_empty();
         sections = layout(
-            (footer_lines.len() as u16 + 2 * u16::from(menu_hint) + u16::from(git_footer)).max(1),
+            (footer_lines.len() as u16 + u16::from(menu_hint) + u16::from(git_footer)).max(1),
         );
         self.prepare_list(sections[5]);
         action_hint = self.hovered_action_hint();
@@ -3722,7 +3766,7 @@ impl App {
         line.push(Span::raw(" ".repeat(pad)));
         line.push(gear);
         frame.render_widget(Paragraph::new(Line::from(line)), area);
-        self.zones.vscode = herdr_work_code::ui::draw_vscode_button(
+        self.zones.projects = herdr_work_code::ui::draw_projects_button(
             frame,
             area,
             x,
@@ -3842,10 +3886,8 @@ impl App {
         } else {
             Style::default().dim()
         };
-        // Keep an underline and side edges without spending a row on a top border.
-        let boxed = Block::new()
-            .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
-            .border_style(border);
+        // Keep the input visually separate from the repository header and button.
+        let boxed = Block::new().borders(Borders::ALL).border_style(border);
         let inner = boxed.inner(area);
         frame.render_widget(boxed, area);
         self.zones.message = area;
@@ -3870,9 +3912,12 @@ impl App {
             Some(r) => (r.message.clone(), r.cursor, r.status.branch.clone()),
             None => (Vec::new(), 0, String::new()),
         };
-        if message.is_empty() && !focused {
+        if message.is_empty() {
             let placeholder = message_placeholder(&branch, usize::from(text_area.width));
             frame.render_widget(Paragraph::new(placeholder).dim().italic(), text_area);
+            if focused && text_area.width > 0 && text_area.height > 0 {
+                frame.set_cursor_position(Position::new(text_area.x, text_area.y));
+            }
             return;
         }
 
@@ -3888,10 +3933,10 @@ impl App {
             .map(|row| Line::from(row.clone()))
             .collect();
         frame.render_widget(Paragraph::new(text), text_area);
-        if focused {
+        if focused && text_area.width > 0 && text_area.height > 0 {
             frame.set_cursor_position(Position::new(
-                text_area.x + cursor_col as u16,
-                text_area.y + (cursor_row - top) as u16,
+                text_area.x + (cursor_col as u16).min(text_area.width - 1),
+                text_area.y + ((cursor_row - top) as u16).min(text_area.height - 1),
             ));
         }
     }
@@ -4207,7 +4252,7 @@ impl App {
     /// one-line assumption used to clip them mid-question in narrow panes),
     /// or the hotkey hints.
     fn footer_lines(&self, width: u16) -> Vec<Line<'static>> {
-        let message: Option<(String, Color)> = match (&self.overlay, &self.flash) {
+        let message: Option<(String, Color)> = match (&self.overlay, self.flash.as_ref()) {
             (Some(Overlay::ConfirmDiscard { entry, .. }), _) => Some((
                 format!("Discard changes to '{}'? (y/N)", entry.path),
                 palette().deleted,
@@ -4281,7 +4326,7 @@ impl App {
         if let Some(pane_id) = self.pane_ctl.as_ref().map(|c| c.pane_id.clone())
             && let Some(notice) = herdr_work_code::viewer::close_in_tab(&pane_id)
         {
-            self.flash = Some((notice, true));
+            self.flash = Notice::new((notice, true));
         }
     }
 
@@ -4473,6 +4518,49 @@ fn no_repo_layout(area: Rect, merged: bool) -> [Rect; 2] {
         Constraint::Min(0),
     ])
     .areas(area)
+}
+
+#[cfg(test)]
+mod history_preview_tests {
+    use super::*;
+
+    #[test]
+    fn history_views_never_add_sidebar_children_or_persist_expansion() {
+        let fixture = tempfile::tempdir().unwrap();
+        let mut app = App::new(
+            fixture.path().into(),
+            std::rc::Rc::new(std::cell::RefCell::new(
+                herdr_work_code::launch::CwdFollower::default(),
+            )),
+        );
+        // Even an old expanded snapshot must not put history back in the list.
+        for kind in Drawer::ALL {
+            let panel = &mut app.drawers[kind.index()];
+            panel.expanded = true;
+            panel.lines = vec!["1234567 fixture".into()];
+        }
+        app.rebuild();
+        for kind in Drawer::ALL {
+            assert!(
+                app.rows
+                    .iter()
+                    .any(|row| matches!(row, Row::DrawerHeader(k) if *k == kind))
+            );
+            assert_eq!(
+                app.rows
+                    .iter()
+                    .any(|row| matches!(row, Row::DrawerLine(k, _) if *k == kind)),
+                !kind.opens_preview(),
+            );
+            assert_eq!(
+                app.snapshot_scm()
+                    .drawers
+                    .iter()
+                    .any(|title| title == kind.title()),
+                !kind.opens_preview(),
+            );
+        }
+    }
 }
 
 #[cfg(all(test, feature = "reference-ui"))]

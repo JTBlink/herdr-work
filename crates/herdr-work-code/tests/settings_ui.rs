@@ -15,9 +15,6 @@ fn explorer_and_git_settings_show_a_direct_project_vscode_action() {
         let mut sidebar = Sidebar::new(root.clone(), Some(initial));
         let key = |code| Event::Key(KeyEvent::new(code, KeyModifiers::NONE));
         sidebar.event(key(KeyCode::Char('s')));
-        for _ in 0..6 {
-            sidebar.event(key(KeyCode::Down));
-        }
         let mut terminal = Terminal::new(TestBackend::new(38, 42)).unwrap();
         terminal.draw(|frame| sidebar.draw(frame)).unwrap();
         let buffer = terminal.backend().buffer();
@@ -28,6 +25,10 @@ fn explorer_and_git_settings_show_a_direct_project_vscode_action() {
             .collect::<String>()
             .replace(' ', "");
         assert!(text.contains("通过VSCode打开") && text.contains("仅HerdrWork"));
+        assert!(
+            text.find("通过VSCode打开").unwrap() < text.find("配置范围").unwrap(),
+            "the project VS Code action belongs first"
+        );
         assert!(
             text.find("切换目录").unwrap() < text.find("HerdrWork版本").unwrap(),
             "version belongs after the configuration rows"

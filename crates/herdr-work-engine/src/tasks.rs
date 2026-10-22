@@ -70,7 +70,7 @@ impl HerdrWork {
         if let Some(root) = cwd {
             cmd.current_dir(root).env(
                 "HERDR_PLUGIN_CONTEXT_JSON",
-                serde_json::to_string(&json!({"focused_pane_cwd":root.canonicalize()?}))?,
+                serde_json::to_string(&json!({"focused_pane_cwd":root.canonicalize()?, "focused_pane_id":std::env::var("HERDR_PANE_ID").unwrap_or_default(), "tab_id":std::env::var("HERDR_TAB_ID").unwrap_or_default()}))?,
             );
         }
         let output = herdr_reviewr::proc::herdr_work_run(cmd, Duration::from_secs(60))

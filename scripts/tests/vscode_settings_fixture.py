@@ -23,6 +23,7 @@ def check(binary, fail=False):
         file = root / 'a $(touch injected) 中文 file.txt'
         file.write_text('first line\nneedle fixture\n')
         (root / 'folder').mkdir()
+        subprocess.run(['git', 'init', '-q', str(root)], check=True)
         original = b'{"auto_open":true,"strict_toggle":true,"focus_on_open":false,"follow_cwd":false,"dock_right":true,"sidebar_width":76,"preview_placement":"tab"}'
         (foreign / 'state.json').write_bytes(original)
         (foreign / 'editor-command.txt').write_text('foreign-editor {file}')
@@ -68,7 +69,7 @@ def check(binary, fail=False):
                 drain(.05)
                 if predicate():
                     return
-            raise AssertionError(label)
+            raise AssertionError(label + '; last output: ' + text()[-1800:])
 
         def send(text):
             os.write(master, text)
@@ -78,41 +79,49 @@ def check(binary, fail=False):
             plain = re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', bytes(output)).decode(errors='replace')
             return ''.join(plain.split())
 
+        def notice_expires(message):
+            wait_for(lambda: message in text(), 'Launch result was not displayed')
+            drain(3.3)  # No input: the footer must expire while the view is idle.
+            output.clear()
+            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 43, 42, 0, 0))
+            drain(.3)
+            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 42, 42, 0, 0))
+            drain(.3)
+            assert text(), 'PTY did not redraw after the idle deadline'
+            assert message not in text(), 'Launch result stayed visible after its deadline'
+
         def setting(index):
             send(b's')
             send(b'\x1b[B' * index + b'\r')
-            send(b'\x1b')
+            if index != 0:  # The project action closes Settings itself.
+                send(b'\x1b')
 
         try:
             wait_for(lambda: b'file.txt' in output, 'Explorer did not load')
             send(b's')
             assert '仅HerdrWork' in text() and 'foreign-editor' not in text(), text()[-1500:]
             send(b'\x1b')
-            # Scope, dock, width, icons, colors, file-opening mode; version is last.
-            setting(5)
+            # VS Code action first, then scope, dock, width, icons, colors, file-opening mode.
+            setting(6)
             wait_for(lambda: json.loads(saved.read_text())['preview_placement'] == 'vscode', 'VS Code mode was not persisted')
             # Direct settings action opens the current project in both views.
             for view in (b'1', b'3'):
                 send(view)
-                # Real activity-bar click (42-column PTY): Code before Settings.
-                send(b'\x1b[<0;36;2M\x1b[<0;36;2m')
-                wait_for(capture.exists, 'Toolbar action did not open the project in VS Code')
-                assert json.loads(capture.read_text()) == ['--reuse-window', str(root)]
-                capture.unlink()
-                drain(2)  # Let the UI collect the finished launcher before the next action.
-                setting(6)
+                output.clear()
+                setting(0)
                 wait_for(capture.exists, 'Settings action did not open the project in VS Code')
                 assert json.loads(capture.read_text()) == ['--reuse-window', str(root)]
                 capture.unlink()
+                notice_expires('VSCode打开失败' if fail else '已通过VSCode打开')
             send(b'1')
             # Toggle HerdrWork auto-open only; inherited Sidebar directory stays byte-identical.
             setting(11)
-            assert json.loads(saved.read_text())['auto_open'] is True
-            for index, key in [(1, 'dock_right'), (10, 'hotkeys'), (12, 'strict_toggle'),
+            wait_for(lambda: json.loads(saved.read_text())['auto_open'] is True, 'Auto-open did not persist')
+            for index, key in [(2, 'dock_right'), (10, 'hotkeys'), (12, 'strict_toggle'),
                                (13, 'focus_on_open'), (14, 'follow_cwd')]:
                 previous = json.loads(saved.read_text())[key]
                 setting(index)
-                assert json.loads(saved.read_text())[key] is not previous, key
+                wait_for(lambda: json.loads(saved.read_text())[key] is not previous, key + ' did not persist')
             assert (foreign / 'state.json').read_bytes() == original
             assert (foreign / 'editor-command.txt').read_text() == 'foreign-editor {file}'
             # The folder sorts first. Select the file without invoking a host preview.

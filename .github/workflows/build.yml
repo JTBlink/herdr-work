@@ -72,7 +72,15 @@ jobs:
           import os, subprocess
           subprocess.run(['python', 'scripts/build.py', '--target', os.environ['BUILD_TARGET']], check=True)
       - name: Verify domain and Git/review workflows
-        run: cargo test --workspace --locked
+        shell: python
+        run: |
+          import os, subprocess
+          command = ['cargo', 'test', '--workspace', '--locked']
+          if os.name == 'nt':
+              # Projects implementations use Unix sockets/process APIs; the CLI still verifies its unavailable error.
+              for name in ['data', 'flow', 'board', 'web']:
+                  command += ['--exclude', 'herdr-work-task-' + name]
+          subprocess.run(command, check=True)
       - name: Verify migrated Sidebar reference UI and shared capabilities
         run: cargo test -p herdr-work-code --features reference-ui --bin herdr-work-code-browser --locked
       - name: Package and verify archives

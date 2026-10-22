@@ -119,6 +119,8 @@ pub enum Exit {
     },
     /// Switch to Explorer and open its Quick Open picker.
     QuickOpen,
+    /// Ask the product host to open its Projects board without replacing Sidebar.
+    Projects,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

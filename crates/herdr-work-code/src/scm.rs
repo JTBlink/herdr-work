@@ -126,6 +126,11 @@ impl Drawer {
     pub fn index(self) -> usize {
         Drawer::ALL.iter().position(|d| *d == self).unwrap_or(0)
     }
+
+    /// History views open as documents; repository resources remain drawers.
+    pub fn opens_preview(self) -> bool {
+        matches!(self, Self::Graph | Self::Commits | Self::FileHistory)
+    }
 }
 
 /// What a drawer line points at, for clicks and context menus.

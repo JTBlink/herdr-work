@@ -15,6 +15,7 @@ enum HostResult {
     Report(Result<()>),
     Activation(Result<Option<ActivationRequest>>),
     Recovery(Result<(), String>),
+    Projects(PathBuf, Result<serde_json::Value>),
 }
 
 pub(crate) fn run(desk: HerdrWork, root: PathBuf, initial: Option<InitialView>) -> Result<()> {
@@ -46,6 +47,7 @@ pub(crate) fn run(desk: HerdrWork, root: PathBuf, initial: Option<InitialView>) 
     let mut last_poll = Instant::now();
     let mut last_recovery = Instant::now() - Duration::from_secs(3);
     let mut pending = false;
+    let mut projects_pending = false;
     let mut seen = None;
     let result: Result<()> = (|| {
         loop {
@@ -66,6 +68,17 @@ pub(crate) fn run(desk: HerdrWork, root: PathBuf, initial: Option<InitialView>) 
                             _ => {}
                         }
                     }
+                    Ok(HostResult::Projects(root, result)) => {
+                        projects_pending = false;
+                        if root == sidebar.root() {
+                            match result {
+                                Ok(_) => sidebar.notice("已打开 HerdrWork Projects".into()),
+                                Err(error) => {
+                                    sidebar.notice(format!("Projects 打开失败：{error:#}"))
+                                }
+                            }
+                        }
+                    }
                     Ok(HostResult::Recovery(Err(error))) => {
                         sidebar.notice(format!("布局恢复未完成：{error}"))
                     }
@@ -80,6 +93,20 @@ pub(crate) fn run(desk: HerdrWork, root: PathBuf, initial: Option<InitialView>) 
                     && sidebar.event(event)
                 {
                     break;
+                }
+            }
+            if sidebar.take_projects_request() && !projects_pending {
+                let desk = desk.clone();
+                let root = sidebar.root();
+                match jobs.submit(0, move || {
+                    let result = desk.projects_command(&["open"], Some(&root));
+                    Ok(HostResult::Projects(root, result))
+                }) {
+                    Ok(()) => {
+                        projects_pending = true;
+                        sidebar.notice("正在打开 Projects…".into());
+                    }
+                    Err(error) => sidebar.notice(format!("Projects 打开失败：{error:#}")),
                 }
             }
             sidebar.tick();

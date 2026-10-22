@@ -55,13 +55,20 @@ class Layout:
         return {'area': area, 'panes': panes, 'splits': splits}
 
 
-def check(binary, placement, blocked=False):
+def check(binary, placement, blocked=False, history=False):
     with tempfile.TemporaryDirectory(prefix='herdr-work-preview-') as directory:
-        base = Path(directory)
+        base = Path(directory).resolve()
         root = base / 'project'
         root.mkdir()
         (root / 'example-a.txt').write_text('first fixture\n')
         (root / 'example-b.txt').write_text('second fixture\n')
+        if history:
+            for args in [['init', '-q'], ['add', '.'],
+                         ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                          '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=.git/no-hooks',
+                          'commit', '-qm', 'history fixture']]:
+                subprocess.run(['git', *args], cwd=root, check=True, capture_output=True)
+            (root / 'example-a.txt').write_text('modified fixture\n')
         profile = base / 'profile'
         (profile / 'sidebar').mkdir(parents=True)
         (profile / 'sidebar/state.json').write_text(json.dumps({
@@ -94,6 +101,8 @@ def check(binary, placement, blocked=False):
         original_rect = next(p['rect'] for p in before['panes'] if p['pane_id'] == 'original')
         next_tab = 1
         argv = [binary, '--home', str(profile), 'ui', '--sidebar', str(root)]
+        if history:
+            argv.extend(['--initial-view', 'source-control'])
 
         def serve():
             nonlocal next_tab
@@ -182,19 +191,38 @@ def check(binary, placement, blocked=False):
                 drain()
                 if predicate():
                     return
-            raise AssertionError('Preview routing did not complete: ' + str([r['method'] for r in requests]))
+            raise AssertionError('Preview routing did not complete: ' + str([r['method'] for r in requests])
+                                 + '; output=' + repr(bytes(output[:7000])))
 
         try:
-            wait_for(lambda: b'example-b.txt' in output)
-            # First tree row: x=5, y=5 in the TUI's SGR mouse coordinates.
-            os.write(master, b'\x1b[<0;5;5M\x1b[<0;5;5m')
-            wait_for(lambda: any(r['method'] == 'pane.send_input' and r['params'].get('pane_id') == 'viewer' for r in requests))
-            deadline = time.monotonic() + .5
-            while time.monotonic() < deadline:
-                drain()
-            os.write(master, b'\x1b[<0;5;6M\x1b[<0;5;6m')
-            wait_for(lambda: any(b'example-b.txt' in path.read_bytes()
-                                for path in (profile / 'sidebar/scratch').glob('*') if path.is_file()))
+            if history:
+                wait_for(lambda: b'File History' in output)
+                # Select the changed file without opening its diff.
+                os.write(master, b'gj')
+                for title, y, file in [('Graph', 10, ''), ('Commits', 11, ''),
+                                       ('File History', 12, 'example-a.txt')]:
+                    click = f'\x1b[<0;5;{y}M\x1b[<0;5;{y}m'.encode()
+                    os.write(master, click)
+                    payload = f'history\t{root}\t{title}\t{file}'
+                    wait_for(lambda: any(path.read_text() == payload
+                                        for path in (profile / 'sidebar/scratch').glob('*.ctl')))
+                # Enter uses the same Preview action; rows never expanded above it.
+                os.write(master, b'\r')
+                deadline = time.monotonic() + .3
+                while time.monotonic() < deadline:
+                    drain()
+                assert not any('git show' in r.get('params', {}).get('text', '') for r in requests)
+            else:
+                wait_for(lambda: b'example-b.txt' in output)
+                # First tree row: x=5, y=5 in the TUI's SGR mouse coordinates.
+                os.write(master, b'\x1b[<0;5;5M\x1b[<0;5;5m')
+                wait_for(lambda: any(r['method'] == 'pane.send_input' and r['params'].get('pane_id') == 'viewer' for r in requests))
+                deadline = time.monotonic() + .5
+                while time.monotonic() < deadline:
+                    drain()
+                os.write(master, b'\x1b[<0;5;6M\x1b[<0;5;6m')
+                wait_for(lambda: any(b'example-b.txt' in path.read_bytes()
+                                    for path in (profile / 'sidebar/scratch').glob('*') if path.is_file()))
             splits = [r for r in requests if r['method'] == 'pane.split']
             current = layouts['w1:t1'].snapshot()
             if placement == 'replace' and not blocked:
@@ -216,7 +244,7 @@ def check(binary, placement, blocked=False):
             assert not any(r['params'].get(key) == 'original' for r in mutations
                            for key in ['pane_id', 'source_pane_id', 'target_pane_id'])
             assert panes['original']['tokens'] == original_tokens
-            print(f'{placement} (blocked={blocked}): mouse clicks honor preview placement and reuse; independent plugin geometry untouched')
+            print(f'{placement} (blocked={blocked}, history={history}): mouse clicks honor preview placement and reuse; independent plugin geometry untouched')
         finally:
             os.close(master)
             stopped.set()

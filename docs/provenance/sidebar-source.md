@@ -42,7 +42,7 @@ HerdrWork 保持唯一终端和事件循环。生产 `sidebar-ui` 特性直接�
 
 `crates/herdr-work-projects` 为独立产品入口，调用已导入的 Projects 库。入口在启动线程前强制设置自己的 home/data/settings/reports，资料由 HERDR_WORK_HOME 或默认 ~/.herdr-work 决定；不以继承的 HERDR_PROJECTS_* 路径决定资料，不依赖调用方正确设置 managed 标记。继承的第三方插件 ID/context 会清除，原 Agent 回调中的空插件身份保留。主程序、hook 和生成 launcher 显式传递 HerdrWork home，防止回到独立插件目录。
 
-两个发布程序均由根 Cargo.lock 和 target 构建。Projects、Reviewr 的其余源码迁移及最终九模块整合仍由 #17 跟踪，本次不把它们标成已完成。
+两个发布程序均由根 Cargo.lock 和 target 构建。Projects 的源码随后已迁入根 workspace，见 [Projects 记录](projects-source.md)；Reviewr 迁移及最终九模块整合仍由 #17 跟踪。
 
 ## 验证边界
 
