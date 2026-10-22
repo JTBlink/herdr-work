@@ -24,6 +24,7 @@ pub mod icons;
 pub mod ipc;
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub mod launch;
+pub mod notice;
 pub mod preview;
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub mod rundir;

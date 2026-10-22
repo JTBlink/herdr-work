@@ -8,7 +8,9 @@
 
 本规格是新一轮规划；不改写已关闭的首版父规格 #1 或原 13 项实施任务。本轮只执行用户追加的 M01 旧兼容清理、M02 默认 Explorer 修复；其余为后续实施任务。ready-for-agent 表示描述充分，开始前仍需满足依赖。
 
-## 当前事实
+## 规格起草时的事实
+
+以下保留规格起草时的基线；当前 Sidebar 与 Projects 已迁入根 workspace，见 [Projects 迁移记录](../../provenance/projects-source.md)；实时任务状态仍以 GitHub Issues 为准。
 
 
 ## 目标模块

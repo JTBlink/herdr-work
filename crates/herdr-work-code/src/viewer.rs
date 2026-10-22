@@ -26,6 +26,7 @@ use crate::editor::{EditAction, Editor, SaveOutcome};
 use crate::icons::{IconTheme, icon};
 use crate::ipc;
 use crate::preview::*;
+use crate::scm::Drawer;
 use crate::ui::{icon_style as ui_icon_style, palette};
 
 /// Metadata source/token that marks the viewer pane, so the sidebar can find
@@ -231,12 +232,24 @@ pub fn doc_key_for_show(root: &Path, spec: &str, path: Option<&str>) -> String {
     }
 }
 
+pub fn doc_key_for_history(root: &Path, kind: Drawer, path: Option<&str>) -> String {
+    format!(
+        "history:{}:{}:{}",
+        root.display(),
+        path.unwrap_or(""),
+        kind.title()
+    )
+}
+
 /// The document tab title. Product titles have an explicit namespace and
 /// preview/pinned marker; the reference UI retains its source label format.
 pub fn tab_label(doc_key: &str, pinned: bool) -> String {
     let display_key = if let Some(diff) = doc_key.strip_prefix("diff:") {
         diff.rsplit_once(':').map(|(path, _)| path).unwrap_or(diff)
-    } else if let Some(show) = doc_key.strip_prefix("show:") {
+    } else if let Some(show) = doc_key
+        .strip_prefix("show:")
+        .or_else(|| doc_key.strip_prefix("history:"))
+    {
         show.rsplit(':').next().unwrap_or(show)
     } else {
         doc_key
@@ -279,6 +292,7 @@ impl Request {
             Self::File { path, .. } => doc_key_for_file(path),
             Self::Diff { root, rel, kind } => doc_key_for_diff(root, rel, kind),
             Self::Show { root, spec, path } => doc_key_for_show(root, spec, path.as_deref()),
+            Self::History { root, kind, path } => doc_key_for_history(root, *kind, path.as_deref()),
         }
     }
 }
@@ -307,6 +321,11 @@ enum Request {
         spec: String,
         path: Option<String>,
     },
+    History {
+        root: PathBuf,
+        kind: Drawer,
+        path: Option<String>,
+    },
 }
 
 /// Control-file payload for a file preview.
@@ -330,6 +349,16 @@ pub fn show_request(root: &Path, spec: &str, path: Option<&str>) -> String {
     format!("show\t{}\t{spec}\t{}", root.display(), path.unwrap_or(""))
 }
 
+/// Preview of a repository graph, commit log, or one file's history.
+pub fn history_request(root: &Path, kind: Drawer, path: Option<&str>) -> String {
+    format!(
+        "history\t{}\t{}\t{}",
+        root.display(),
+        kind.title(),
+        path.unwrap_or("")
+    )
+}
+
 fn parse_request(raw: &str) -> Option<Request> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -349,6 +378,15 @@ fn parse_request(raw: &str) -> Option<Request> {
             let spec = parts.next()?.to_string();
             let path = parts.next().filter(|p| !p.is_empty()).map(str::to_string);
             Some(Request::Show { root, spec, path })
+        }
+        Some("history") => {
+            let root = PathBuf::from(parts.next()?);
+            let title = parts.next()?;
+            let kind = Drawer::ALL
+                .into_iter()
+                .find(|kind| kind.opens_preview() && kind.title() == title)?;
+            let path = parts.next().filter(|p| !p.is_empty()).map(str::to_string);
+            Some(Request::History { root, kind, path })
         }
         Some("file") => Some(Request::File {
             path: PathBuf::from(parts.next()?),
@@ -373,6 +411,7 @@ fn request_payload(request: &Request) -> String {
             .unwrap_or_else(|| file_request(path)),
         Request::Diff { root, rel, kind } => diff_request(root, rel, kind),
         Request::Show { root, spec, path } => show_request(root, spec, path.as_deref()),
+        Request::History { root, kind, path } => history_request(root, *kind, path.as_deref()),
     }
 }
 
@@ -404,6 +443,28 @@ fn load(request: &Request) -> Doc {
         }
         Request::Diff { root, rel, kind } => load_diff(root, rel, kind),
         Request::Show { root, spec, path } => load_show(root, spec, path.as_deref()),
+        Request::History { root, kind, path } => {
+            let text = crate::git::Git::discover(root)
+                .and_then(|git| kind.load(&git, path.as_deref(), 200))
+                .map(|lines| {
+                    if lines.is_empty() {
+                        "(none)".into()
+                    } else {
+                        lines.join("\n")
+                    }
+                })
+                .unwrap_or_else(|error| format!("加载失败：{error}"));
+            let mut doc = git_show(
+                kind.title().into(),
+                path.as_ref()
+                    .map(|path| format!("{} · {path}", root.display()))
+                    .unwrap_or_else(|| root.display().to_string()),
+                &text,
+            );
+            // Graph edges and commit columns must remain aligned.
+            doc.wrap = false;
+            doc
+        }
     }
 }
 
@@ -424,6 +485,7 @@ fn loading_doc(request: &Request) -> Doc {
             root.display().to_string(),
         ),
         Request::Show { root, spec, .. } => (spec.clone(), root.display().to_string()),
+        Request::History { root, kind, .. } => (kind.title().into(), root.display().to_string()),
     };
     Doc {
         name,
@@ -441,6 +503,21 @@ fn loading_doc(request: &Request) -> Doc {
         stamp: None,
         source_text: None,
     }
+}
+
+/// Resolve an entry from the rendered history without re-querying Git on input.
+fn history_show_request(request: &Request, doc: &Doc, source: usize) -> Option<Request> {
+    let Request::History { root, kind, path } = request else {
+        return None;
+    };
+    let line = doc.lines.get(source)?.to_string();
+    let reference = crate::scm::parse_drawer_ref(*kind, &line);
+    let spec = crate::scm::drawer_git_spec(&reference)?;
+    Some(Request::Show {
+        root: root.clone(),
+        spec,
+        path: path.clone(),
+    })
 }
 
 /// Bumped by every fresh document load. A background refresh carries the
@@ -1113,6 +1190,8 @@ pub fn run(control: &Path) -> std::io::Result<()> {
     let mut edit_body = Rect::default();
     let mut prompt: Option<Prompt> = None;
     let mut notice: Option<String> = None;
+    let mut history_return: Option<Request> = None;
+    let mut history_click: Option<(usize, Instant)> = None;
     let mut last_heartbeat = crate::state::unix_now();
     let mut last_external_check = Instant::now();
     let mut last_diff_refresh = Instant::now();
@@ -1125,6 +1204,7 @@ pub fn run(control: &Path) -> std::io::Result<()> {
     let mut copier: Option<ReleaseCopier> = None;
     let mut identity_pending = false;
     let result = loop {
+        let mut navigate = None;
         let loaded =
             preview_load
                 .as_ref()
@@ -1149,12 +1229,21 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         let prompt_text = prompt.as_ref().map(Prompt::text);
         let draw = terminal.draw(|frame| match &mut mode {
             ViewMode::Preview(doc) => {
+                let navigation_hint = match &current {
+                    Some(Request::History { .. }) => {
+                        Some("q 关闭 · ↑↓ 滚动 · Enter 查看顶部提交 · 双击查看提交 · r 刷新")
+                    }
+                    Some(Request::Show { .. }) if history_return.is_some() => {
+                        Some("q 关闭 · Backspace 返回历史列表 · ↑↓ 滚动")
+                    }
+                    _ => None,
+                };
                 (page, preview_body) = draw_doc(
                     frame,
                     doc,
                     theme,
                     matches!(current, Some(Request::File { .. })),
-                    notice.as_deref(),
+                    notice.as_deref().or(navigation_hint),
                 );
             }
             ViewMode::Edit(editor) => {
@@ -1300,6 +1389,17 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                                     && !key.modifiers.contains(KeyModifiers::ALT))
                                     || key.modifiers.contains(KeyModifiers::SUPER);
                                 match key.code {
+                                    KeyCode::Enter => {
+                                        navigate = current.as_ref().and_then(|request| {
+                                            history_show_request(request, doc, doc.top_src())
+                                        });
+                                    }
+                                    KeyCode::Backspace => navigate = history_return.clone(),
+                                    KeyCode::Char('r')
+                                        if matches!(current, Some(Request::History { .. })) =>
+                                    {
+                                        navigate = current.clone();
+                                    }
                                     KeyCode::Char('a') if shortcut => doc.select_all(),
                                     KeyCode::Char('c') if shortcut => {
                                         // Same ordered queue as release copies, so an older
@@ -1429,6 +1529,25 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                 Event::Mouse(mouse) => match &mut mode {
                     ViewMode::Preview(doc) => {
                         let max = doc.rows.len().saturating_sub(1);
+                        if mouse.kind == MouseEventKind::Down(MouseButton::Left)
+                            && matches!(current, Some(Request::History { .. }))
+                            && let Some(position) =
+                                doc.text_position_at(preview_body, mouse.column, mouse.row)
+                            && let Some(row) = doc.rows.get(position.row)
+                        {
+                            let source = row.src;
+                            let now = Instant::now();
+                            let double = history_click.is_some_and(|(previous, at)| {
+                                previous == source
+                                    && now.duration_since(at) < Duration::from_millis(400)
+                            });
+                            history_click = Some((source, now));
+                            if double {
+                                navigate = current
+                                    .as_ref()
+                                    .and_then(|request| history_show_request(request, doc, source));
+                            }
+                        }
                         match mouse.kind {
                             MouseEventKind::ScrollUp => doc.scroll = doc.scroll.saturating_sub(3),
                             MouseEventKind::ScrollDown => doc.scroll = (doc.scroll + 3).min(max),
@@ -1485,6 +1604,32 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         if should_close {
             break Ok(());
         }
+        if let Some(request) = navigate {
+            // Keep the control file in sync so polling cannot undo navigation.
+            match write_scratch_file(control, &request_payload(&request)) {
+                Ok(()) => {
+                    history_return = match (&current, &request) {
+                        (Some(origin @ Request::History { .. }), Request::Show { .. }) => {
+                            Some(origin.clone())
+                        }
+                        (_, Request::History { .. }) => None,
+                        _ => history_return,
+                    };
+                    history_click = None;
+                    apply_pending(
+                        Pending::Switch(request),
+                        &mut mode,
+                        &mut current,
+                        &mut preview_load,
+                        &mut identity_pending,
+                        control,
+                        &mut notice,
+                    );
+                    notice = None;
+                }
+                Err(error) => notice = Some(format!("无法打开历史：{error}")),
+            }
+        }
 
         // These checks run after every iteration, including sustained input;
         // otherwise a held key can starve the liveness heartbeat indefinitely.
@@ -1518,6 +1663,8 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                         break Ok(());
                     }
                 } else {
+                    history_return = None;
+                    history_click = None;
                     mode = ViewMode::Preview(loading_doc(&request));
                     current = Some(request.clone());
                     preview_load = Some(start_preview_load(request));
@@ -2884,6 +3031,120 @@ fn side_neighbor(layout_json: &str, pane_id: &str, on_the_left: bool) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_requests_round_trip_and_keep_repository_and_file_identity() {
+        let root = Path::new("/projects/example repo");
+        let mut keys = std::collections::HashSet::new();
+        for kind in [Drawer::Graph, Drawer::Commits, Drawer::FileHistory] {
+            let path = (kind == Drawer::FileHistory).then_some("src/示例 file.rs");
+            let payload = history_request(root, kind, path);
+            let request = parse_request(&payload).unwrap();
+            assert_eq!(
+                request,
+                Request::History {
+                    root: root.into(),
+                    kind,
+                    path: path.map(str::to_string),
+                }
+            );
+            assert_eq!(request_payload(&request), payload);
+            assert_eq!(request.doc_key(), doc_key_for_history(root, kind, path));
+            assert!(keys.insert(request.doc_key()));
+            assert!(tab_label(&request.doc_key(), false).contains(kind.title()));
+            assert_ne!(
+                request.doc_key(),
+                doc_key_for_history(Path::new("/projects/other"), kind, path)
+            );
+        }
+        assert_ne!(
+            doc_key_for_history(root, Drawer::FileHistory, Some("one.rs")),
+            doc_key_for_history(root, Drawer::FileHistory, Some("two.rs"))
+        );
+        assert!(parse_request("history\t/project\tBranches").is_none());
+    }
+
+    #[test]
+    fn history_preview_reuses_git_queries_and_scopes_commit_details_to_the_file() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args([
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "-c",
+                    "core.hooksPath=.git/no-hooks",
+                ])
+                .args(args)
+                .current_dir(root)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-q"]);
+        std::fs::write(root.join("selected file.txt"), "selected content\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "selected-file-change"]);
+        std::fs::write(root.join("other.txt"), "unrelated content\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "unrelated-file-change"]);
+
+        for kind in [Drawer::Graph, Drawer::Commits, Drawer::FileHistory] {
+            let request = Request::History {
+                root: root.into(),
+                kind,
+                path: (kind == Drawer::FileHistory).then(|| "selected file.txt".into()),
+            };
+            let doc = load(&request);
+            let text = doc.plain_text();
+            assert!(text.contains("selected-file-change"), "{text}");
+            assert_eq!(
+                text.contains("unrelated-file-change"),
+                kind != Drawer::FileHistory
+            );
+            assert!(!doc.wrap, "graph columns must remain aligned");
+            let detail = history_show_request(&request, &doc, 0).unwrap();
+            let Request::Show {
+                root: detail_root,
+                path,
+                ..
+            } = &detail
+            else {
+                panic!()
+            };
+            assert_eq!(detail_root, root);
+            assert_eq!(
+                path.as_deref(),
+                if kind == Drawer::FileHistory {
+                    Some("selected file.txt")
+                } else {
+                    None
+                }
+            );
+            if kind == Drawer::FileHistory {
+                let patch = load(&detail).plain_text();
+                assert!(patch.contains("+selected content"), "{patch}");
+                assert!(!patch.contains("unrelated content"));
+            }
+        }
+        let request = Request::History {
+            root: root.into(),
+            kind: Drawer::FileHistory,
+            path: None,
+        };
+        let doc = load(&request);
+        assert!(doc.plain_text().contains("select a file"));
+        assert!(history_show_request(&request, &doc, 0).is_none());
+    }
     use crossterm::event::MouseEvent;
     use ratatui::style::Color;
 

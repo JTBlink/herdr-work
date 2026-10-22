@@ -24,6 +24,9 @@ class HookProfile(unittest.TestCase):
         self.assertEqual(manifest['id'], 'jtblink.herdr-work')
         self.assertEqual(manifest['panes'][0]['command'], ['bin/herdr-work', 'ui', '--sidebar'])
         self.assertEqual(manifest['panes'][0]['placement'], 'split')
+        board = next(pane for pane in manifest['panes'] if pane['id'] == 'board')
+        self.assertEqual(board['command'], ['bin/herdr-work-projects', 'board'])
+        self.assertEqual(board['placement'], 'tab')
         actions = {action['id']: action['command'] for action in manifest['actions']}
         self.assertEqual(set(actions), {'show-explorer', 'show-search', 'show-git', 'quick-open', 'toggle'})
         for name, command in actions.items():

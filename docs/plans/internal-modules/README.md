@@ -1,6 +1,5 @@
 # HerdrWork 内部模块整合：规格与实施索引
 
-用户已确认来源代码作为产品自身功能长期开发、定制和重构。当前仍是四个产品 crate 与 upstream 来源工程；后续先迁入十一成员过渡 workspace，再整理为九个产品模块。源码迁移尚未实施。
 
 父规格：[17：产品内部模块整合与长期维护](https://github.com/JTBlink/herdr-work/issues/17)。
 

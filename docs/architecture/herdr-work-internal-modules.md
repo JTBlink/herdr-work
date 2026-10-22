@@ -21,10 +21,9 @@ date: 2026-10-19
 | 当前位置 | 当前行为 | 整合时必须处理 |
 | --- | --- | --- |
 | `crates/herdr-work-engine/src/tasks.rs` | 前台任务操作启动后端 CLI，传目录/托管环境并解析 JSON | 迁为产品 Tasks Rust 接口；后台进程保留独立生命周期 |
-| `upstream/herdr-projects/Cargo.toml` | 根 CLI 依赖 `sw-web → sw-board → sw-flow → sw-core`，含独立 workspace/锁文件 | 先迁入现有 package，再切断任务业务对旧看板/Web 的依赖 |
+| `crates/herdr-work-projects`、`crates/herdr-work-task-*` | 原 CLI 库合入 worker，四个底层实现已纳入根 workspace/锁文件；内部沿用 sw 模块别名 | 后续切断任务业务对旧看板/Web 的依赖，整理为 Tasks |
 | Projects core/flow | 含 Ratatui、宿主调用、环境、格式化与业务流程 | 不能将其标成已经纯化的领域模块；分阶段移交 UI 与运行设施 |
 | 来源资源和测试 | 有相对 `include_str!`、`include_bytes!`、`CARGO_MANIFEST_DIR` 与原 CLI fixture | 移动时更新资源定位及测试入口，记录保留/迁移/移除的理由 |
-| 根构建与打包脚本 | 已改为根构建主程序和专属 worker，从根 target 取文件；Projects 作为源码库依赖 | 后续将其余 package 声明一并迁入根 workspace |
 
 ## 最终目录与职责
 

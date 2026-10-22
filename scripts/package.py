@@ -2,12 +2,15 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
+import sys
 import tarfile
 import tempfile
 import zipfile
-from build import ROOT, TARGETS, metadata
+from build import ROOT, TARGETS, metadata, target_dir
+from cleanup import directory_lock, prune_archives
 
 
 def digest(path):
@@ -15,19 +18,59 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def package(target, output, tag=None):
-    info = metadata(target, tag)
-    output = Path(output)
+def package(target, output, tag=None, *, keep_archives=1):
+    if keep_archives < 1:
+        raise ValueError('At least one archive must be retained')
+    output = Path(output).absolute()
     output.mkdir(parents=True, exist_ok=True)
+    with directory_lock(output / '.herdr-work-package.lock'):
+        archive = create_archive(target, output, tag)
+        removed = prune_archives(output, target, keep=keep_archives, apply=True, protect=archive)
+        if removed:
+            print('Archive cleanup: ' + json.dumps(removed), file=sys.stderr)
+        return archive
+
+
+def publish_archive(candidate, output):
+    """Preserve the last valid pair if publishing the new checksum fails."""
+    paths = [output / candidate.name, output / (candidate.name + '.sha256')]
+    backups = []
+    for index, path in enumerate(paths):
+        if path.is_symlink():
+            raise ValueError(f'Refusing symlink archive destination: {path}')
+        backup = candidate.parent / f'previous-{index}'
+        if path.exists():
+            shutil.copy2(path, backup)
+            backups.append(backup)
+        else:
+            backups.append(None)
+    changed = []
+    try:
+        for path in paths:
+            os.replace(candidate.parent / path.name, path)
+            changed.append(path)
+    except BaseException:
+        for path, backup in zip(paths, backups):
+            if path in changed:
+                if backup is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    os.replace(backup, path)
+        raise
+    return paths[0]
+
+
+def create_archive(target, output, tag=None):
+    info = metadata(target, tag)
     suffix = '.exe' if 'windows' in target else ''
-    binaries = {'herdr-work': ROOT / f'target/{target}/release/herdr-work{suffix}'}
+    binaries = {'herdr-work': target_dir(ROOT) / target / 'release' / f'herdr-work{suffix}'}
     if info['projects_backend']:
-        binaries['herdr-work-projects'] = ROOT / f'target/{target}/release/herdr-work-projects'
+        binaries['herdr-work-projects'] = target_dir(ROOT) / target / 'release' / 'herdr-work-projects'
     for path in binaries.values():
         if not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f'Compiled binary missing: {path}')
     name = f'herdr-work-{info["version"]}-{target}'
-    with tempfile.TemporaryDirectory(prefix='herdr-work-package-') as temp:
+    with tempfile.TemporaryDirectory(prefix='.herdr-work-package-', dir=output) as temp:
         stage = Path(temp) / name
         (stage / 'bin').mkdir(parents=True)
         for label, source in binaries.items():
@@ -41,10 +84,14 @@ def package(target, output, tag=None):
         shutil.copy2(ROOT / 'LICENSE', stage / 'LICENSE')
         shutil.copy2(ROOT / 'CHANGELOG.md', stage / 'CHANGELOG.md')
         (stage / 'licenses').mkdir()
-            shutil.copy2((ROOT / 'crates/herdr-work-code/LICENSE' if label == 'herdr-sidebar' else ROOT / f'upstream/{label}/LICENSE'), stage / f'licenses/{label}.txt')
+        for label, source in {
+            'herdr-projects': 'crates/herdr-work-projects/LICENSE',
+            'herdr-sidebar': 'crates/herdr-work-code/LICENSE',
+        }.items():
+            shutil.copy2(ROOT / source, stage / f'licenses/{label}.txt')
         info['files'] = {p.relative_to(stage).as_posix(): digest(p) for p in sorted(stage.rglob('*')) if p.is_file()}
         (stage / 'MANIFEST.json').write_text(json.dumps(info, indent=2) + '\n')
-        archive = output / (name + ('.zip' if suffix else '.tar.gz'))
+        archive = Path(temp) / (name + ('.zip' if suffix else '.tar.gz'))
         if suffix:
             with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as z:
                 for path in sorted(stage.rglob('*')):
@@ -52,9 +99,9 @@ def package(target, output, tag=None):
         else:
             with tarfile.open(archive, 'w:gz') as tar:
                 tar.add(stage, arcname=name)
-    archive.with_name(archive.name + '.sha256').write_text(f'{digest(archive)}  {archive.name}\n')
-    verify(archive)
-    return archive
+        archive.with_name(archive.name + '.sha256').write_text(f'{digest(archive)}  {archive.name}\n')
+        verify(archive)
+        return publish_archive(archive, output)
 
 
 def verify(archive):
@@ -95,9 +142,9 @@ def verify(archive):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action', required=True)
-    p = sub.add_parser('create'); p.add_argument('--target', required=True, choices=TARGETS); p.add_argument('--output', default='dist'); p.add_argument('--tag')
+    p = sub.add_parser('create'); p.add_argument('--target', required=True, choices=TARGETS); p.add_argument('--output', default='dist'); p.add_argument('--tag'); p.add_argument('--keep-archives', type=int, default=1)
     p = sub.add_parser('verify'); p.add_argument('archives', nargs='+')
     args = parser.parse_args()
-    if args.action == 'create': print(package(args.target, args.output, args.tag))
+    if args.action == 'create': print(package(args.target, args.output, args.tag, keep_archives=args.keep_archives))
     else:
         for archive in args.archives: print(json.dumps(verify(archive), indent=2))

@@ -1,10 +1,12 @@
-"""Build HerdrWork and its original Projects backend with explicit locked inputs."""
+"""Build both HerdrWork product binaries from the root workspace with locked inputs."""
 import argparse
 import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tomllib
+from cleanup import clean_caches
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = {
@@ -32,12 +34,22 @@ def metadata(target, tag=None):
             'projects_backend': TARGETS[target]['backend'],
             'windows_limitation': None if TARGETS[target]['backend'] else 'Native files/Git/review UI; Projects execution backend is Unix-only'}
 
+def target_dir(root=None):
+    root = ROOT if root is None else root
+    path = Path(os.environ.get('CARGO_TARGET_DIR', root / 'target')).expanduser()
+    return path if path.is_absolute() else root / path
+
+
 def build(target, tag=None):
     info = metadata(target, tag)
-    subprocess.run(['cargo', 'build', '--release', '--locked', '--target', target, '-p', 'herdr-work', '--bin', 'herdr-work'], cwd=ROOT, check=True)
+    cleanup = clean_caches(ROOT, apply=True)
+    if cleanup['items'] or cleanup['busy']:
+        print('Build cache cleanup: ' + json.dumps(cleanup), file=sys.stderr)
+    command = ['cargo', 'build', '--release', '--locked', '--target', target,
+               '--target-dir', str(target_dir()), '-p', 'herdr-work', '--bin', 'herdr-work']
     if info['projects_backend']:
-        subprocess.run(['cargo', 'build', '--release', '--locked', '--target', target,
-                        '-p', 'herdr-work-projects', '--bin', 'herdr-work-projects'], cwd=ROOT, check=True)
+        command += ['-p', 'herdr-work-projects', '--bin', 'herdr-work-projects']
+    subprocess.run(command, cwd=ROOT, check=True)
     return info
 
 if __name__ == '__main__':

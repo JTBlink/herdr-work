@@ -27,6 +27,7 @@ pub struct Sidebar {
     last_tick: Instant,
     roots: crate::root_memory::RootMemory,
     last_title: Option<&'static str>,
+    projects_requested: bool,
 }
 impl Sidebar {
     pub fn new(root: PathBuf, initial: Option<InitialView>) -> Self {
@@ -58,6 +59,7 @@ impl Sidebar {
             last_tick: Instant::now(),
             roots,
             last_title: None,
+            projects_requested: false,
         };
         sidebar.refresh_title();
         sidebar
@@ -137,6 +139,9 @@ impl Sidebar {
         self.refresh_title();
         true
     }
+    pub fn take_projects_request(&mut self) -> bool {
+        std::mem::take(&mut self.projects_requested)
+    }
     pub fn event(&mut self, event: Event) -> bool {
         let exit = match (&mut self.app, event) {
             (ViewApp::Explorer(app), Event::Key(key)) => app.on_key(key),
@@ -160,6 +165,10 @@ impl Sidebar {
         {
             return false;
         }
+        if exit == Exit::Projects {
+            self.projects_requested = true;
+            return false;
+        }
         if exit == Exit::Quit {
             match &self.app {
                 ViewApp::Explorer(app) => app.clear_identity(),
@@ -177,7 +186,7 @@ impl Sidebar {
             }
             Exit::Search { .. } => InitialView::Search,
             Exit::QuickOpen => InitialView::QuickOpen,
-            Exit::Quit => unreachable!(),
+            Exit::Quit | Exit::Projects => unreachable!(),
         };
         let focus_query = matches!(exit, Exit::Search { focus_query: true });
         self.app = Self::build(self.root(), target, Rc::clone(&self.follower));

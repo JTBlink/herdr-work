@@ -37,7 +37,7 @@ Windows 使用 `python install.py --prefix "$env:LOCALAPPDATA/HerdrWork"`，运�
 
 设置中的“文件打开方式”可选择“VS Code”：单击文件、Enter、Quick Open 和搜索结果均交给 VS Code，搜索结果保留行号；文件或目录右键菜单也提供“通过 VS Code 打开”。Git 差异和历史继续使用内置查看器。macOS 优先使用 `code` 命令，并支持标准 Applications 目录下的 VS Code；启动失败显示提示。
 
-Explorer 和 Git 的设置面板在“文件打开方式”下一行提供“通过 VS Code 打开”入口，点击即可打开当前项目目录，无需修改默认文件打开方式。
+Explorer 和 Git 的设置面板在列表第一项提供“通过 VS Code 打开”入口，点击即可打开当前项目目录，无需修改默认文件打开方式。底部临时提示显示 3 秒后自动消失。
 
 设置中的“配置范围”标明“仅 HerdrWork”。自动打开、聚焦、预览、跟随目录、主题等开关均保存在当前 HerdrWork 资料目录中，不读取或修改独立 Sidebar 的配置；独立 Sidebar 仍可能按它自己的设置自动启动。
 
@@ -83,6 +83,8 @@ python3 -m unittest discover -s scripts/tests -v
 python3 scripts/package.py create --target aarch64-apple-darwin
 python3 scripts/smoke.py --archives dist
 ```
+
+编译前自动清理超过 7 天的增量缓存，打包验证成功后同平台默认只保留最新一份归档。清理范围、预览命令和保留数量见[构建与产物清理](docs/build-and-cleanup.md)。
 
 真实双插件共存验证见 [Sidebar 共存验证](docs/verification/sidebar-coexistence.md)。测试复制 Sidebar 程序到临时目录，用独立配置和宿主会话运行双方自动事件，不修改已安装插件或现有窗格。
 

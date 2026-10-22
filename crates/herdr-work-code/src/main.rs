@@ -287,6 +287,9 @@ fn main() -> std::io::Result<()> {
                 publish_pending(&roots);
                 break Ok(());
             }
+            Ok(Exit::Projects) => {
+                eprintln!("Projects 入口请使用 herdr-work ui --sidebar");
+            }
             Ok(Exit::Switch) => {
                 view = view.other();
             }

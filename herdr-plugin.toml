@@ -14,6 +14,12 @@ title = "HerdrWork"
 placement = "split"
 command = ["bin/herdr-work", "ui", "--sidebar"]
 
+[[panes]]
+id = "board"
+title = "HerdrWork Projects"
+placement = "tab"
+command = ["bin/herdr-work-projects", "board"]
+
 [[startup]]
 command = ["python3", "scripts/hook.py"]
 

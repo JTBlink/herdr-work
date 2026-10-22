@@ -2,6 +2,7 @@
 //! nested indentation, per-file-type icons, and a VS Code-like hide/show command
 //! (`b`) when the user wants the columns back.
 
+use herdr_work_code::notice::Notice;
 #[cfg(all(test, feature = "reference-ui"))]
 use herdr_work_code::ui::status_color;
 use std::collections::HashMap;
@@ -332,8 +333,8 @@ pub struct App {
     /// from the Search view, restored with its query when the modal closes so
     /// the panel doesn't silently drop back to the tree.
     suspended_search: Option<Overlay>,
-    /// Transient status/error line shown in the footer until the next action.
-    notice: Option<String>,
+    /// Transient status/error line, cleared on input or after three seconds.
+    notice: Notice<String>,
     vscode_open: herdr_work_code::vscode::Launcher,
     // Merged-sidebar state.
     sidebar_state: sidebar::State,
@@ -407,7 +408,7 @@ struct ActivityZones {
     explorer: (u16, u16),
     search: (u16, u16),
     source_control: (u16, u16),
-    vscode: Rect,
+    projects: Rect,
 }
 
 impl Default for ActivityZones {
@@ -418,7 +419,7 @@ impl Default for ActivityZones {
             explorer: (0, 0),
             search: (0, 0),
             source_control: (0, 0),
-            vscode: Rect::default(),
+            projects: Rect::default(),
         }
     }
 }
@@ -448,7 +449,7 @@ impl App {
         )
     }
     pub fn host_notice(&mut self, message: String) {
-        self.notice = Some(message);
+        self.notice = Notice::new(message);
     }
 
     pub fn new(
@@ -495,7 +496,7 @@ impl App {
             body: BodyGeom::default(),
             overlay: None,
             suspended_search: None,
-            notice: None,
+            notice: Default::default(),
             vscode_open: Default::default(),
             sidebar_state,
             other_exe,
@@ -792,7 +793,7 @@ impl App {
                 state.active = MY_VIEW;
             });
             self.apply_identity();
-            self.notice = Some("Source Control stayed open; unified mode cancelled".into());
+            self.notice = Notice::new("Source Control stayed open; unified mode cancelled".into());
         }
         false
     }
@@ -878,7 +879,7 @@ impl App {
 
     fn open_builtin_preview_at(&mut self, path: &Path, line: Option<usize>) {
         let Some(pane_id) = self.pane_ctl.as_ref().map(|c| c.pane_id.clone()) else {
-            self.notice = Some("preview needs a herdr pane".into());
+            self.notice = Notice::new("preview needs a herdr pane".into());
             return;
         };
         let payload = line
@@ -894,7 +895,7 @@ impl App {
             // Remember where it landed: a double click pins THIS tab rather
             // than re-opening, which would race the viewer's first stamp.
             Ok(target) => self.last_preview = Some((doc_key, target)),
-            Err(e) => self.notice = Some(e),
+            Err(e) => self.notice = Notice::new(e),
         }
     }
 
@@ -914,19 +915,19 @@ impl App {
             let tab = match herdr_work_code::ipc::call_text("pane.list", serde_json::json!({})) {
                 Ok(json) => herdr_work_code::launch::tab_of(&json, &ctl.pane_id),
                 Err(e) => {
-                    self.notice = Some(format!("hide failed: {e}"));
+                    self.notice = Notice::new(format!("hide failed: {e}"));
                     return;
                 }
             };
             if tab.is_empty() {
-                self.notice = Some("hide failed: could not resolve this tab".into());
+                self.notice = Notice::new("hide failed: could not resolve this tab".into());
                 return;
             }
             // Set the marker BEFORE closing: if it fails, closing anyway
             // would let the very next focus event re-dock a sidebar the
             // user just asked to hide.
             if let Err(e) = herdr_work_code::snooze::set(&herdr_work_code::snooze::dir(), &tab) {
-                self.notice = Some(format!("hide failed: {e}"));
+                self.notice = Notice::new(format!("hide failed: {e}"));
                 return;
             }
         }
@@ -965,7 +966,7 @@ impl App {
                         state.active = MY_VIEW;
                     });
                     self.apply_identity();
-                    self.notice = Some(format!("unified mode cancelled: {error}"));
+                    self.notice = Notice::new(format!("unified mode cancelled: {error}"));
                 }
             }
         } else {
@@ -1110,6 +1111,12 @@ impl App {
         // Search — so the keys stay a switcher until you deliberately focus the
         // box (Ctrl+F / Tab / click); a focused box captures digits as text so
         // "3" is searchable. The tree's own bare 1/2/3 are handled further down.
+        if key.code == KeyCode::Char('4')
+            && key.modifiers == KeyModifiers::CONTROL
+            && matches!(self.overlay, None | Some(Overlay::ContentSearch { .. }))
+        {
+            return Some(Exit::Projects);
+        }
         let injected_view = match key.code {
             KeyCode::F(9) => Some('1'),
             KeyCode::F(10) => Some('2'),
@@ -1151,7 +1158,7 @@ impl App {
                 };
             }
         }
-        self.notice = None;
+        self.notice = Default::default();
         if self.overlay.is_some() {
             if matches!(self.overlay, Some(Overlay::ContentSearch { .. }))
                 && matches!(
@@ -1211,9 +1218,8 @@ impl App {
         if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
             let zones = self.activity;
             if self.merged() {
-                if hits(zones.vscode, mouse.column, mouse.row) {
-                    self.open_vscode(&self.tree.root_path(), None);
-                    return None;
+                if hits(zones.projects, mouse.column, mouse.row) {
+                    return Some(Exit::Projects);
                 }
                 if hits_activity_button(zones.explorer, zones.row, mouse.column, mouse.row) {
                     self.overlay = None;
@@ -1319,7 +1325,7 @@ impl App {
                     match self.last_preview.as_ref() {
                         Some((key, target)) if *key == doc_key => {
                             if !herdr_work_code::viewer::pin_target(target, &doc_key) {
-                                self.notice = Some(
+                                self.notice = Notice::new(
                                     "preview switch blocked; resolve unsaved changes in its tab"
                                         .into(),
                                 );
@@ -1333,7 +1339,7 @@ impl App {
                 }
             }
             MouseEventKind::Down(MouseButton::Right) => {
-                self.notice = None;
+                self.notice = Default::default();
                 self.open_context_menu(mouse.column, mouse.row);
             }
             _ => {}
@@ -1792,7 +1798,7 @@ impl App {
                 self.overlay = None;
                 match actions::delete(&path, is_dir) {
                     Ok(()) => self.refresh_tree(),
-                    Err(err) => self.notice = Some(format!("delete failed: {err}")),
+                    Err(err) => self.notice = Notice::new(format!("delete failed: {err}")),
                 }
             }
             Cmd::Picker(action) => self.handle_picker_action(action),
@@ -1926,7 +1932,7 @@ impl App {
                 self.suspend_search_for_modal();
                 self.overlay = Some(Overlay::BranchPicker(picker));
             }
-            Err(error) => self.notice = Some(error),
+            Err(error) => self.notice = Notice::new(error),
         }
     }
 
@@ -1941,10 +1947,10 @@ impl App {
                 };
                 match picker.git.checkout_branch(&branch) {
                     Ok(()) => {
-                        self.notice = Some(format!("switched to {}", branch.name));
+                        self.notice = Notice::new(format!("switched to {}", branch.name));
                         self.refresh_tree();
                     }
-                    Err(error) => self.notice = Some(error),
+                    Err(error) => self.notice = Notice::new(error),
                 }
                 self.overlay = self.suspended_search.take();
             }
@@ -1954,10 +1960,10 @@ impl App {
                 };
                 match picker.git.create_branch(&name) {
                     Ok(()) => {
-                        self.notice = Some(format!("created {name}"));
+                        self.notice = Notice::new(format!("created {name}"));
                         self.refresh_tree();
                     }
-                    Err(error) => self.notice = Some(error),
+                    Err(error) => self.notice = Notice::new(error),
                 }
                 self.overlay = self.suspended_search.take();
             }
@@ -1972,7 +1978,7 @@ impl App {
             return;
         };
         if !status.has_upstream {
-            self.notice = Some("no upstream to sync with".into());
+            self.notice = Notice::new("no upstream to sync with".into());
             return;
         }
         let Some(git) = self.repos.first().cloned() else {
@@ -1990,16 +1996,16 @@ impl App {
         match rx.try_recv() {
             Ok(Ok(summary)) => {
                 self.git_syncing = None;
-                self.notice = Some(summary);
+                self.notice = Notice::new(summary);
                 self.request_decorations(true);
             }
             Ok(Err(error)) => {
                 self.git_syncing = None;
-                self.notice = Some(error);
+                self.notice = Notice::new(error);
             }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                 self.git_syncing = None;
-                self.notice = Some("sync failed".into());
+                self.notice = Notice::new("sync failed".into());
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
         }
@@ -2440,7 +2446,7 @@ impl App {
 
     fn open_vscode(&mut self, path: &Path, line: Option<usize>) {
         let started = self.vscode_open.start(&self.tree.root_path(), path, line);
-        self.notice = Some(
+        self.notice = Notice::new(
             if started {
                 "正在通过 VS Code 打开…"
             } else {
@@ -2452,7 +2458,7 @@ impl App {
 
     fn collect_vscode_open(&mut self) {
         if let Some(result) = self.vscode_open.poll(&self.tree.root_path()) {
-            self.notice = Some(match result {
+            self.notice = Notice::new(match result {
                 Ok(()) => "已通过 VS Code 打开".into(),
                 Err(error) => format!("VS Code 打开失败：{error}"),
             });
@@ -2465,14 +2471,14 @@ impl App {
             .as_ref()
             .map(|control| control.pane_id.clone())
         else {
-            self.notice = Some("custom editor needs a herdr pane".into());
+            self.notice = Notice::new("custom editor needs a herdr pane".into());
             return;
         };
         let name = path
             .file_name()
             .unwrap_or(path.as_os_str())
             .to_string_lossy();
-        self.notice = Some(
+        self.notice = Notice::new(
             match actions::open_in_editor_tab(&pane_id, &self.tree.root_path(), path) {
                 Ok(()) => format!("opened in custom editor: {name}"),
                 Err(error) => format!("custom editor failed: {error}"),
@@ -2485,6 +2491,12 @@ impl App {
         #[cfg(feature = "reference-ui")]
         let update = herdr_work_code::updates::row();
         vec![
+            (
+                Setting::OpenVsCode,
+                "Open in VS Code",
+                self.tree.root_name(),
+                true,
+            ),
             (
                 Setting::Scope,
                 "Settings scope",
@@ -2542,12 +2554,6 @@ impl App {
                 Setting::PreviewPlacement,
                 "Preview opens in",
                 self.sidebar_state.preview_placement.label().to_string(),
-                true,
-            ),
-            (
-                Setting::OpenVsCode,
-                "Open in VS Code",
-                self.tree.root_name(),
                 true,
             ),
             (
@@ -2683,7 +2689,7 @@ impl App {
             Setting::Version | Setting::Scope => {}
             #[cfg(feature = "reference-ui")]
             Setting::Update => {
-                self.notice = Some(
+                self.notice = Notice::new(
                     herdr_work_code::updates::activate()
                         .map(|_| "Update requested".into())
                         .unwrap_or_else(|error| error),
@@ -2931,7 +2937,7 @@ impl App {
                         .display()
                         .to_string()
                 };
-                self.notice = Some(match actions::copy_to_clipboard(&text) {
+                self.notice = Notice::new(match actions::copy_to_clipboard(&text) {
                     Ok(actions::ClipboardWrite::Native) => format!("已复制路径：{text}"),
                     Ok(actions::ClipboardWrite::Osc52Unacknowledged) => {
                         format!("已发送到终端剪贴板：{text}")
@@ -2961,7 +2967,7 @@ impl App {
                     .file_name()
                     .unwrap_or(path.as_os_str())
                     .to_string_lossy();
-                self.notice = Some(match actions::open_external(&path) {
+                self.notice = Notice::new(match actions::open_external(&path) {
                     Ok(()) => format!("opened: {name}"),
                     Err(err) => format!("open failed: {err}"),
                 });
@@ -2993,7 +2999,7 @@ impl App {
             let _ = tx.send(actions::pick_folder(&start));
         });
         self.picking = Some(rx);
-        self.notice = Some("folder picker open… (check your other windows)".into());
+        self.notice = Notice::new("folder picker open… (check your other windows)".into());
     }
 
     /// No native dialogs here — fall back to the typed prompt.
@@ -3012,7 +3018,7 @@ impl App {
             }
             Ok(None) => {
                 self.picking = None;
-                self.notice = None;
+                self.notice = Default::default();
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
             Err(_) => self.picking = None,
@@ -3038,7 +3044,7 @@ impl App {
     fn change_folder_impl(&mut self, raw: &str, manual: bool) {
         let raw = raw.trim();
         if raw.is_empty() {
-            self.notice = Some("empty path".into());
+            self.notice = Notice::new("empty path".into());
             return;
         }
         let expanded = match raw.strip_prefix('~') {
@@ -3057,7 +3063,7 @@ impl App {
             target
         };
         if !target.is_dir() || std::env::set_current_dir(&target).is_err() {
-            self.notice = Some(format!("not a folder: {raw}"));
+            self.notice = Notice::new(format!("not a folder: {raw}"));
             return;
         }
         let root = std::env::current_dir().unwrap_or(target);
@@ -3069,7 +3075,7 @@ impl App {
         // Only confirm an explicit folder change; an automatic cwd-follow
         // re-root must not pop an unprompted "folder: …" notice.
         if manual {
-            self.notice = Some(format!("folder: {}", self.tree.root_name()));
+            self.notice = Notice::new(format!("folder: {}", self.tree.root_name()));
         }
     }
 
@@ -3084,14 +3090,15 @@ impl App {
         }
         if matches!(kind, PromptKind::CustomEditor) {
             if sidebar::save_editor_command(&input) {
-                self.notice = Some("custom editor saved; Enter still previews files".into());
+                self.notice = Notice::new("custom editor saved; Enter still previews files".into());
             } else {
-                self.notice = Some("custom editor command must be one non-empty line".into());
+                self.notice =
+                    Notice::new("custom editor command must be one non-empty line".into());
             }
             return;
         }
         let Some(name) = actions::validate_name(&input) else {
-            self.notice = Some("invalid name".into());
+            self.notice = Notice::new("invalid name".into());
             return;
         };
         let result = match &kind {
@@ -3111,7 +3118,7 @@ impl App {
                     self.select(index);
                 }
             }
-            Err(err) => self.notice = Some(format!("failed: {err}")),
+            Err(err) => self.notice = Notice::new(format!("failed: {err}")),
         }
     }
 
@@ -3129,7 +3136,7 @@ impl App {
             .unwrap_or_else(|| path.display().to_string());
         let result = Git::owner_of(path)
             .and_then(|repo| repo.stage_under(path).map(|done| (done, repo.name())));
-        self.notice = Some(match result {
+        self.notice = Notice::new(match result {
             // A stage that skipped everything needs saying WHY, or the
             // boundary rule reads as a silent no-op.
             Ok((done, _)) if done.count == 0 && done.skipped_nested > 0 => format!(
@@ -3535,7 +3542,7 @@ impl App {
         if let Some(pane_id) = self.pane_ctl.as_ref().map(|c| c.pane_id.clone())
             && let Some(notice) = herdr_work_code::viewer::close_in_tab(&pane_id)
         {
-            self.notice = Some(notice);
+            self.notice = Notice::new(notice);
         }
     }
 
@@ -3584,7 +3591,7 @@ impl App {
     /// The uniform-style footer message, if one is active: a notice, or the
     /// delete confirm. Shared by footer_height and draw so they agree.
     fn footer_message(&self) -> Option<(String, Color)> {
-        if let Some(notice) = &self.notice {
+        if let Some(notice) = self.notice.as_ref() {
             return Some((notice.clone(), palette().modified));
         }
         if let Some(Overlay::ConfirmDelete { path, .. }) = &self.overlay {
@@ -3640,7 +3647,7 @@ impl App {
             explorer: bounds[1],
             search: bounds[3],
             source_control: bounds[5],
-            vscode: Rect::default(),
+            projects: Rect::default(),
         };
         let hovered = |bounds| {
             self.mouse_pos
@@ -3697,7 +3704,7 @@ impl App {
         line.push(Span::raw(" ".repeat(pad)));
         line.push(gear);
         frame.render_widget(Paragraph::new(Line::from(line)), area);
-        self.activity.vscode = herdr_work_code::ui::draw_vscode_button(
+        self.activity.projects = herdr_work_code::ui::draw_projects_button(
             frame,
             area,
             x,

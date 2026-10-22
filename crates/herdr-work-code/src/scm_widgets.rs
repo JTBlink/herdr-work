@@ -213,7 +213,7 @@ pub fn message_box_item(
     );
 
     let mut lines = vec![Line::from(Span::styled(format!("┌{horizontal}┐"), border))];
-    if message.is_empty() && !focused {
+    if message.is_empty() {
         let placeholder = message_placeholder(branch, field);
         let pad = field.saturating_sub(Span::raw(placeholder.as_str()).width());
         lines.push(Line::from(vec![
@@ -348,6 +348,26 @@ pub fn message_box_height(message: &[char], cursor: usize, width: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn empty_repo_input_keeps_its_placeholder_when_focused() {
+        use ratatui::{Terminal, backend::TestBackend, widgets::List};
+        for theme in [IconTheme::Emoji, IconTheme::Material] {
+            let mut terminal = Terminal::new(TestBackend::new(28, 3)).unwrap();
+            terminal
+                .draw(|frame| {
+                    frame.render_widget(
+                        List::new([message_box_item(&[], 0, "main", true, theme, 28)]),
+                        frame.area(),
+                    );
+                })
+                .unwrap();
+            let line = terminal.backend().buffer().content[28..56]
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(line.contains("Message"));
+        }
+    }
     #[test]
     fn message_wrap_uses_display_columns_for_chinese_and_pasted_newlines() {
         let message = "修复布局a\n保存".chars().collect::<Vec<_>>();

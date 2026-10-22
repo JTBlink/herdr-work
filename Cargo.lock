@@ -1181,16 +1181,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "herdr-projects"
-version = "1.2.2"
-dependencies = [
- "regex",
- "serde_json",
- "sw-web",
- "toml 0.9.12+spec-1.1.0",
-]
-
-[[package]]
 version = "0.46.0"
 dependencies = [
  "anyhow",
@@ -1288,9 +1278,77 @@ dependencies = [
 name = "herdr-work-projects"
 version = "0.1.6"
 dependencies = [
- "herdr-projects",
+ "chrono",
+ "crossterm",
+ "fancy-regex 0.14.0",
+ "herdr-work-task-web",
+ "libc",
+ "ratatui",
+ "regex",
  "serde_json",
  "tempfile",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "herdr-work-task-board"
+version = "0.1.6"
+dependencies = [
+ "crossterm",
+ "herdr-work-task-flow",
+ "libc",
+ "ratatui",
+ "regex",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "herdr-work-task-data"
+version = "0.1.6"
+dependencies = [
+ "chrono",
+ "crossterm",
+ "fancy-regex 0.14.0",
+ "libc",
+ "ratatui",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha1_smol",
+ "toml 0.9.12+spec-1.1.0",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
+name = "herdr-work-task-flow"
+version = "0.1.6"
+dependencies = [
+ "chrono",
+ "herdr-work-task-data",
+ "libc",
+ "ratatui",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha1_smol",
+ "toml 0.9.12+spec-1.1.0",
+ "unicode-segmentation",
+ "yaml-rust2",
+]
+
+[[package]]
+name = "herdr-work-task-web"
+version = "0.1.6"
+dependencies = [
+ "chrono",
+ "herdr-work-task-board",
+ "herdr-work-task-flow",
+ "libc",
+ "regex",
+ "serde_json",
+ "sha1_smol",
 ]
 
 [[package]]
@@ -2922,67 +2980,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "sw-board"
-version = "1.2.2"
-dependencies = [
- "crossterm",
- "libc",
- "ratatui",
- "regex",
- "serde_json",
- "sw-flow",
- "unicode-segmentation",
-]
-
-[[package]]
-name = "sw-core"
-version = "1.2.2"
-dependencies = [
- "chrono",
- "crossterm",
- "fancy-regex 0.14.0",
- "libc",
- "ratatui",
- "regex",
- "serde",
- "serde_json",
- "sha1_smol",
- "toml 0.9.12+spec-1.1.0",
- "unicode-segmentation",
- "unicode-width",
-]
-
-[[package]]
-name = "sw-flow"
-version = "1.2.2"
-dependencies = [
- "chrono",
- "libc",
- "ratatui",
- "regex",
- "serde",
- "serde_json",
- "sha1_smol",
- "sw-core",
- "toml 0.9.12+spec-1.1.0",
- "unicode-segmentation",
- "yaml-rust2",
-]
-
-[[package]]
-name = "sw-web"
-version = "1.2.2"
-dependencies = [
- "chrono",
- "libc",
- "regex",
- "serde_json",
- "sha1_smol",
- "sw-board",
- "sw-flow",
 ]
 
 [[package]]
