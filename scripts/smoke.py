@@ -108,6 +108,8 @@ def smoke(archive):
             projects_smoke(binary, prefix / 'bin' / 'herdr-work-projects', profile, root)
             subprocess.run([sys.executable, str(Path(__file__).parent / 'tests/projects_entry_fixture.py'),
                             str(binary)], check=True, timeout=60)
+            subprocess.run([sys.executable, str(Path(__file__).parent / 'tests/board_runtime_fixture.py'),
+                            str(prefix / 'bin' / 'herdr-work-projects')], check=True, timeout=30)
         ui_smoke(binary)
         if os.name != 'nt':
             subprocess.run([sys.executable, str(Path(__file__).parent / 'tests/viewer_close_fixture.py'),

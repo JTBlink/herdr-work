@@ -68,13 +68,17 @@ pub fn quick_data(cwd: &str) -> Data {
     }
 }
 pub fn prepare(folder: &std::path::Path) -> (State, Theme, Option<(String, String)>) {
-    crate::runner::user_env(); // the popup starts with herdr's server environment: helpers and git need the user's PATH
+    let managed = crate::store::files::herdr_work_managed();
+    if managed {
+        crate::login_env::cached_user_path();
+    } else {
+        crate::runner::user_env();
+    }
     // herdr's theme. The terminal is asked for its own text and background colours (the greys are made readable on
     // them), and answers while the tasks are read.
     let asked = term::ask_colours();
     crate::keeper::ensure_keeper(); // the board opening is one of the keeper's starters
     crate::flow::send::shim(); // the launcher in the data folder, there from the first time the board opens
-    let managed = crate::store::files::herdr_work_managed();
     if !managed {
         let _ = crate::extras::sync_skill();
         crate::extras::remove_popups();

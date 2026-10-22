@@ -32,3 +32,15 @@ git diff --check
 Code/Engine 严格 Clippy 通过。Board 的 Clippy 被未修改的 `src/board/textbox/mod.rs:298` 既有 `almost_swapped` 错误阻断，另有来源代码警告，未记为通过。默认并发全量测试曾在既有布局锁测试中出现一次失败，单独重跑通过，串行复核用于规避该并发干扰。
 
 本次未执行 Linux/Windows 原生交互、发布归档安装或真实宿主窗口手工验收。
+
+## 实际入口与打开延迟复核
+
+后续现场检查发现，宿主使用仓库 `bin/` 下的 0.1.6 程序，源码修改后的 debug 构建未替换实际入口。因此先前组件与 debug 检查不能证明正在使用的看板已更新。
+
+真实后端 PTY 进一步复现：首屏前的 `user_env()` 同步运行登录 shell；使用延迟 2 秒的测试 shell 时首屏约 2.6 秒。managed 看板改为只合并缓存与继承的 PATH，不启动登录 shell，也不设置 `HERDR_PROJECTS_ENV_OK`，后台执行流程仍可正常恢复登录环境。
+
+```sh
+python3 scripts/tests/board_runtime_fixture.py target/debug/herdr-work-projects
+```
+
+该回归脚本在全新缓存和含凭据名称的已有缓存两种场景下启动实际程序，检查登录 shell 未被调用、关闭按钮可见、首屏及时出现、输入响应、点击关闭及草稿保存。交付时须通过原有原子安装器更新仓库 `bin/`，并再次对 `bin/herdr-work-projects` 执行同一回归脚本和版本检查。修复后 debug 实测首屏约 280 毫秒，输入约 2 毫秒。此脚本也接入归档安装 smoke，避免仅验证组件而遗漏实际入口。
