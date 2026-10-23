@@ -3,6 +3,20 @@
 use crate::ui::truncate_to;
 use ratatui::text::Span;
 
+pub fn close_button(area: ratatui::layout::Rect) -> ratatui::layout::Rect {
+    if area.width < 4 || area.height == 0 {
+        return ratatui::layout::Rect::default();
+    }
+    ratatui::layout::Rect::new(area.right() - 4, area.y, 3, 1)
+}
+
+pub fn draw_close(frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+    frame.render_widget(
+        ratatui::widgets::Paragraph::new(" × ").style(crate::ui::chrome_button_style(false)),
+        close_button(area),
+    );
+}
+
 pub fn text(value: &str) -> &str {
     match value {
         "HerdrWork version" => "HerdrWork 版本",

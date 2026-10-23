@@ -1837,6 +1837,12 @@ impl App {
                         .then_some(index)
                 };
                 match mouse.kind {
+                    MouseEventKind::Down(MouseButton::Left)
+                        if crate::settings_view::close_button(*rect)
+                            .contains((mouse.column, mouse.row).into()) =>
+                    {
+                        Cmd::Close
+                    }
                     MouseEventKind::Moved => {
                         if let Some(i) = row_at(mouse.row, mouse.column) {
                             *selected = i;
@@ -2802,7 +2808,7 @@ impl App {
         }
     }
 
-    /// Render the centered Settings popup and remember its rect for clicks.
+    /// Render Settings across the whole sidebar and remember its rect for clicks.
     fn draw_settings(&mut self, frame: &mut Frame) {
         let rows = self
             .settings_rows()
@@ -2813,15 +2819,7 @@ impl App {
             })
             .collect::<Vec<_>>();
         let area = frame.area();
-        let desired_width = rows
-            .iter()
-            .map(|(_, label, value, _)| {
-                Span::raw(label.as_str()).width() + Span::raw(value.as_str()).width() + 5
-            })
-            .max()
-            .unwrap_or(30)
-            .max(30) as u16;
-        let width = desired_width.min(area.width);
+        let width = area.width;
         // The hotkey reference lives here now; the footer chips are opt-in.
         let hints = self.hints();
         let hints = hints
@@ -2837,13 +2835,8 @@ impl App {
         else {
             return;
         };
-        let height = (rows.len() as u16 + 5 + hint_lines.len() as u16).min(area.height);
-        let popup = Rect::new(
-            (area.width.saturating_sub(width)) / 2,
-            (area.height.saturating_sub(height)) / 3,
-            width,
-            height,
-        );
+        let height = area.height;
+        let popup = area;
         *rect = popup;
         let inner_height = usize::from(height.saturating_sub(2));
         let content_height = rows.len() + 3 + hint_lines.len();
@@ -2880,6 +2873,7 @@ impl App {
             ),
             popup,
         );
+        crate::settings_view::draw_close(frame, popup);
     }
 
     fn activate_menu_entry(&mut self) {
