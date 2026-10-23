@@ -1,6 +1,8 @@
 #![cfg(feature = "sidebar-ui")]
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use herdr_work_code::{activity::InitialView, sidebar_component::Sidebar, state};
 use ratatui::{Terminal, backend::TestBackend};
 
@@ -18,6 +20,13 @@ fn explorer_and_git_settings_show_a_direct_project_vscode_action() {
         let mut terminal = Terminal::new(TestBackend::new(38, 42)).unwrap();
         terminal.draw(|frame| sidebar.draw(frame)).unwrap();
         let buffer = terminal.backend().buffer();
+        assert_eq!(
+            buffer[(0, 0)].symbol(),
+            "┌",
+            "settings must cover the whole sidebar"
+        );
+        assert_eq!(buffer[(37, 41)].symbol(), "┘");
+        assert_eq!(buffer[(35, 0)].symbol(), "×");
         let text = buffer
             .content
             .iter()
@@ -48,6 +57,28 @@ fn explorer_and_git_settings_show_a_direct_project_vscode_action() {
                 .unwrap(),
             )
             .unwrap();
+        }
+        sidebar.event(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 35,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        }));
+        terminal.draw(|frame| sidebar.draw(frame)).unwrap();
+        assert!(!sidebar.busy(), "close must return to the original sidebar");
+        assert_eq!(sidebar.root(), root);
+        for (width, height) in [(24, 14), (28, 60), (80, 50)] {
+            sidebar.event(key(KeyCode::Char('s')));
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal.draw(|frame| sidebar.draw(frame)).unwrap();
+            assert_eq!(terminal.backend().buffer()[(0, 0)].symbol(), "┌");
+            assert_eq!(
+                terminal.backend().buffer()[(width - 1, height - 1)].symbol(),
+                "┘"
+            );
+            assert_eq!(terminal.backend().buffer()[(width - 3, 0)].symbol(), "×");
+            sidebar.event(key(KeyCode::Esc));
+            assert!(!sidebar.busy());
         }
         assert!(sidebar.flush());
     }
