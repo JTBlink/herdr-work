@@ -1115,6 +1115,7 @@ impl App {
             && key.modifiers == KeyModifiers::CONTROL
             && matches!(self.overlay, None | Some(Overlay::ContentSearch { .. }))
         {
+            self.mouse_pos = None;
             return Some(Exit::Projects);
         }
         let injected_view = match key.code {
@@ -1210,7 +1211,10 @@ impl App {
         // Any mouse activity = "the mouse is over this pane": it shows the
         // hover title-bar buttons until the linger expires.
         self.last_mouse = Some(std::time::Instant::now());
-        self.mouse_pos = Some((mouse.column, mouse.row));
+        // Click/release feedback is momentary. The launch target may switch
+        // tabs before another pointer event reaches this sidebar.
+        self.mouse_pos = matches!(mouse.kind, MouseEventKind::Moved | MouseEventKind::Drag(_))
+            .then_some((mouse.column, mouse.row));
         if self.overlay.is_some() && !matches!(self.overlay, Some(Overlay::ContentSearch { .. })) {
             self.overlay_mouse(mouse);
             return None;

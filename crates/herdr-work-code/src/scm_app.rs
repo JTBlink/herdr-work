@@ -1154,6 +1154,7 @@ impl App {
             && key.modifiers == KeyModifiers::CONTROL
             && self.overlay.is_none()
         {
+            self.mouse_pos = None;
             return Some(Exit::Projects);
         }
         let injected_view = match key.code {
@@ -1266,7 +1267,9 @@ impl App {
         // Any mouse activity = "the mouse is over this pane": it shows the
         // hover title-bar buttons until the linger expires.
         self.last_mouse = Some(std::time::Instant::now());
-        self.mouse_pos = Some((mouse.column, mouse.row));
+        // A click is an action, not a persistent activity selection.
+        self.mouse_pos = matches!(mouse.kind, MouseEventKind::Moved | MouseEventKind::Drag(_))
+            .then_some((mouse.column, mouse.row));
         if self.overlay.is_some() {
             self.overlay_mouse(mouse);
             return None;
