@@ -30,3 +30,11 @@ python3 scripts/smoke.py --archives .scratch/projects-entry-package
 workspace 540 项通过、4 项按既有配置忽略；来源界面 55 项、Python 41 项通过。本机 release 构建、归档安装/执行/卸载 smoke 通过。相关三包严格 Clippy 通过；全 workspace 严格 Clippy 在既有 Tasks data 源码报告 50 处警告，未将该检查记为通过。
 
 本次未手工验收真实宿主窗口或执行 Linux/Windows 原生交互。
+
+## 关闭返回后的按钮状态
+
+2026-10-23：鼠标按下和松开不再保存为侧栏的悬停位置，Projects 点击后立即恢复普通样式；Ctrl+4 同样清除残留悬停。鼠标再次移动到按钮上时显示悬停反馈，当前 Explorer、搜索或 Git 视图的选中标识保留。
+
+组件回归覆盖两种图标主题、三个视图、24/28/38/80 列、按钮三行点击区及键盘入口。先复现点击后背景仍为悬停色，再验证松开并返回后恢复普通背景，无需新增鼠标事件或后台查询。
+
+![Projects 点击后恢复普通样式的组件测试帧](ui-projects-idle-after-click.png)
