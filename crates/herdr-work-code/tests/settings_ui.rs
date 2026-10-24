@@ -34,6 +34,7 @@ fn explorer_and_git_settings_show_a_direct_project_vscode_action() {
             .collect::<String>()
             .replace(' ', "");
         assert!(text.contains("通过VSCode打开") && text.contains("仅HerdrWork"));
+        assert!(text.contains("关闭窗格"));
         assert!(
             text.find("通过VSCode打开").unwrap() < text.find("配置范围").unwrap(),
             "the project VS Code action belongs first"

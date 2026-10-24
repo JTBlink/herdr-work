@@ -159,7 +159,7 @@ pub enum DrawerRef {
 /// Display form of a `git worktree list` line: the folder NAME plus its
 /// branch — the raw absolute path clipped uselessly in a narrow pane.
 pub fn pretty_worktree_line(raw: &str) -> String {
-    let path = raw.split_whitespace().next().unwrap_or("");
+    let path = worktree_path(raw);
     let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
     if let (Some(start), Some(end)) = (raw.find('['), raw.rfind(']'))
         && start < end
@@ -173,6 +173,26 @@ pub fn pretty_worktree_line(raw: &str) -> String {
         return format!("{name}  (detached)");
     }
     name.to_string()
+}
+
+// Strip the trailing HEAD and branch/status columns, retaining spaces in paths.
+// The longest path in `git worktree list` has only one separator before HEAD.
+fn worktree_path(line: &str) -> &str {
+    if let Some((path, _)) = line.rsplit_once(" (bare)") {
+        return path.trim_end();
+    }
+    let head = line
+        .rsplit_once(" [")
+        .or_else(|| line.rsplit_once(" (detached HEAD)"))
+        .map_or(line, |(head, _)| head)
+        .trim_end();
+    if let Some((path, oid)) = head.rsplit_once(' ')
+        && oid.len() >= 4
+        && oid.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return path.trim_end();
+    }
+    line.split_whitespace().next().unwrap_or("")
 }
 
 /// Display form of a remote line: `name  owner/repo` for hosted URLs (the
@@ -239,7 +259,7 @@ pub fn parse_drawer_ref(kind: Drawer, line: &str) -> DrawerRef {
             }
         }
         Drawer::Worktrees => {
-            let path = line.split_whitespace().next().unwrap_or("").to_string();
+            let path = worktree_path(line).to_string();
             if path.is_empty() || path.starts_with('(') {
                 DrawerRef::None
             } else {

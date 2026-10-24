@@ -298,6 +298,7 @@ enum Setting {
     GitDecorations,
     GitFooter,
     Folder,
+    ClosePane,
 }
 
 /// (setting, label, current value, enabled) — disabled rows render dimmed and
@@ -2676,6 +2677,12 @@ impl App {
                 true,
             ),
             (
+                Setting::ClosePane,
+                "Close pane",
+                "close".into(),
+                self.pane_ctl.is_some(),
+            ),
+            (
                 Setting::Version,
                 if sidebar::product_profile().is_some() {
                     "HerdrWork version"
@@ -2697,6 +2704,10 @@ impl App {
         }
         match setting {
             Setting::Version | Setting::Scope => {}
+            Setting::ClosePane => {
+                self.overlay = None;
+                self.close(crate::state::product_profile().is_some());
+            }
             #[cfg(feature = "reference-ui")]
             Setting::Update => {
                 self.notice = Notice::new(

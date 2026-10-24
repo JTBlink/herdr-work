@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
-    MouseButton, MouseEventKind,
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -29,6 +29,7 @@ use crate::preview::*;
 use crate::scm::Drawer;
 use crate::ui::{icon_style as ui_icon_style, palette};
 
+mod find;
 mod prompt;
 
 /// Metadata source/token that marks the viewer pane, so the sidebar can find
@@ -1177,6 +1178,11 @@ pub fn run(control: &Path) -> std::io::Result<()> {
     let _ = crossterm::execute!(std::io::stdout(), EnableMouseCapture);
     let mut page: usize = 20;
     let mut preview_body = Rect::default();
+    let mut paste_enabled = false;
+    let mut find = find::Find::default();
+    let mut find_target = current.as_ref().map(Request::doc_key);
+    let mut find_area = Rect::default();
+    let mut preview_header = Rect::default();
     let mut edit_width: usize = 1;
     let mut edit_body = Rect::default();
     let mut prompt: Option<Prompt> = None;
@@ -1197,6 +1203,11 @@ pub fn run(control: &Path) -> std::io::Result<()> {
     let mut prompt_choice = 0;
     let result = loop {
         let mut navigate = None;
+        let target = current.as_ref().map(Request::doc_key);
+        if target != find_target || matches!(mode, ViewMode::Edit(_)) {
+            find = find::Find::default();
+            find_target = target;
+        }
         let loaded =
             preview_load
                 .as_ref()
@@ -1241,12 +1252,17 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                         }
                         _ => None,
                     };
+                    let area = frame.area();
+                    let [header, bar, _, _] = find.layout(area);
+                    preview_header = header;
+                    find_area = bar;
                     (page, preview_body) = draw_doc(
                         frame,
                         doc,
                         theme,
                         matches!(current, Some(Request::File { .. })),
                         notice.as_deref().or(navigation_hint),
+                        &mut find,
                     );
                 }
                 ViewMode::Edit(editor) => {
@@ -1273,6 +1289,15 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         {
             LAST_BODY_WIDTH.store(body_width, std::sync::atomic::Ordering::Relaxed);
             preview_load = Some(start_preview_load(request.clone()));
+        }
+        let wants_paste = find.accepts_paste() && prompt.is_none();
+        if wants_paste != paste_enabled {
+            if wants_paste {
+                let _ = crossterm::execute!(std::io::stdout(), EnableBracketedPaste);
+            } else {
+                let _ = crossterm::execute!(std::io::stdout(), DisableBracketedPaste);
+            }
+            paste_enabled = wants_paste;
         }
         let mut should_close = false;
         let poll = if preview_load.is_some() {
@@ -1392,6 +1417,10 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                             }
                             (active, _) => prompt = Some(active),
                         }
+                    } else if let ViewMode::Preview(doc) = &mode
+                        && find.key(key, doc)
+                    {
+                        // Find owns this key; never also run preview commands.
                     } else {
                         match &mut mode {
                             ViewMode::Preview(doc) => {
@@ -1537,6 +1566,11 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                         }
                     }
                 }
+                Event::Paste(text) if prompt.is_none() => find.insert(&text),
+                Event::Mouse(mouse)
+                    if prompt.is_none()
+                        && matches!(&mode, ViewMode::Preview(doc) if find.mouse(mouse, find_area, preview_header, doc)) =>
+                    {}
                 Event::Mouse(mouse) => match &mut mode {
                     ViewMode::Preview(doc) => {
                         let max = doc.rows.len().saturating_sub(1);
@@ -1753,7 +1787,11 @@ pub fn run(control: &Path) -> std::io::Result<()> {
             last_diff_refresh = Instant::now();
         }
     };
-    let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture);
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        DisableMouseCapture,
+        DisableBracketedPaste
+    );
     ratatui::restore();
     result
 }
@@ -1766,14 +1804,10 @@ fn draw_doc(
     theme: IconTheme,
     editable: bool,
     notice: Option<&str>,
+    find: &mut find::Find,
 ) -> (usize, Rect) {
     let area = frame.area();
-    let [header, body, footer] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(0),
-        Constraint::Length(1),
-    ])
-    .areas(area);
+    let [header, find_area, body, footer] = find.layout(area);
 
     let file_icon = icon(theme, &doc.name, false, false);
     let icon_style = ui_icon_style(file_icon.rgb);
@@ -1783,7 +1817,13 @@ fn draw_doc(
         Span::styled(doc.name.clone(), Style::default().bold()),
     ];
     let used: usize = left.iter().map(Span::width).sum();
-    let avail = usize::from(area.width).saturating_sub(used + 2);
+    let entry = find::Find::entry(header);
+    let title_width = if doc.is_media() {
+        header.width
+    } else {
+        header.width.saturating_sub(entry.width)
+    };
+    let avail = usize::from(title_width).saturating_sub(used + 2);
     let shown = if doc.context.chars().count() > avail {
         let tail: String = doc
             .context
@@ -1801,16 +1841,35 @@ fn draw_doc(
     };
     let mut spans = left;
     spans.push(Span::styled(format!("  {shown}"), Style::default().dim()));
-    frame.render_widget(Paragraph::new(Line::from(spans)), header);
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)),
+        Rect {
+            width: title_width,
+            ..header
+        },
+    );
+    if !doc.is_media() {
+        frame.render_widget(
+            Paragraph::new("⌕ 查找 Ctrl/Cmd+F").style(crate::ui::chrome_button_style(false)),
+            entry,
+        );
+    }
 
-    doc.draw_body(frame, body);
+    if find.open {
+        find.draw_body(frame, doc, body);
+        find.draw(frame, find_area);
+    } else {
+        doc.draw_body(frame, body);
+    }
 
     let wrap_hint = if doc.wrap {
         "w: wrap on"
     } else {
         "w: wrap off"
     };
-    let hint = if let Some(notice) = notice {
+    let hint = if find.open {
+        find.hint(footer.width)
+    } else if let Some(notice) = notice {
         format!(" {notice}")
     } else if let Some(media) = &doc.media {
         if media.video_poster {
@@ -3745,7 +3804,14 @@ mod tests {
         let render = |terminal: &mut Terminal<TestBackend>, doc: &mut Doc| -> Vec<String> {
             terminal
                 .draw(|f| {
-                    draw_doc(f, doc, IconTheme::Emoji, false, None);
+                    draw_doc(
+                        f,
+                        doc,
+                        IconTheme::Emoji,
+                        false,
+                        None,
+                        &mut find::Find::default(),
+                    );
                 })
                 .unwrap();
             terminal
@@ -3790,7 +3856,14 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(16, 6)).unwrap();
         terminal
             .draw(|f| {
-                draw_doc(f, &mut doc, IconTheme::Emoji, false, None);
+                draw_doc(
+                    f,
+                    &mut doc,
+                    IconTheme::Emoji,
+                    false,
+                    None,
+                    &mut find::Find::default(),
+                );
             })
             .unwrap();
         assert_eq!(doc.rows.len(), 1);

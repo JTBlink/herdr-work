@@ -18,6 +18,7 @@ fn session(socket: &Path) -> Result<(Value, Vec<Value>)> {
         .unwrap_or_default();
     Ok((snapshot, agents))
 }
+
 fn identity(socket: &Path, snapshot: &Value) -> Result<String> {
     if let Some(id) = snapshot["session_id"].as_str().filter(|s| !s.is_empty()) {
         return Ok(id.into());
@@ -57,6 +58,14 @@ fn panes(snapshot: &Value) -> Vec<&Value> {
     out
 }
 impl HerdrWork {
+    /// Let Herdr open or reuse the checkout's workspace and focus it.
+    pub fn open_worktree(&self, socket: &Path, root: &Path, path: &Path) -> Result<()> {
+            socket.as_os_str(),
+            "worktree.open",
+            json!({"cwd": root, "path": path, "focus": true, "trust_repository": false}),
+        )?;
+        Ok(())
+    }
     pub fn bind(&self, execution: &Execution, pane: Option<&str>) -> Result<Execution> {
         Self::validate_execution(execution)?;
         let socket = std::env::var_os("HERDR_SOCKET_PATH")
@@ -179,5 +188,48 @@ impl HerdrWork {
             json!({"pane_id":target.pane}),
         )?;
         Ok(())
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::UnixListener,
+    };
+
+    #[test]
+    fn opening_worktrees_focuses_new_or_existing_workspaces_and_reports_refusal() {
+        let fixture = tempfile::tempdir().unwrap();
+        let desk = HerdrWork::open(&fixture.path().join("profile"), None).unwrap();
+        let socket = fixture.path().join("host.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let root = fixture.path().join("repository");
+        let checkout = fixture.path().join("linked checkout");
+        let expected =
+            json!({"cwd": root, "path": checkout, "focus": true, "trust_repository": false});
+        let server = std::thread::spawn(move || {
+            for response in [
+                json!({"result": {"already_open": false}}),
+                json!({"result": {"already_open": true}}),
+                json!({"error": {"code": "worktree_not_found", "message": "missing checkout"}}),
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = String::new();
+                BufReader::new(&stream).read_line(&mut request).unwrap();
+                let request: Value = serde_json::from_str(&request).unwrap();
+                assert_eq!(request["method"], "worktree.open");
+                assert_eq!(request["params"], expected);
+                writeln!(stream, "{response}").unwrap();
+            }
+        });
+        desk.open_worktree(&socket, &root, &checkout).unwrap();
+        desk.open_worktree(&socket, &root, &checkout).unwrap();
+        assert!(desk.open_worktree(&socket, &root, &checkout).is_err());
+        server.join().unwrap();
     }
 }
