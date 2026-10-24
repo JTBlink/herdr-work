@@ -23,7 +23,7 @@ def document_token(value):
     return f'{token:016x}'
 
 
-def check(binary, neighbor=False, reject_close=False, history=False, edit=None):
+def check(binary, neighbor=False, reject_close=False, history=False, edit=None, find=False):
     with tempfile.TemporaryDirectory(prefix='hw-viewer-close-') as directory:
         base = Path(directory).resolve()
         profile = base / 'profile'
@@ -32,6 +32,8 @@ def check(binary, neighbor=False, reject_close=False, history=False, edit=None):
         control = scratch / 'p-fixture.ctl'
         document = base / 'example.md'
         document.write_text('viewer close fixture\n')
+        if find:
+            document.write_text('viewer close fixture\nlaunch launch\nqew\n' + 'filler\n' * 60 + 'far launch\n')
         control.write_text(f'file\t{document}')
         if history:
             for args in [['init', '-q'], ['add', 'example.md'],
@@ -124,9 +126,18 @@ def check(binary, neighbor=False, reject_close=False, history=False, edit=None):
             plain = re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', bytes(output))
             return re.sub(rb'\s+', b'', text) in re.sub(rb'\s+', b'', plain)
 
+        redraw_columns = 90
         def wait_for(predicate, message):
+            nonlocal redraw_columns
             deadline = time.monotonic() + 5
+            next_redraw = time.monotonic() + .15
             while time.monotonic() < deadline:
+                # Find counters share unchanged cells with the previous frame.
+                # Resize the private PTY to request a complete rendering.
+                if find and time.monotonic() >= next_redraw:
+                    redraw_columns = 91 if redraw_columns == 90 else 90
+                    fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 24, redraw_columns, 0, 0))
+                    next_redraw = time.monotonic() + .15
                 if select.select([master], [], [], .03)[0]:
                     try:
                         output.extend(os.read(master, 65536))
@@ -134,7 +145,11 @@ def check(binary, neighbor=False, reject_close=False, history=False, edit=None):
                         pass
                 if predicate():
                     return
-            raise AssertionError(message + ': ' + str([r['method'] for r in requests]) + '; output=' + repr(bytes(output[-800:])))
+            plain = re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', bytes(output))
+            counters = re.findall(rb'\d+/\d+', plain)
+            methods = [request['method'] for request in requests]
+            raise AssertionError(f'{message}; counters={counters}; methods={methods}; '
+                                 f'output={bytes(output[-800:])!r}')
 
         try:
             if history:
@@ -162,6 +177,45 @@ def check(binary, neighbor=False, reject_close=False, history=False, edit=None):
                          and control.read_text().endswith('\texample.md'), 'File History lost its file scope')
             else:
                 wait_for(lambda: b'viewer close fixture' in output, 'Viewer did not load')
+            if find:
+                output.clear()
+                # Header entry opens find; q/e/w are text, never preview commands.
+                os.write(master, b'\x1b[<0;80;1M\x1b[<0;80;1m')
+                wait_for(lambda: shows('收起查找'.encode()), 'Header find entry did not open')
+                os.write(master, b'qew')
+                wait_for(lambda: shows(b'1/1'), 'Preview shortcuts escaped find input')
+                assert process.poll() is None
+                assert not any(r['method'] in ('pane.close', 'tab.close') for r in requests)
+                output.clear()
+                os.write(master, b'\x01launch')
+                wait_for(lambda: shows(b'1/3'), 'Ctrl+A did not replace the find query')
+                output.clear()
+                os.write(master, b'\r')
+                wait_for(lambda: shows(b'2/3'), 'Enter did not advance the match')
+                output.clear()
+                os.write(master, b'\r')
+                wait_for(lambda: shows(b'3/3') and shows(b'far'), 'Find did not reveal the distant match')
+                # First Escape only closes find. Ctrl+F reopens the same query.
+                output.clear()
+                os.write(master, b'\x1b')
+                wait_for(lambda: shows(b'q close'), 'Escape did not restore preview controls')
+                assert process.poll() is None and 'w1:p2' in panes
+                output.clear()
+                os.write(master, b'\x06')
+                wait_for(lambda: shows(b'3/3'), 'Ctrl+F did not reopen find')
+                output.clear()
+                os.write(master, b'\x1b[200~qew\x1b[201~')
+                wait_for(lambda: shows(b'1/1'), 'Bracketed paste did not replace selected query')
+                output.clear()
+                os.write(master, b'\x1b')
+                wait_for(lambda: shows(b'q close'), 'Find remained focused after Escape')
+                # Switching files discards old find state and retains the viewer.
+                other = base / 'other.txt'
+                other.write_text('other document fixture\n')
+                control.write_text(f'file\t{other}')
+                output.clear()
+                wait_for(lambda: shows(b'other document fixture'), 'Switch did not replace find document')
+                assert process.poll() is None
             if edit:
                 output.clear()
                 os.write(master, b'e')
@@ -206,7 +260,7 @@ def check(binary, neighbor=False, reject_close=False, history=False, edit=None):
             if edit:
                 saved = document.read_text()
                 assert saved == 'viewer close fixture\n' if edit == 'discard' else 'changed ' in saved
-            print(f'viewer close: original page restored; neighbor={neighbor}, retry={reject_close}, history={history}, edit={edit}')
+            print(f'viewer close: original page restored; neighbor={neighbor}, retry={reject_close}, history={history}, edit={edit}, find={find}')
         finally:
             os.close(master)
             if process.poll() is None:
@@ -219,6 +273,7 @@ def check(binary, neighbor=False, reject_close=False, history=False, edit=None):
 
 if __name__ == '__main__':
     binary = str(Path(sys.argv[1]).resolve(strict=True))
+    check(binary, find=True)
     for neighbor in (False, True):
         for retry in (False, True):
             check(binary, neighbor, retry)

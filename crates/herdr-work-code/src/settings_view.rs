@@ -81,6 +81,8 @@ pub fn text(value: &str) -> &str {
         "suggest" => "生成说明",
         "diff" => "差异",
         "sync" => "同步",
+        "Close pane" => "关闭窗格",
+        "close" => "关闭",
         _ => value,
     }
 }

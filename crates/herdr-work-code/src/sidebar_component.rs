@@ -142,6 +142,12 @@ impl Sidebar {
     pub fn take_projects_request(&mut self) -> bool {
         std::mem::take(&mut self.projects_requested)
     }
+    pub fn take_worktree_request(&mut self) -> Option<(PathBuf, PathBuf)> {
+        match &mut self.app {
+            ViewApp::Git(app) => app.take_worktree_request(),
+            ViewApp::Explorer(_) => None,
+        }
+    }
     pub fn event(&mut self, event: Event) -> bool {
         let exit = match (&mut self.app, event) {
             (ViewApp::Explorer(app), Event::Key(key)) => app.on_key(key),

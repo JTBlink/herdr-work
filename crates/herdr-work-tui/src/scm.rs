@@ -229,6 +229,23 @@ impl App {
             }
             ScmTarget::History(kind, index) => {
                 let view = self.drawers.get(&kind).context("Git 列表尚未加载")?.clone();
+                if kind == Drawer::Worktrees {
+                    use herdr_work_code::scm::{DrawerRef, parse_drawer_ref};
+                    let line = view.lines.get(index).context("未选择 worktree")?;
+                    if let DrawerRef::Worktree(path) = parse_drawer_ref(kind, line) {
+                        let socket = std::env::var_os("HERDR_SOCKET_PATH")
+                            .context("打开 worktree 需要 Herdr 宿主连接")?;
+                        self.job(move |d| {
+                            d.open_worktree(
+                                std::path::Path::new(&socket),
+                                &view.root,
+                                std::path::Path::new(&path),
+                            )?;
+                            Ok(Data::Status("已打开 worktree".into()))
+                        })?;
+                    }
+                    return Ok(());
+                }
                 self.drawer_request += 1;
                 let request = self.drawer_request;
                 self.job(move |d| Ok(Data::Show(request, d.scm_show(&view, index))))?;

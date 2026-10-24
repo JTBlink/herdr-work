@@ -16,6 +16,7 @@ enum HostResult {
     Activation(Result<Option<ActivationRequest>>),
     Recovery(Result<(), String>),
     Projects(PathBuf, Result<serde_json::Value>),
+    Worktree(PathBuf, Result<()>),
 }
 
 pub(crate) fn run(desk: HerdrWork, root: PathBuf, initial: Option<InitialView>) -> Result<()> {
@@ -48,6 +49,7 @@ pub(crate) fn run(desk: HerdrWork, root: PathBuf, initial: Option<InitialView>) 
     let mut last_recovery = Instant::now() - Duration::from_secs(3);
     let mut pending = false;
     let mut projects_pending = false;
+    let mut worktree_pending = false;
     let mut seen = None;
     let result: Result<()> = (|| {
         loop {
@@ -79,6 +81,15 @@ pub(crate) fn run(desk: HerdrWork, root: PathBuf, initial: Option<InitialView>) 
                             }
                         }
                     }
+                    Ok(HostResult::Worktree(root, result)) => {
+                        worktree_pending = false;
+                        if root == sidebar.root() {
+                            sidebar.notice(match result {
+                                Ok(()) => "已打开 worktree".into(),
+                                Err(error) => format!("Worktree 打开失败：{error:#}"),
+                            });
+                        }
+                    }
                     Ok(HostResult::Recovery(Err(error))) => {
                         sidebar.notice(format!("布局恢复未完成：{error}"))
                     }
@@ -107,6 +118,27 @@ pub(crate) fn run(desk: HerdrWork, root: PathBuf, initial: Option<InitialView>) 
                         sidebar.notice("正在打开 Projects…".into());
                     }
                     Err(error) => sidebar.notice(format!("Projects 打开失败：{error:#}")),
+                }
+            }
+            if let Some((root, path)) = sidebar.take_worktree_request()
+                && !worktree_pending
+            {
+                let desk = desk.clone();
+                let source_root = sidebar.root();
+                if let Some(socket) = std::env::var_os("HERDR_SOCKET_PATH") {
+                    match jobs.submit(0, move || {
+                        let result =
+                            desk.open_worktree(std::path::Path::new(&socket), &root, &path);
+                        Ok(HostResult::Worktree(source_root, result))
+                    }) {
+                        Ok(()) => {
+                            worktree_pending = true;
+                            sidebar.notice("正在打开 worktree…".into());
+                        }
+                        Err(error) => sidebar.notice(format!("Worktree 打开失败：{error:#}")),
+                    }
+                } else {
+                    sidebar.notice("打开 worktree 需要 Herdr 宿主连接".into());
                 }
             }
             sidebar.tick();

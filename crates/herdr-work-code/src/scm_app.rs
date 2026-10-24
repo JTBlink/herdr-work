@@ -294,6 +294,7 @@ enum Setting {
     Hotkeys,
     Folder,
     ScmViewMode,
+    ClosePane,
 }
 
 /// (setting, label, current value, enabled) — disabled rows render dimmed and
@@ -464,6 +465,7 @@ pub struct App {
     /// double click pins that exact tab instead of re-opening it (mirrors the
     /// file explorer's pin).
     last_preview: Option<(String, herdr_work_code::viewer::PreviewTarget)>,
+    worktree_requested: Option<(PathBuf, PathBuf)>,
     page: usize,
     last_width: u16,
     /// Whole tab area width from the last layout snapshot. Divider-only
@@ -500,6 +502,9 @@ impl App {
     }
     pub fn host_notice(&mut self, message: String) {
         self.flash = Notice::new((message, false));
+    }
+    pub fn take_worktree_request(&mut self) -> Option<(PathBuf, PathBuf)> {
+        self.worktree_requested.take()
     }
 
     pub fn new(
@@ -598,6 +603,7 @@ impl App {
             mouse_pos: None,
             last_click: None,
             last_preview: None,
+            worktree_requested: None,
             page: 20,
             last_width: sidebar_state.sidebar_width,
             last_layout_width,
@@ -2109,6 +2115,12 @@ impl App {
                 true,
             ),
             (
+                Setting::ClosePane,
+                "Close pane",
+                "close".into(),
+                self.pane_ctl.is_some(),
+            ),
+            (
                 Setting::Version,
                 if sidebar::product_profile().is_some() {
                     "HerdrWork version"
@@ -2130,6 +2142,10 @@ impl App {
         }
         match setting {
             Setting::Version | Setting::Scope => {}
+            Setting::ClosePane => {
+                self.overlay = None;
+                self.close(crate::state::product_profile().is_some());
+            }
             #[cfg(feature = "reference-ui")]
             Setting::Update => {
                 self.flash = Notice::new(match herdr_work_code::updates::activate() {
@@ -2690,6 +2706,14 @@ impl App {
     /// Click/⏎ on a drawer line: show the commit / stash / tag / branch tip
     /// in the preview pane (scrollable colored `git show`).
     fn open_drawer_ref(&mut self, kind: Drawer, index: usize) {
+        if kind == Drawer::Worktrees {
+            if let Some(DrawerRef::Worktree(path)) = self.drawers[kind.index()].refs.get(index)
+                && let Some(repo) = self.repos.get(self.active)
+            {
+                self.worktree_requested = Some((repo.git.root().into(), path.into()));
+            }
+            return;
+        }
         let Some(pane_id) = self.pane_ctl.as_ref().map(|c| c.pane_id.clone()) else {
             self.flash = Notice::new(("preview needs a herdr pane".into(), true));
             return;
@@ -2777,7 +2801,7 @@ impl App {
                     kind,
                 ))
             }
-            Row::DrawerLine(kind, i) => {
+            Row::DrawerLine(kind, i) if *kind != Drawer::Worktrees => {
                 let repo = self.repos.get(self.active)?;
                 let spec = drawer_git_spec(self.drawers[kind.index()].refs.get(*i)?)?;
                 let path = (*kind == Drawer::FileHistory)
@@ -4520,6 +4544,84 @@ fn no_repo_layout(area: Rect, merged: bool) -> [Rect; 2] {
 #[cfg(test)]
 mod history_preview_tests {
     use super::*;
+
+    #[test]
+    fn worktree_click_and_enter_request_the_checkout_instead_of_a_preview() {
+        use ratatui::{Terminal, backend::TestBackend};
+        use std::process::Command;
+
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("repository");
+        let checkout = fixture.path().join("linked  checkout");
+        std::fs::create_dir(&root).unwrap();
+        for args in [
+            vec!["init", "-q"],
+            vec![
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "initial",
+            ],
+            vec![
+                "worktree",
+                "add",
+                "-qb",
+                "linked",
+                checkout.to_str().unwrap(),
+            ],
+        ] {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        let mut app = App::new(
+            root,
+            std::rc::Rc::new(std::cell::RefCell::new(
+                herdr_work_code::launch::CwdFollower::default(),
+            )),
+        );
+        app.drawers[Drawer::Worktrees.index()].expanded = true;
+        app.reload_expanded_drawers();
+        app.rebuild();
+        let checkout = checkout.canonicalize().unwrap();
+        let panel = &app.drawers[Drawer::Worktrees.index()];
+        let entry = panel.refs.iter().position(|reference| {
+            matches!(reference, DrawerRef::Worktree(path) if Path::new(path) == checkout)
+        }).unwrap();
+        assert_eq!(panel.lines[entry], "linked  checkout  ⎇ linked");
+        let row = app
+            .rows
+            .iter()
+            .position(|row| matches!(row, Row::DrawerLine(Drawer::Worktrees, i) if *i == entry))
+            .unwrap();
+        let expected = Some((app.repos[app.active].git.root().to_owned(), checkout));
+        let mut terminal = Terminal::new(TestBackend::new(40, 40)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let y = app.row_y(row).unwrap();
+        app.on_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 3,
+            row: y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.take_worktree_request(), expected);
+        assert!(app.take_worktree_request().is_none());
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.take_worktree_request(), expected);
+        assert!(app.last_preview.is_none());
+        assert!(app.doc_key_for_row(row).is_none());
+    }
 
     #[test]
     fn history_views_never_add_sidebar_children_or_persist_expansion() {
