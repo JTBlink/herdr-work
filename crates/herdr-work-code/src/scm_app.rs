@@ -4597,7 +4597,7 @@ mod history_preview_tests {
         let checkout = checkout.canonicalize().unwrap();
         let panel = &app.drawers[Drawer::Worktrees.index()];
         let entry = panel.refs.iter().position(|reference| {
-            matches!(reference, DrawerRef::Worktree(path) if Path::new(path) == checkout)
+            matches!(reference, DrawerRef::Worktree(path) if Path::new(path).canonicalize().ok().as_deref() == Some(checkout.as_path()))
         }).unwrap();
         assert_eq!(panel.lines[entry], "linked  checkout  ⎇ linked");
         let row = app
