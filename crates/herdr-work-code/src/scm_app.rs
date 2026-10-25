@@ -4615,10 +4615,16 @@ mod history_preview_tests {
             row: y,
             modifiers: KeyModifiers::NONE,
         });
-        assert_eq!(app.take_worktree_request(), expected);
+        let canonical_request = |request: Option<(PathBuf, PathBuf)>| {
+            request.map(|(root, path)| (root, path.canonicalize().unwrap()))
+        };
+        assert_eq!(canonical_request(app.take_worktree_request()), expected);
         assert!(app.take_worktree_request().is_none());
         app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(app.take_worktree_request(), expected);
+        assert_eq!(
+            canonical_request(app.take_worktree_request()),
+            expected.clone()
+        );
         assert!(app.last_preview.is_none());
         assert!(app.doc_key_for_row(row).is_none());
     }
