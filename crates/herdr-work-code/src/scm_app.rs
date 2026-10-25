@@ -4595,9 +4595,17 @@ mod history_preview_tests {
         app.reload_expanded_drawers();
         app.rebuild();
         let checkout = checkout.canonicalize().unwrap();
+        let normalize_path = |path: &Path| {
+            let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            let mut value = canonical.to_string_lossy().replace('\\', "/");
+            if let Some(rest) = value.strip_prefix("//?/") {
+                value = rest.to_owned();
+            }
+            value
+        };
         let panel = &app.drawers[Drawer::Worktrees.index()];
         let entry = panel.refs.iter().position(|reference| {
-            matches!(reference, DrawerRef::Worktree(path) if Path::new(path).canonicalize().ok().as_deref() == Some(checkout.as_path()))
+            matches!(reference, DrawerRef::Worktree(path) if normalize_path(Path::new(path)) == normalize_path(&checkout))
         }).unwrap();
         assert_eq!(panel.lines[entry], "linked  checkout  ⎇ linked");
         let row = app
@@ -4605,7 +4613,10 @@ mod history_preview_tests {
             .iter()
             .position(|row| matches!(row, Row::DrawerLine(Drawer::Worktrees, i) if *i == entry))
             .unwrap();
-        let expected = Some((app.repos[app.active].git.root().to_owned(), checkout));
+        let expected = Some((
+            normalize_path(app.repos[app.active].git.root()),
+            normalize_path(&checkout),
+        ));
         let mut terminal = Terminal::new(TestBackend::new(40, 40)).unwrap();
         terminal.draw(|frame| app.draw(frame)).unwrap();
         let y = app.row_y(row).unwrap();
@@ -4615,14 +4626,14 @@ mod history_preview_tests {
             row: y,
             modifiers: KeyModifiers::NONE,
         });
-        let canonical_request = |request: Option<(PathBuf, PathBuf)>| {
-            request.map(|(root, path)| (root, path.canonicalize().unwrap()))
+        let normalized_request = |request: Option<(PathBuf, PathBuf)>| {
+            request.map(|(root, path)| (normalize_path(&root), normalize_path(&path)))
         };
-        assert_eq!(canonical_request(app.take_worktree_request()), expected);
+        assert_eq!(normalized_request(app.take_worktree_request()), expected);
         assert!(app.take_worktree_request().is_none());
         app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert_eq!(
-            canonical_request(app.take_worktree_request()),
+            normalized_request(app.take_worktree_request()),
             expected.clone()
         );
         assert!(app.last_preview.is_none());
