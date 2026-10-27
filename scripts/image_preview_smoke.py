@@ -29,7 +29,7 @@ def check(binary):
         return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!2I5B', width, height, 8, 2, 0, 0, 0))
                 + chunk(b'IDAT', zlib.compress(row * height)) + chunk(b'IEND', b''))
 
-    for capability in ('kitty', 'disabled', 'timeout'):
+    for capability in ('kitty', 'disabled', 'timeout', 'outside-timeout'):
         with tempfile.TemporaryDirectory(prefix='hw-image-smoke-') as name:
             root = Path(name)
             repo = root / 'repo'
@@ -43,6 +43,9 @@ def check(binary):
             env.update(TERM='xterm-256color', TERM_PROGRAM='herdr', HERDR_ENV='1',
                        WEZTERM_EXECUTABLE='/fixture/wezterm', HERDR_PROJECTS_NO_KEEPER='1',
                        HERDR_PROJECTS_INLINE='1')
+            if capability == 'outside-timeout':
+                env.pop('HERDR_ENV')
+                env['TERM_PROGRAM'] = 'fixture'
 
             def seat():
                 os.setsid()
@@ -63,7 +66,7 @@ def check(binary):
                         data = os.read(master, 65536)
                         stream.extend(data)
                         if not answered and b'\x1b[5n' in stream:
-                            if capability != 'timeout':
+                            if not capability.endswith('timeout'):
                                 reply = b'\x1b_Gi=31;OK\x1b\\' if capability == 'kitty' else b''
                                 os.write(master, reply + b'\x1b[6;20;10t\x1b[0n')
                             answered = True

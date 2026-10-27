@@ -4,17 +4,21 @@ use ratatui_image::picker::Picker;
 
 pub(super) fn detect() -> Picker {
     #[cfg(unix)]
-    if std::env::var("TERM_PROGRAM").as_deref() == Ok("herdr")
-        || std::env::var("HERDR_ENV").as_deref() == Ok("1")
     {
-        return query_herdr().unwrap_or_else(|_| Picker::halfblocks());
+        query_terminal().unwrap_or_else(|_| Picker::halfblocks())
     }
-    Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks())
+    #[cfg(not(unix))]
+    {
+        Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks())
+    }
 }
 
 #[cfg(unix)]
-fn query_herdr() -> std::io::Result<Picker> {
-    use ratatui_image::picker::cap_parser::{Parser, QueryStdioOptions, Response};
+fn query_terminal() -> std::io::Result<Picker> {
+    use ratatui_image::picker::{
+        ProtocolType,
+        cap_parser::{Parser, QueryStdioOptions, Response},
+    };
     use std::{
         io::{IsTerminal, Read, Write},
         os::fd::AsRawFd,
@@ -25,8 +29,20 @@ fn query_herdr() -> std::io::Result<Picker> {
     if !input.is_terminal() {
         return Ok(Picker::halfblocks());
     }
+    let program = std::env::var("TERM_PROGRAM").unwrap_or_default();
+    let herdr = program == "herdr" || std::env::var("HERDR_ENV").as_deref() == Ok("1");
+    let mut options = QueryStdioOptions::default();
+    if !herdr
+        && (std::env::var_os("WEZTERM_EXECUTABLE").is_some()
+            || std::env::var_os("KONSOLE_VERSION").is_some())
+    {
+        options.blacklist_protocols = vec![ProtocolType::Kitty, ProtocolType::Sixel];
+    }
+    let fallback = (!herdr && (program.contains("WezTerm") || program.contains("iTerm")))
+        .then_some(ProtocolType::Iterm2);
+    let tmux = !herdr && std::env::var_os("TMUX").is_some();
     let mut output = std::io::stdout().lock();
-    output.write_all(Parser::query(false, QueryStdioOptions::default()).as_bytes())?;
+    output.write_all(Parser::query(tmux, options).as_bytes())?;
     output.flush()?;
     drop(output);
     let deadline = Instant::now() + Duration::from_millis(500);
@@ -65,11 +81,15 @@ fn query_herdr() -> std::io::Result<Picker> {
             break;
         }
     }
-    Ok(herdr_picker(&responses))
+    Ok(picker_for(&responses, fallback, !herdr))
 }
 
 #[cfg(any(unix, test))]
-fn herdr_picker(responses: &[ratatui_image::picker::cap_parser::Response]) -> Picker {
+fn picker_for(
+    responses: &[ratatui_image::picker::cap_parser::Response],
+    fallback: Option<ratatui_image::picker::ProtocolType>,
+    allow_sixel: bool,
+) -> Picker {
     use ratatui_image::{
         FontSize,
         picker::{ProtocolType, cap_parser::Response},
@@ -80,14 +100,19 @@ fn herdr_picker(responses: &[ratatui_image::picker::cap_parser::Response]) -> Pi
         }
         _ => None,
     });
-    if responses.contains(&Response::Kitty)
-        && let Some(size) = size
-    {
+    let protocol = if responses.contains(&Response::Kitty) {
+        Some(ProtocolType::Kitty)
+    } else if allow_sixel && responses.contains(&Response::Sixel) {
+        Some(ProtocolType::Sixel)
+    } else {
+        fallback
+    };
+    if let (Some(protocol), Some(size)) = (protocol, size) {
         // The constructor is needed to supply the queried cell size without
         // re-querying stdio or modifying the process environment.
         #[allow(deprecated)]
         let mut picker = Picker::from_fontsize(size);
-        picker.set_protocol_type(ProtocolType::Kitty);
+        picker.set_protocol_type(protocol);
         picker
     } else {
         Picker::halfblocks()
@@ -109,7 +134,7 @@ mod tests {
             .chars()
             .flat_map(|ch| parser.push(ch))
             .collect();
-        let picker = herdr_picker(&responses);
+        let picker = picker_for(&responses, None, false);
         assert_eq!(picker.protocol_type(), ProtocolType::Kitty);
         assert_eq!(
             (picker.font_size().width, picker.font_size().height),
@@ -123,9 +148,10 @@ mod tests {
             vec![Response::CellSize(Some((10, 20))), Response::Status],
             vec![Response::Kitty, Response::Status],
             vec![Response::Kitty, Response::CellSize(Some((0, 0)))],
+            vec![Response::Sixel, Response::CellSize(Some((10, 20)))],
         ] {
             assert_eq!(
-                herdr_picker(&responses).protocol_type(),
+                picker_for(&responses, None, false).protocol_type(),
                 ProtocolType::Halfblocks
             );
         }
