@@ -15,6 +15,8 @@ use std::{
     time::{Duration, Instant},
 };
 use unicode_width::UnicodeWidthChar;
+mod media;
+pub use media::initialize_terminal_images;
 /// Preview size guards: don't slurp huge files into a pane.
 pub(crate) const MAX_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_LINES: usize = 5000;
@@ -37,7 +39,7 @@ pub struct Doc {
     pub(crate) lines: Vec<Line<'static>>,
     /// File previews get a line-number gutter; diffs carry their own +/-.
     pub(crate) numbered: bool,
-    /// Decoded raster media, rendered portably with true-color half blocks.
+    /// Decoded raster media, with native graphics and a half-block fallback.
     /// Video files carry the poster frame extracted by ffmpeg.
     pub(crate) media: Option<MediaPreview>,
     /// Offset into [`Doc::rows`] — RENDERED rows, not source lines, so a
@@ -66,6 +68,7 @@ pub struct Doc {
 }
 
 pub(crate) struct MediaPreview {
+    pub(crate) native: Option<Box<media::NativePreview>>,
     pub(crate) pixels: image::RgbaImage,
     pub(crate) source_width: u32,
     pub(crate) source_height: u32,
@@ -798,6 +801,7 @@ fn load_media_file(target: &Path, name: String, video_poster: bool, root: Option
             (
                 Vec::new(),
                 Some(MediaPreview {
+                    native: media::NativePreview::new(&pixels).map(Box::new),
                     pixels,
                     source_width,
                     source_height,
@@ -1051,6 +1055,12 @@ impl Doc {
     pub fn is_media(&self) -> bool {
         self.media.is_some()
     }
+    pub fn media_render_pending(&self) -> bool {
+        self.media
+            .as_ref()
+            .and_then(|media| media.native.as_ref())
+            .is_some_and(|native| native.pending())
+    }
     pub fn scroll(&self) -> usize {
         self.scroll
     }
@@ -1094,6 +1104,16 @@ impl Doc {
     }
     pub fn draw_body(&mut self, frame: &mut Frame, body: Rect) {
         LAST_BODY_WIDTH.store(body.width, std::sync::atomic::Ordering::Relaxed);
+        if let Some(media) = &mut self.media {
+            if media.native.is_none() {
+                media.native = media::NativePreview::new(&media.pixels).map(Box::new);
+            }
+            if let Some(native) = &mut media.native
+                && native.draw(frame, body)
+            {
+                return;
+            }
+        }
         self.relayout(body.width, body.height);
         self.scroll = self.scroll.min(
             self.rows

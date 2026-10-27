@@ -94,6 +94,15 @@ jobs:
         env:
           BUILD_TARGET: ${{ matrix.target }}
         run: python scripts/smoke.py --archives dist
+      - name: Verify native image pixels, resize and protocol fallback
+        if: runner.os != 'Windows'
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        shell: python
+        run: |
+          import os, subprocess
+          subprocess.run(['python', 'scripts/image_preview_smoke.py', '--binary',
+                          'target/' + os.environ['BUILD_TARGET'] + '/release/herdr-work'], check=True)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: herdr-work-${{ matrix.target }}

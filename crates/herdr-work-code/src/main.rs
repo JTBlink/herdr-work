@@ -238,6 +238,7 @@ fn main() -> std::io::Result<()> {
     // turns every pane we draw monochrome.
     crossterm::style::force_color_output(true);
     let mut terminal = ratatui::init();
+    herdr_work_code::preview::initialize_terminal_images();
     let _ = crossterm::execute!(std::io::stdout(), EnableMouseCapture);
     // First run on a machine without a Nerd Font: offer to install one
     // before any icons render. The prompt stamps the pane's identity token

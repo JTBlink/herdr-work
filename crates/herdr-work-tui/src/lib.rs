@@ -106,6 +106,7 @@ pub fn run_with_mode(
     herdr_work_code::ui::set_color_theme(app.color_theme());
     let mut terminal = ratatui::init();
     let _guard = TerminalGuard;
+    herdr_work_code::preview::initialize_terminal_images();
     execute!(std::io::stdout(), EnableMouseCapture, EnableBracketedPaste)?;
     let (tx, rx) = mpsc::channel();
     let stop = Arc::new(AtomicBool::new(false));
@@ -152,7 +153,10 @@ pub fn run_with_mode(
             };
             // Timers enqueue background reads; their results wake the loop and
             // redraw. Idle debounce ticks must not repaint a large document.
-            redraw = message.is_some();
+            redraw = message.is_some()
+                || app
+                    .readonly_doc()
+                    .is_some_and(|doc| doc.media_render_pending());
             match message {
                 Some(Message::Input(event)) => {
                     let size = terminal.size()?;

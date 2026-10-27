@@ -1175,6 +1175,7 @@ pub fn run(control: &Path) -> std::io::Result<()> {
     );
     crossterm::style::force_color_output(true); // TUI colors ≠ pipeable output
     let mut terminal = ratatui::init();
+    crate::preview::initialize_terminal_images();
     let _ = crossterm::execute!(std::io::stdout(), EnableMouseCapture);
     let mut page: usize = 20;
     let mut preview_body = Rect::default();
@@ -3340,6 +3341,7 @@ mod tests {
         }
         let rows = render_media_rows(
             &MediaPreview {
+                native: None,
                 pixels,
                 source_width: 2,
                 source_height: 2,

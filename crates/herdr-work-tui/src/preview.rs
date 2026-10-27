@@ -63,7 +63,7 @@ impl App {
             Ok(())
         }
     }
-    fn readonly_doc(&self) -> Option<&Doc> {
+    pub(crate) fn readonly_doc(&self) -> Option<&Doc> {
         if self.tab == Tab::Scm {
             self.drawer_doc.as_ref()
         } else {
