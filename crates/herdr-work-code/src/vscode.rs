@@ -49,34 +49,7 @@ pub fn open(path: &Path, line: Option<usize>) -> io::Result<()> {
     let path = path.canonicalize()?;
     let mut missing = None;
     for program in programs() {
-        let mut command = Command::new(&program);
-        #[cfg(windows)]
-        {
-            // Run the CLI entrypoint, never the long-lived GUI process: a
-            // launcher timeout must not terminate the user's editor window.
-            let cli = program
-                .parent()
-                .unwrap_or(Path::new("."))
-                .join("resources/app/out/cli.js");
-            command.env("ELECTRON_RUN_AS_NODE", "1").arg(cli);
-        }
-        command.arg("--reuse-window");
-        let mut target = OsString::from(path.as_os_str());
-        if let Some(line) = line.filter(|_| path.is_file()) {
-            command.arg("--goto");
-            target.push(format!(":{}:1", line.max(1)));
-        }
-        command
-            .arg(target)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x08000000);
-        }
-        let mut child = match command.spawn() {
+        let mut child = match spawn_vscode(&program, &path, line) {
             Ok(child) => child,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 missing = Some(error);
@@ -108,6 +81,49 @@ pub fn open(path: &Path, line: Option<usize>) -> io::Result<()> {
             missing.map(|e| e.to_string()).unwrap_or_default()
         ),
     ))
+}
+
+/// Start every VS Code CLI through the same environment and argument boundary.
+fn spawn_vscode(
+    program: &Path,
+    path: &Path,
+    line: Option<usize>,
+) -> io::Result<std::process::Child> {
+    let mut command = Command::new(program);
+    // Editors launched from a pane must not pass its host identity,
+    // socket or plugin context into their own integrated terminals.
+    for (key, _) in std::env::vars_os() {
+        if key.as_encoded_bytes().starts_with(b"HERDR_") {
+            command.env_remove(key);
+        }
+    }
+    #[cfg(windows)]
+    {
+        // Run the CLI entrypoint, never the long-lived GUI process: a
+        // launcher timeout must not terminate the user's editor window.
+        let cli = program
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("resources/app/out/cli.js");
+        command.env("ELECTRON_RUN_AS_NODE", "1").arg(cli);
+    }
+    command.arg("--reuse-window");
+    let mut target = OsString::from(path.as_os_str());
+    if let Some(line) = line.filter(|_| path.is_file()) {
+        command.arg("--goto");
+        target.push(format!(":{}:1", line.max(1)));
+    }
+    command
+        .arg(target)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command.spawn()
 }
 
 fn programs() -> Vec<PathBuf> {

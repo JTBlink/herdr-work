@@ -32,8 +32,10 @@ def check(binary, fail=False):
                                      'preview_placement': 'replace', 'icons': 'emoji',
                                      'git_deco': False, 'git_footer': False, 'sidebar_width': 28}))
         capture = base / 'opened.json'
+        captured_env = base / 'opened-env.json'
         launcher = tools / 'code'
         launcher.write_text('#!' + sys.executable + '\nimport json,os,sys\n'
+                            'with open(os.environ["HW_VSCODE_ENV_CAPTURE"],"w") as f: json.dump({"herdr":{k:v for k,v in os.environ.items() if k.startswith("HERDR_")},"keep":os.environ.get("HW_VSCODE_KEEP")},f)\n'
                             'with open(os.environ["HW_VSCODE_CAPTURE"],"w") as f: json.dump(sys.argv[1:],f)\n'
                             'sys.exit(int(os.environ.get("HW_VSCODE_EXIT","0")))\n')
         launcher.chmod(0o755)
@@ -41,6 +43,8 @@ def check(binary, fail=False):
                if not k.startswith('HERDR_') and k not in ('VISUAL', 'EDITOR')}
         env.update(TERM='xterm-256color', HERDR_PLUGIN_STATE_DIR=str(foreign),
                    PATH=str(tools) + os.pathsep + os.environ['PATH'], HW_VSCODE_CAPTURE=str(capture),
+                   HERDR_TEST_EXTRA='inherited-pane', HERDR_WORK_TEST_CONTEXT='inherited-profile',
+                   HW_VSCODE_ENV_CAPTURE=str(captured_env), HW_VSCODE_KEEP='normal-environment',
                    HW_VSCODE_EXIT='1' if fail else '0')
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 42, 42, 0, 0))
@@ -68,6 +72,10 @@ def check(binary, fail=False):
             while time.monotonic() < deadline:
                 drain(.05)
                 if predicate():
+                    if capture.exists():
+                        assert json.loads(captured_env.read_text()) == {
+                            'herdr': {}, 'keep': 'normal-environment'
+                        }, 'VS Code inherited Herdr environment or lost unrelated environment'
                     return
             raise AssertionError(label + '; last output: ' + text()[-1800:])
 
