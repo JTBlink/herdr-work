@@ -63,8 +63,8 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                 }
                 assert_eq!(before[(36, 0)].symbol(), "×");
                 click(&mut sidebar, 36, 23);
-                sidebar.event(Event::Resize(3, 24));
-                let rail = render(&mut sidebar, 3, 24);
+                sidebar.event(Event::Resize(4, 24));
+                let rail = render(&mut sidebar, 4, 24);
                 assert!(!text(&rail).contains("demo"));
                 if theme == IconTheme::Emoji
                     && !right
@@ -85,7 +85,7 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                     row: 1,
                     modifiers: KeyModifiers::NONE,
                 }));
-                let hovered = text(&render(&mut sidebar, 3, 24));
+                let hovered = text(&render(&mut sidebar, 4, 24));
                 assert!(
                     !hovered.contains("文件")
                         && !hovered.contains("搜索")
@@ -101,29 +101,35 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                     (10, herdr_work_code::ui::ActivityIcon::Tasks),
                     (13, herdr_work_code::ui::ActivityIcon::Settings),
                 ] {
-                    let row_text = (0..3).map(|x| rail[(x, row)].symbol()).collect::<String>();
+                    let row_text = (0..4).map(|x| rail[(x, row)].symbol()).collect::<String>();
                     assert!(row_text.contains(herdr_work_code::ui::activity_icon(theme, icon)));
+                    assert_eq!(rail[(0, row)].symbol(), " ");
+                    assert_eq!(rail[(3, row)].symbol(), " ");
+                    assert_eq!(
+                        rail[(1, row)].symbol(),
+                        herdr_work_code::ui::activity_icon(theme, icon)
+                    );
                 }
                 // Projects opens independently; the sidebar stays collapsed.
                 click(&mut sidebar, 2, 10);
                 assert!(sidebar.take_projects_request());
                 assert!(!sidebar.take_projects_request());
-                assert_eq!(render(&mut sidebar, 3, 24)[(1, 22)].symbol(), "»");
+                assert_eq!(render(&mut sidebar, 4, 24)[(1, 22)].symbol(), "»");
                 click(&mut sidebar, 2, 22);
                 let after = render(&mut sidebar, 38, 24);
                 assert_eq!(before, after, "expand must preserve the current app");
                 click(&mut sidebar, 36, 23);
-                render(&mut sidebar, 3, 24);
+                render(&mut sidebar, 4, 24);
                 click(&mut sidebar, 2, 4);
                 assert!(state::load_state().search_active);
                 assert!(!text(&render(&mut sidebar, 38, 24)).contains('»'));
                 click(&mut sidebar, 36, 23);
-                render(&mut sidebar, 3, 24);
+                render(&mut sidebar, 4, 24);
                 click(&mut sidebar, 2, 7);
                 assert_eq!(state::load_state().active, state::View::SourceControl);
                 render(&mut sidebar, 38, 24);
                 click(&mut sidebar, 36, 23);
-                render(&mut sidebar, 3, 24);
+                render(&mut sidebar, 4, 24);
                 click(&mut sidebar, 2, 13);
                 assert!(sidebar.busy());
                 let settings = render(&mut sidebar, 38, 24);
@@ -146,7 +152,7 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
     assert!(sidebar.busy(), "commit input should retain focus");
     render(&mut sidebar, 38, 24);
     click(&mut sidebar, 36, 23);
-    assert!(text(&render(&mut sidebar, 3, 24)).contains('»'));
+    assert!(text(&render(&mut sidebar, 4, 24)).contains('»'));
     sidebar.event(Event::Key(KeyEvent::new(
         KeyCode::Enter,
         KeyModifiers::NONE,
@@ -165,7 +171,7 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
         let mut sidebar = Sidebar::new(root, Some(InitialView::Explorer));
         render(&mut sidebar, 38, 24);
         click(&mut sidebar, 36, 23);
-        render(&mut sidebar, 3, 24);
+        render(&mut sidebar, 4, 24);
         assert!(
             click(&mut sidebar, 2, 23),
             "collapsed × must also request terminal shutdown"

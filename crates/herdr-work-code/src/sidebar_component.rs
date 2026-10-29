@@ -38,6 +38,8 @@ pub struct Sidebar {
     expanded_width: u16,
     area: Rect,
     pointer: Option<Position>,
+    pane_chrome: Option<u16>,
+    last_rail_check: Instant,
 }
 impl Sidebar {
     pub fn new(root: PathBuf, initial: Option<InitialView>) -> Self {
@@ -74,6 +76,8 @@ impl Sidebar {
             expanded_width: saved.sidebar_width,
             area: Rect::default(),
             pointer: None,
+            pane_chrome: None,
+            last_rail_check: Instant::now(),
         };
         sidebar.refresh_title();
         sidebar
@@ -153,17 +157,27 @@ impl Sidebar {
         }
         if collapsed {
             self.expanded_width = self.area.width.max(sidebar_chrome::RAIL_WIDTH);
+            self.pane_chrome = None;
         }
         let target = if collapsed {
             sidebar_chrome::RAIL_WIDTH
         } else {
             self.expanded_width
         };
-        match &self.app {
-            ViewApp::Explorer(app) => app.resize_sidebar(self.area.width, target, collapsed),
-            ViewApp::Git(app) => app.resize_sidebar(self.area.width, target, collapsed),
-        }
+        self.resize_columns(self.area.width, target, Some(collapsed));
         self.collapsed = collapsed;
+    }
+    fn resize_columns(&mut self, current: u16, target: u16, collapsed: Option<bool>) {
+        let chrome = match &self.app {
+            ViewApp::Explorer(app) => {
+                app.resize_sidebar(current, target, collapsed, self.pane_chrome)
+            }
+            ViewApp::Git(app) => app.resize_sidebar(current, target, collapsed, self.pane_chrome),
+        };
+        if chrome.is_some() {
+            self.pane_chrome = chrome;
+        }
+        self.last_rail_check = Instant::now();
     }
     fn chrome_action(&mut self, action: Action) -> bool {
         match action {
@@ -284,14 +298,7 @@ impl Sidebar {
                 // preferred-width repair would immediately expand the rail.
                 Event::Resize(width, _) => {
                     if width != sidebar_chrome::RAIL_WIDTH {
-                        match &self.app {
-                            ViewApp::Explorer(app) => {
-                                app.resize_sidebar(width, sidebar_chrome::RAIL_WIDTH, true)
-                            }
-                            ViewApp::Git(app) => {
-                                app.resize_sidebar(width, sidebar_chrome::RAIL_WIDTH, true)
-                            }
-                        }
+                        self.resize_columns(width, sidebar_chrome::RAIL_WIDTH, None);
                     }
                     return false;
                 }
@@ -354,6 +361,12 @@ impl Sidebar {
         false
     }
     pub fn tick(&mut self) {
+        // At Herdr's four-column PTY minimum a smaller physical viewport no
+        // longer emits Resize. Preserve the chrome measured before collapse
+        // and check the actual split geometry even without a terminal event.
+        if self.collapsed && self.last_rail_check.elapsed() >= Duration::from_secs(1) {
+            self.resize_columns(self.area.width, sidebar_chrome::RAIL_WIDTH, None);
+        }
         self.roots.record(&self.root());
         match &mut self.app {
             ViewApp::Explorer(app) => {

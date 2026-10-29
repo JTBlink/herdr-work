@@ -9,7 +9,9 @@ use ratatui::{
     widgets::{Clear, Paragraph},
 };
 
-pub(crate) const RAIL_WIDTH: u16 = 3;
+// Herdr keeps its PTY buffer at least four columns wide. Going below that
+// clips the buffer in the host viewport, including otherwise valid icons.
+pub(crate) const RAIL_WIDTH: u16 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Action {
@@ -124,9 +126,18 @@ pub(crate) fn draw(
         };
         frame.render_widget(Clear, rect);
         frame.render_widget(Paragraph::new("").style(style), rect);
-        frame.render_widget(
-            Paragraph::new(icon).centered().style(style),
-            Rect::new(rect.x, rect.y + rect.height / 2, rect.width, 1),
-        );
+        let glyph = if collapsed {
+            // Reserve a two-cell glyph slot, with one column on each side.
+            // Material glyphs can paint wider than their reported text width.
+            Rect::new(
+                rect.x + rect.width.saturating_sub(2) / 2,
+                rect.y + rect.height / 2,
+                rect.width.min(2),
+                1,
+            )
+        } else {
+            Rect::new(rect.x + rect.width / 2, rect.y, 1, 1)
+        };
+        frame.render_widget(Paragraph::new(icon).style(style), glyph);
     }
 }

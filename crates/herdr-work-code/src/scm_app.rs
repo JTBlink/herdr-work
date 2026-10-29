@@ -685,20 +685,30 @@ impl App {
         self.theme
     }
 
-    pub(crate) fn resize_sidebar(&self, current: u16, target: u16, collapsed: bool) {
-        if let Some(ctl) = &self.pane_ctl {
+    pub(crate) fn resize_sidebar(
+        &self,
+        current: u16,
+        target: u16,
+        collapsed: Option<bool>,
+        chrome: Option<u16>,
+    ) -> Option<u16> {
+        let ctl = self.pane_ctl.as_ref()?;
+        if let Some(collapsed) = collapsed {
             ctl.set_label(if collapsed {
                 None
             } else {
                 Some(self.host_title())
             });
-            let _ = crate::ipc::resize_sidebar_columns(
-                &ctl.pane_id,
-                current,
-                target,
-                self.sidebar_state.dock_right,
-            );
         }
+        crate::ipc::resize_sidebar_columns(
+            &ctl.pane_id,
+            current,
+            target,
+            self.sidebar_state.dock_right,
+            chrome,
+        )
+        .ok()
+        .flatten()
     }
 
     pub fn refresh_host_title(&self) {

@@ -4,6 +4,8 @@ use super::{LayoutMsg, strip_bom};
 pub struct PreciseResize {
     pub path: Vec<bool>,
     pub ratio: f64,
+    pub chrome: u16,
+    pub changed: bool,
 }
 
 pub fn precise_resize_plan(
@@ -12,6 +14,7 @@ pub fn precise_resize_plan(
     current: u16,
     target: u16,
     right: bool,
+    chrome: Option<u16>,
 ) -> Option<PreciseResize> {
     let message: LayoutMsg = serde_json::from_str(strip_bom(json)).ok()?;
     let layout = message.result.layout;
@@ -39,8 +42,9 @@ pub fn precise_resize_plan(
         })
         .min_by_key(|split| split.rect.as_ref().map(|area| area.width))?;
     let split_area = *split.rect.as_ref()?;
-    let requested = i64::from(target) + (me.width - i64::from(current)).max(0);
-    if requested <= 0 || requested >= split_area.width || me.width == requested {
+    let chrome = chrome.unwrap_or((me.width - i64::from(current)).max(0) as u16);
+    let requested = i64::from(target) + i64::from(chrome);
+    if requested <= 0 || requested >= split_area.width {
         return None;
     }
     let mut region = layout.area?;
@@ -85,6 +89,8 @@ pub fn precise_resize_plan(
     Some(PreciseResize {
         path,
         ratio: if right { 1.0 - share } else { share },
+        chrome,
+        changed: me.width != requested,
     })
 }
 
@@ -101,9 +107,27 @@ mod tests {
                     {"direction":"right","ratio":100.0/240.0,"rect":{"x":0,"y":0,"width":240,"height":50}},
                     {"direction":"right","ratio":if right {112.0/140.0}else{28.0/140.0},"rect":{"x":100,"y":0,"width":140,"height":50}}
                 ]}}}).to_string();
-            let plan = precise_resize_plan(&json, "owner", 26, 3, right).unwrap();
+            let plan = precise_resize_plan(&json, "owner", 26, 4, right, None).unwrap();
             assert_eq!(plan.path, vec![true]);
-            assert!((plan.ratio - (if right { 135.0 / 140.0 } else { 5.0 / 140.0 })).abs() < 1e-9);
+            assert!((plan.ratio - (if right { 134.0 / 140.0 } else { 6.0 / 140.0 })).abs() < 1e-9);
+            assert_eq!(plan.chrome, 2);
+            assert!(plan.changed);
+        }
+    }
+
+    #[test]
+    fn cached_chrome_repairs_a_viewport_below_the_pty_minimum() {
+        for width in [4, 5, 6] {
+            let json = serde_json::json!({"result":{"layout":{
+                "area":{"x":0,"y":0,"width":160,"height":50},
+                "panes":[{"pane_id":"owner","rect":{"x":0,"y":0,"width":width,"height":50}}],
+                "splits":[{"direction":"right","ratio":f64::from(width)/160.0,"rect":{"x":0,"y":0,"width":160,"height":50}}]
+            }}}).to_string();
+            // The PTY still reports four columns when the bordered viewport
+            // has only two or three. Its size cannot measure the chrome now.
+            let plan = precise_resize_plan(&json, "owner", 4, 4, false, Some(2)).unwrap();
+            assert!((plan.ratio - 6.0 / 160.0).abs() < 1e-9);
+            assert_eq!(plan.changed, width != 6);
         }
     }
 }

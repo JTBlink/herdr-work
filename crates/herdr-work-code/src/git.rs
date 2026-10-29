@@ -1150,40 +1150,29 @@ fn parse_ahead_behind(header: &str) -> (usize, usize) {
     (count_after("ahead "), count_after("behind "))
 }
 
-/// Directories under `dir`, `depth` levels deep, skipping build/VCS internals
-/// (the repo scan visits each).
+/// Directories under `dir`, respecting repository ignore rules and skipping
+/// build/VCS internals. Explicitly opening an ignored repository still works.
 fn child_dirs(dir: &Path, depth: usize) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if depth == 0 {
-        return out;
-    }
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return out;
-    };
-    for entry in entries.flatten() {
-        // Never follow a symlink while scanning (issue #87): a link into a
-        // cloud or network mount (OneDrive's File Provider trash, an offline
-        // SMB share) can block `stat` forever and the sidebar never draws.
-        // `file_type()` does not traverse links; it usually comes from
-        // readdir's d_type, falling back to a non-following lstat where the
-        // filesystem gives none. Quick Open's walker already skips links. This
-        // does not make enumerating a stalled mount itself non-blocking.
-        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            continue;
-        }
-        let path = entry.path();
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if matches!(
-            name.as_ref(),
-            ".git" | "target" | "node_modules" | ".claude"
-        ) {
-            continue;
-        }
-        out.push(path.clone());
-        out.extend(child_dirs(&path, depth - 1));
-    }
-    out
+    let mut walker = ignore::WalkBuilder::new(dir);
+    walker
+        .max_depth(Some(depth))
+        .hidden(false)
+        .follow_links(false)
+        .require_git(false)
+        .sort_by_file_path(|a, b| a.cmp(b))
+        .filter_entry(|entry| {
+            entry.depth() == 0
+                || !matches!(
+                    entry.file_name().to_str(),
+                    Some(".git" | "target" | "node_modules" | ".claude")
+                )
+        });
+    walker
+        .build()
+        .flatten()
+        .filter(|entry| entry.depth() > 0 && entry.file_type().is_some_and(|kind| kind.is_dir()))
+        .map(|entry| entry.into_path())
+        .collect()
 }
 
 #[cfg(test)]
@@ -1292,6 +1281,36 @@ mod tests {
         names.sort();
         assert_eq!(names, ["a", "b"]);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn discover_all_skips_ignored_repositories_but_allows_explicit_open() {
+        let mut parent = repo_with_head("ignored-child-repos");
+        parent.root = parent.root.canonicalize().unwrap();
+        std::fs::write(parent.root.join(".gitignore"), "scratch/\n").unwrap();
+        std::fs::write(parent.root.join(".git/info/exclude"), ".scratch/\n").unwrap();
+        for relative in ["scratch/cache", ".scratch/host", "visible"] {
+            let child = parent.root.join(relative);
+            std::fs::create_dir_all(&child).unwrap();
+            assert!(
+                Command::new("git")
+                    .args(["init", "-q"])
+                    .current_dir(&child)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        let roots = Git::discover_all(parent.root())
+            .into_iter()
+            .map(|repo| repo.root)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            roots,
+            vec![parent.root.clone(), parent.root.join("visible")]
+        );
+        let ignored = parent.root.join(".scratch/host");
+        assert_eq!(Git::discover_all(&ignored)[0].root(), ignored);
     }
 
     #[test]

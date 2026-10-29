@@ -178,12 +178,17 @@ pub fn resize_sidebar_columns(
     current: u16,
     target: u16,
     right: bool,
-) -> std::io::Result<()> {
+    chrome: Option<u16>,
+) -> std::io::Result<Option<u16>> {
     let layout = call_text("pane.layout", serde_json::json!({"pane_id":owner}))?;
-    let Some(plan) = crate::dock::precise_resize_plan(&layout, owner, current, target, right)
+    let Some(plan) =
+        crate::dock::precise_resize_plan(&layout, owner, current, target, right, chrome)
     else {
-        return Ok(());
+        return Ok(None);
     };
+    if !plan.changed {
+        return Ok(Some(plan.chrome));
+    }
     if crate::state::product_profile().is_some() {
         let snapshot = call_text("pane.list", serde_json::json!({}))?;
         if !sidebar_resize_safe(&layout, owner, right, &snapshot) {
@@ -196,7 +201,7 @@ pub fn resize_sidebar_columns(
         "layout.set_split_ratio",
         serde_json::json!({"pane_id":owner,"path":plan.path,"ratio":plan.ratio}),
     )?;
-    Ok(())
+    Ok(Some(plan.chrome))
 }
 
 /// Mark the brief interval before a TUI reaches its event loop. Windows calls
