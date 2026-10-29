@@ -700,7 +700,7 @@ impl App {
                 Some(self.host_title())
             });
         }
-        crate::ipc::resize_sidebar_columns(
+        herdr_work_code::ipc::resize_sidebar_columns(
             &ctl.pane_id,
             current,
             target,
