@@ -42,7 +42,10 @@ pub fn precise_resize_plan(
         })
         .min_by_key(|split| split.rect.as_ref().map(|area| area.width))?;
     let split_area = *split.rect.as_ref()?;
-    let chrome = chrome.unwrap_or((me.width - i64::from(current)).max(0) as u16);
+    // A sidebar runs in the alternate screen: at most two border columns.
+    // Its first frame can still carry the pre-alternate-screen scrollbar
+    // width, so do not cache that transient extra column as pane chrome.
+    let chrome = chrome.unwrap_or((me.width - i64::from(current)).clamp(0, 2) as u16);
     let requested = i64::from(target) + i64::from(chrome);
     if requested <= 0 || requested >= split_area.width {
         return None;
@@ -107,11 +110,15 @@ mod tests {
                     {"direction":"right","ratio":100.0/240.0,"rect":{"x":0,"y":0,"width":240,"height":50}},
                     {"direction":"right","ratio":if right {112.0/140.0}else{28.0/140.0},"rect":{"x":100,"y":0,"width":140,"height":50}}
                 ]}}}).to_string();
-            let plan = precise_resize_plan(&json, "owner", 26, 4, right, None).unwrap();
-            assert_eq!(plan.path, vec![true]);
-            assert!((plan.ratio - (if right { 134.0 / 140.0 } else { 6.0 / 140.0 })).abs() < 1e-9);
-            assert_eq!(plan.chrome, 2);
-            assert!(plan.changed);
+            for current in [25, 26] {
+                let plan = precise_resize_plan(&json, "owner", current, 4, right, None).unwrap();
+                assert_eq!(plan.path, vec![true]);
+                assert!(
+                    (plan.ratio - (if right { 134.0 / 140.0 } else { 6.0 / 140.0 })).abs() < 1e-9
+                );
+                assert_eq!(plan.chrome, 2);
+                assert!(plan.changed);
+            }
         }
     }
 
