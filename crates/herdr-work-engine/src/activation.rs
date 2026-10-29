@@ -577,7 +577,8 @@ impl HerdrWork {
         let ratio: f64 = fields.next().context("无法计算侧边栏宽度")?.parse()?;
         let swap: bool = fields.next().context("无法计算侧边栏位置")?.parse()?;
         let params = json!({"plugin_id":PLUGIN_ID,"entrypoint":"pane","placement":"split","target_pane_id":target,"direction":"right","focus":focus,"cwd":root,
-            "env":{"HERDR_WORK_HOME":profile,"HERDR_WORK_ROOT":root,"HERDR_WORK_INITIAL_VIEW":view.env_value()}});
+            "env":{"HERDR_WORK_HOME":profile,"HERDR_WORK_ROOT":root,"HERDR_WORK_INITIAL_VIEW":view.env_value(),
+                "HERDR_WORK_START_COLLAPSED":if mode == SidebarOpen::Ensure {"1"} else {"0"}}});
         // Split placement is scoped by its target pane. The host rejects a
         // workspace selector alongside target_pane_id.
         let opened = rpc(&socket, "plugin.pane.open", params)?;

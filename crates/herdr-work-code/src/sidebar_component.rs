@@ -35,6 +35,7 @@ pub struct Sidebar {
     last_title: Option<&'static str>,
     projects_requested: bool,
     collapsed: bool,
+    initial_rail_size_pending: bool,
     expanded_width: u16,
     area: Rect,
     pointer: Option<Position>,
@@ -73,6 +74,7 @@ impl Sidebar {
             last_title: None,
             projects_requested: false,
             collapsed: false,
+            initial_rail_size_pending: false,
             expanded_width: saved.sidebar_width,
             area: Rect::default(),
             pointer: None,
@@ -128,6 +130,12 @@ impl Sidebar {
             ViewApp::Git(app) => app.root_path().to_owned(),
         }
     }
+    /// Automatic tab creation starts with the rail, once terminal geometry is
+    /// available. Explicit activity requests continue to open the full view.
+    pub fn start_collapsed(&mut self) {
+        self.collapsed = true;
+        self.initial_rail_size_pending = true;
+    }
     pub fn draw(&mut self, frame: &mut Frame) {
         self.area = frame.area();
         if !self.collapsed {
@@ -155,6 +163,7 @@ impl Sidebar {
         if self.collapsed == collapsed {
             return;
         }
+        self.initial_rail_size_pending = false;
         if collapsed {
             self.expanded_width = self.area.width.max(sidebar_chrome::RAIL_WIDTH);
             self.pane_chrome = None;
@@ -296,8 +305,10 @@ impl Sidebar {
                 }
                 // Never send collapsed dimensions to the source apps: their
                 // preferred-width repair would immediately expand the rail.
-                Event::Resize(width, _) => {
-                    if width != sidebar_chrome::RAIL_WIDTH {
+                Event::Resize(width, height) => {
+                    self.area.width = width;
+                    self.area.height = height;
+                    if !self.initial_rail_size_pending && width != sidebar_chrome::RAIL_WIDTH {
                         self.resize_columns(width, sidebar_chrome::RAIL_WIDTH, None);
                     }
                     return false;
@@ -361,6 +372,16 @@ impl Sidebar {
         false
     }
     pub fn tick(&mut self) {
+        if self.initial_rail_size_pending && !self.area.is_empty() {
+            self.initial_rail_size_pending = false;
+            let preferred = self.expanded_width;
+            self.resize_columns(self.area.width, sidebar_chrome::RAIL_WIDTH, Some(true));
+            // Startup dimensions can belong to the host's temporary split.
+            // Restore the configured normal width, not that transient width.
+            self.expanded_width = preferred
+                .saturating_sub(self.pane_chrome.unwrap_or_default())
+                .max(sidebar_chrome::RAIL_WIDTH);
+        }
         // At Herdr's four-column PTY minimum a smaller physical viewport no
         // longer emits Resize. Preserve the chrome measured before collapse
         // and check the actual split geometry even without a terminal event.

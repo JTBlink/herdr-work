@@ -109,6 +109,7 @@ def check(binary, output, host="herdr", exact_rail=False):
 
         cases = [(r, n, False, False) for r in [False, True] for n in [False, True]]
         cases += [(r, False, True, q) for r in [False, True] for q in [False, True]]
+        cases = [(r, n, False, True) for r in [False, True] for n in [False, True]] + cases
         for right, nested, existing, quiet in cases:
             name = ('right' if right else 'left') + ('-nested' if nested else '-stacked')
             name += '-existing' if existing else ''
@@ -166,6 +167,36 @@ def check(binary, output, host="herdr", exact_rail=False):
             result = json.loads(opened.stdout)
             assert not result.get('layout_warning'), result
             sidebar = result['pane_id']
+            if quiet and not existing:
+                # This is the tab/workspace-created automatic entrypoint.
+                # It must show the rail without taking the working focus.
+                deadline = time.monotonic() + 12
+                while time.monotonic() < deadline:
+                    initial_text = rpc('pane.read', {'pane_id': sidebar, 'source': 'visible'})['read']['text']
+                    initial_layout = rpc('pane.layout', {'pane_id': sidebar})['layout']
+                    initial_rect = next(p['rect'] for p in initial_layout['panes'] if p['pane_id'] == sidebar)
+                    ready = next(p for p in rpc('pane.list')['panes'] if p['pane_id'] == sidebar).get('tokens', {}).get('herdr-work-ready') == 'true'
+                    if ready and '»' in initial_text and (not exact_rail or initial_rect['width'] == 6):
+                        break
+                    time.sleep(.1)
+                else:
+                    raise AssertionError((name, 'Automatic new tab must start collapsed', initial_rect, initial_text))
+                (output / (name + '-startup.json')).write_text(json.dumps({'layout': initial_layout, 'text': initial_text, 'automatic': True}, indent=2))
+                assert '«' not in initial_text
+                assert next(p['pane_id'] for p in rpc('pane.list')['panes'] if p.get('focused')) == bottom
+                # An explicit activity must reuse and expand this same pane.
+                explicit = subprocess.run([str(binary), '--home', str(profile), 'activate', 'show-explorer'],
+                                          env=call_env, capture_output=True, text=True, timeout=30)
+                assert explicit.returncode == 0, explicit.stderr
+                assert json.loads(explicit.stdout)['pane_id'] == sidebar
+                deadline = time.monotonic() + 12
+                while time.monotonic() < deadline:
+                    if '«' in rpc('pane.read', {'pane_id': sidebar, 'source': 'visible'})['read']['text']:
+                        break
+                    time.sleep(.1)
+                else:
+                    raise AssertionError((name, 'Explicit activity did not expand the new-tab rail'))
+                rpc('pane.focus', {'pane_id': bottom})
             # Existing panes apply the activation through a 500 ms async poll.
             # Let that explicit open settle before testing a subsequent click.
             time.sleep(1.2 if existing and not quiet else .4)

@@ -45,6 +45,9 @@ pub(crate) fn run(desk: HerdrWork, root: PathBuf, initial: Option<InitialView>) 
     });
     herdr_work_code::fontsetup::maybe_prompt(&mut terminal, view, saved.merged)?;
     let mut sidebar = herdr_work_code::sidebar_component::Sidebar::new(root, initial);
+    if std::env::var("HERDR_WORK_START_COLLAPSED").as_deref() == Ok("1") {
+        sidebar.start_collapsed();
+    }
 
     let mut last_poll = Instant::now();
     let mut last_recovery = Instant::now() - Duration::from_secs(3);
