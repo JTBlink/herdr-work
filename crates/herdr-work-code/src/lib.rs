@@ -18,6 +18,7 @@ pub mod ensure;
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub mod fontsetup;
 pub mod git;
+pub mod git_graph;
 pub mod gitdeco;
 pub mod icons;
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
@@ -67,6 +68,8 @@ pub mod pane_close;
 pub mod pane_lock;
 #[cfg(feature = "sidebar-ui")]
 pub mod scm_app;
+#[cfg(feature = "sidebar-ui")]
+mod sidebar_chrome;
 #[cfg(feature = "sidebar-ui")]
 pub mod sidebar_component;
 

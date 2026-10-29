@@ -16,13 +16,15 @@ import threading
 import time
 
 
-def check(binary, output):
+def check(binary, output, host="herdr", exact_rail=False):
     base = Path(tempfile.mkdtemp(prefix='hw-docking-', dir='/tmp'))
     output.mkdir(parents=True, exist_ok=True)
     env = {k: v for k, v in os.environ.items() if not k.startswith('HERDR_')}
     env.update(XDG_CONFIG_HOME=str(base / 'config'), XDG_DATA_HOME=str(base / 'data'),
                XDG_STATE_HOME=str(base / 'state'), XDG_CACHE_HOME=str(base / 'cache'),
                HERDR_CONFIG_PATH=str(base / 'config/herdr/config.toml'))
+    if host != 'herdr':
+        env['HERDR_BIN_PATH'] = str(Path(host).resolve())
     config = Path(env['HERDR_CONFIG_PATH'])
     config.parent.mkdir(parents=True)
     config.write_text('')
@@ -35,7 +37,7 @@ def check(binary, output):
     worker = base / 'worker.py'
     worker.write_text('import os,time\nprint("WORKER",os.getpid(),flush=True)\nwhile True: time.sleep(1)\n')
     log = (output / 'server.log').open('w')
-    server = subprocess.Popen(['herdr', '--session', 'dock-test', 'server'], env=env,
+    server = subprocess.Popen([str(host), '--session', 'dock-test', 'server'], env=env,
                               stdout=log, stderr=subprocess.STDOUT)
     client = reader = None
     stopping = threading.Event()
@@ -69,7 +71,7 @@ def check(binary, output):
                 assert 'error' not in answer, (method, answer)
                 return answer['result']
 
-        linked = subprocess.run(['herdr', '--session', 'dock-test', 'plugin', 'link', str(plugin)],
+        linked = subprocess.run([str(host), '--session', 'dock-test', 'plugin', 'link', str(plugin)],
                                 env=env, capture_output=True, text=True, timeout=30)
         assert linked.returncode == 0, linked.stderr
         master, slave = pty.openpty()
@@ -79,7 +81,7 @@ def check(binary, output):
             os.setsid()
             fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
-        client = subprocess.Popen(['herdr', '--session', 'dock-test'], env=dict(env, TERM='xterm-256color'),
+        client = subprocess.Popen([str(host), '--session', 'dock-test'], env=dict(env, TERM='xterm-256color'),
                                   stdin=slave, stdout=slave, stderr=slave, preexec_fn=seat)
         os.close(slave)
 
@@ -130,7 +132,7 @@ def check(binary, output):
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
                 running = [rpc('pane.process_info', {'pane_id': p})['process_info'] for p in work]
-                if all(any(str(worker) in proc.get('argv', []) for proc in info['foreground_processes'])
+                if all(any(str(worker) in proc.get('argv', []) for proc in info.get('foreground_processes', []))
                        for info in running):
                     break
                 time.sleep(.1)
@@ -179,7 +181,51 @@ def check(binary, output):
             assert focused == (bottom if quiet else sidebar), (name, 'Wrong final focus')
             for pane in work:
                 assert identities[pane] == rpc('pane.process_info', {'pane_id': pane})['process_info']['foreground_process_group_id']
-            rpc('pane.close', {'pane_id': sidebar})
+            # Exercise the actual component's mouse route and socket resize,
+            # including the protection against preferred-width repair.
+            def visible():
+                return rpc('pane.read', {'pane_id': sidebar, 'source': 'visible'})['read']['text']
+
+            def wait_for(predicate, message):
+                deadline = time.monotonic() + 12
+                while time.monotonic() < deadline:
+                    if predicate():
+                        return
+                    time.sleep(.1)
+                raise AssertionError((name, message, visible()))
+
+            def mouse_at(symbol):
+                lines = visible().splitlines()
+                row, column = next((y, line.index(symbol)) for y, line in enumerate(lines) if symbol in line)
+                rpc('pane.send_input', {'pane_id': sidebar, 'text': f'\x1b[<0;{column+1};{row+1}M'})
+
+            wait_for(lambda: '«' in visible(), 'Collapse control missing')
+            mouse_at('«')
+            wait_for(lambda: '»' in visible(), 'Rail missing')
+            collapsed = rpc('pane.layout', {'pane_id': sidebar})['layout']
+            narrow = next(p['rect'] for p in collapsed['panes'] if p['pane_id'] == sidebar)
+            if exact_rail:
+                assert narrow['width'] <= 5, (name, 'Rail must be exactly three content columns plus pane chrome', narrow)
+                wait_for(lambda: max(map(len, visible().splitlines()), default=0) <= 3, 'Rail content must fit three columns after PTY resize')
+            assert narrow['width'] <= max(10, after['area']['width'] // 10) and narrow['width'] < rect['width'], (name, 'Collapsed sidebar must be one icon column', narrow)
+            if exact_rail:
+                fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 48, 200, 0, 0))
+                wait_for(lambda: rpc('pane.layout', {'pane_id': sidebar})['layout']['area']['width'] > after['area']['width'], 'Outer terminal did not grow')
+                wait_for(lambda: next(p['rect']['width'] for p in rpc('pane.layout', {'pane_id': sidebar})['layout']['panes'] if p['pane_id'] == sidebar) <= 5,
+                         'Rail width changed with the outer terminal')
+                fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 48, 160, 0, 0))
+                wait_for(lambda: rpc('pane.layout', {'pane_id': sidebar})['layout']['area']['width'] == after['area']['width'], 'Outer terminal did not return')
+                wait_for(lambda: next(p['rect']['width'] for p in rpc('pane.layout', {'pane_id': sidebar})['layout']['panes'] if p['pane_id'] == sidebar) <= 5, 'Rail width was not restored')
+            time.sleep(2.2)  # Includes a product layout-recovery timer tick.
+            assert '»' in visible(), (name, 'Recovery unexpectedly expanded the sidebar')
+            mouse_at('»')
+            wait_for(lambda: '«' in visible(), 'Expansion failed')
+            expanded = rpc('pane.layout', {'pane_id': sidebar})['layout']
+            restored_rect = next(p['rect'] for p in expanded['panes'] if p['pane_id'] == sidebar)
+            assert abs(restored_rect['width'] - rect['width']) <= 2, (name, 'Expanded width changed', rect, restored_rect)
+            mouse_at('×')
+            wait_for(lambda: not any(p['pane_id'] == sidebar for p in rpc('pane.list')['panes']), 'Close control failed')
+            assert (profile / 'sidebar').exists()
             restored = rpc('layout.export', {'tab_id': tab})['layout']['root']
             assert tree(restored) == original, (name, 'Closing sidebar changed the original tree')
             rpc('workspace.close', {'workspace_id': workspace})
@@ -202,5 +248,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--host', type=Path, help='Use an isolated test host binary')
+    parser.add_argument('--exact-rail', action='store_true', help='Require the host to honor the three-column rail')
     args = parser.parse_args()
-    check(args.binary.resolve(strict=True), args.output.resolve())
+    check(args.binary.resolve(strict=True), args.output.resolve(), args.host.resolve(strict=True) if args.host else 'herdr', args.exact_rail)

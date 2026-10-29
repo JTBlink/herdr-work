@@ -104,3 +104,15 @@ macOS 本地验证使用临时 Unix socket 运行真实 CLI，覆盖资料锁占
 ## 整列停靠复用布局恢复（2026-10-22）
 
 来源 ensure 的整列修复未接入产品 activation，导致上下分栏时侧栏只停靠到当前 pane。产品接入迁入的 takeover tree/prune、journal、停车与 replay 实现，新增 `takeover/docking` 用例；原预览流程继续使用相同计划准备与恢复逻辑。宿主活动进程通过显式产品资料定位 journal，不配置进程全局资料，也不读取独立插件目录。已有侧栏可在打开与 ensure 时修复，保护工作区分栏比例与进程身份。验证见 [整列侧栏](../verification/full-height-sidebar.md)。
+
+
+## 侧栏折叠与关闭（2026-10-29）
+
+在默认 `sidebar_component` 中增加产品折叠状态，`sidebar_chrome` 复用现有图标表、活动按钮样式和颜色。`«` 收起文件树/搜索/Git 正文，保留一列活动入口；`»` 或活动图标展开，恢复原终端列宽和原 App 实例。折叠期间不将窄尺寸交给来源 App 的首选宽度修复，心跳、后台刷新和宿主身份继续沿用原实现。`×` 复用来源 hide、提交草稿保存和 snooze，不重新实现关闭流程，不改变独立插件。宿主收窄仍经现有 `resize_plan`/`resize_sidebar`，保留相邻工作窗格与焦点；实际宽度遵循宿主最小分栏限制。验证见 [侧栏折叠与关闭](../verification/sidebar-collapse.md)。
+
+
+## Git Graph 信息列（2026-10-29）
+
+保留原 Git CLI 查询与 `git --graph` 的拓扑生成，增加全部引用、完整提交 ID、日期、作者与装饰引用字段。新 `git_graph` 模型解析查询结果，渲染分支/标签和自适应信息列；viewer 的 Graph 使用同一只读文档、滚动、查找和提交详情返回流程，列标题固定在正文上方。提交选择使用源行绑定的完整 OID，不从截断文本推测目标；原 drawer 字符串接口继续保留短 SHA 前置格式。见 [Git Graph 验证](../verification/git-graph.md)。
+
+折叠精确列宽改用显式分隔线路径，复用相邻窗格保护，允许恢复计划记录有效的窄分栏比例。附[独立 Herdr 宿主补丁](../patches/herdr/README.md)，不作为产品 Rust 模块构建，不由普通安装自动接管宿主。

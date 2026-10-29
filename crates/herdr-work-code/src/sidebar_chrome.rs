@@ -1,0 +1,132 @@
+//! Product sidebar controls. Drawing and pointer routing share these rectangles.
+use crate::{
+    icons::IconTheme,
+    ui::{self, ActivityIcon},
+};
+use ratatui::{
+    Frame,
+    layout::{Position, Rect},
+    widgets::{Clear, Paragraph},
+};
+
+pub(crate) const RAIL_WIDTH: u16 = 3;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Action {
+    Files,
+    Search,
+    Git,
+    Projects,
+    Settings,
+    Expand,
+    Collapse,
+    Close,
+}
+
+pub(crate) fn controls(area: Rect, collapsed: bool) -> Vec<(Rect, Action)> {
+    if area.is_empty() {
+        return vec![];
+    }
+    if !collapsed {
+        return vec![
+            (
+                Rect::new(
+                    area.right().saturating_sub(3).max(area.x),
+                    area.y,
+                    area.width.min(3),
+                    1,
+                ),
+                Action::Close,
+            ),
+            (
+                Rect::new(
+                    area.right().saturating_sub(4).max(area.x),
+                    area.bottom() - 1,
+                    area.width.min(4),
+                    1,
+                ),
+                Action::Collapse,
+            ),
+        ];
+    }
+    let rail = area;
+    let mut buttons = vec![];
+    // Reserve the final two rows even in a short terminal.
+    let body_height = area.height.saturating_sub(2);
+    let actions = [
+        Action::Files,
+        Action::Search,
+        Action::Git,
+        Action::Projects,
+        Action::Settings,
+    ];
+    let slot = if body_height >= 15 { 3 } else { 1 };
+    for (index, action) in actions.into_iter().enumerate() {
+        let row = index as u16 * slot;
+        if row < body_height {
+            buttons.push((
+                Rect::new(
+                    rail.x,
+                    rail.y + row,
+                    rail.width,
+                    slot.min(body_height - row),
+                ),
+                action,
+            ));
+        }
+    }
+    if area.height >= 2 {
+        buttons.push((
+            Rect::new(rail.x, area.bottom() - 2, rail.width, 1),
+            Action::Expand,
+        ));
+    }
+    buttons.push((
+        Rect::new(rail.x, area.bottom() - 1, rail.width, 1),
+        Action::Close,
+    ));
+    buttons
+}
+
+pub(crate) fn hit(area: Rect, collapsed: bool, point: Position) -> Option<Action> {
+    controls(area, collapsed)
+        .into_iter()
+        .find(|(rect, _)| rect.contains(point))
+        .map(|(_, action)| action)
+}
+
+pub(crate) fn draw(
+    frame: &mut Frame,
+    collapsed: bool,
+    active: Action,
+    theme: IconTheme,
+    pointer: Option<Position>,
+) {
+    let area = frame.area();
+    if collapsed {
+        frame.render_widget(Clear, area);
+    }
+    for (rect, action) in controls(area, collapsed) {
+        if action == Action::Collapse {
+            continue;
+        } // The source app draws «.
+        let hovered = pointer.is_some_and(|p| rect.contains(p));
+        let style = ui::activity_button_style(action == active, hovered);
+        let icon = match action {
+            Action::Files => ui::activity_icon(theme, ActivityIcon::Files),
+            Action::Search => ui::activity_icon(theme, ActivityIcon::Search),
+            Action::Git => ui::activity_icon(theme, ActivityIcon::SourceControl),
+            Action::Projects => ui::activity_icon(theme, ActivityIcon::Tasks),
+            Action::Settings => ui::activity_icon(theme, ActivityIcon::Settings),
+            Action::Expand => "»",
+            Action::Close => "×",
+            Action::Collapse => unreachable!(),
+        };
+        frame.render_widget(Clear, rect);
+        frame.render_widget(Paragraph::new("").style(style), rect);
+        frame.render_widget(
+            Paragraph::new(icon).centered().style(style),
+            Rect::new(rect.x, rect.y + rect.height / 2, rect.width, 1),
+        );
+    }
+}

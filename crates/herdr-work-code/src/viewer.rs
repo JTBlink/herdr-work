@@ -30,6 +30,8 @@ use crate::scm::Drawer;
 use crate::ui::{icon_style as ui_icon_style, palette};
 
 mod find;
+#[cfg(test)]
+mod graph_tests;
 mod prompt;
 
 /// Metadata source/token that marks the viewer pane, so the sidebar can find
@@ -435,6 +437,7 @@ fn load(request: &Request) -> Doc {
             selection: PreviewSelection::default(),
             stamp: None,
             source_text: None,
+            graph: None,
         },
         Request::File { path, line } => {
             // Stat before reading: a write that lands during the read leaves
@@ -446,6 +449,27 @@ fn load(request: &Request) -> Doc {
         }
         Request::Diff { root, rel, kind } => load_diff(root, rel, kind),
         Request::Show { root, spec, path } => load_show(root, spec, path.as_deref()),
+        Request::History {
+            root,
+            kind: Drawer::Graph,
+            ..
+        } => match crate::git::Git::discover(root).and_then(|git| git.graph_model(200)) {
+            Ok(graph) => {
+                let mut doc = git_show(
+                    "Graph".into(),
+                    root.display().to_string(),
+                    &graph.legacy_lines().join("\n"),
+                );
+                doc.wrap = false;
+                doc.graph = Some(graph);
+                doc
+            }
+            Err(error) => git_show(
+                "Graph".into(),
+                root.display().to_string(),
+                &format!("加载失败：{error}"),
+            ),
+        },
         Request::History { root, kind, path } => {
             let text = crate::git::Git::discover(root)
                 .and_then(|git| kind.load(&git, path.as_deref(), 200))
@@ -505,6 +529,7 @@ fn loading_doc(request: &Request) -> Doc {
         selection: PreviewSelection::default(),
         stamp: None,
         source_text: None,
+        graph: None,
     }
 }
 
@@ -513,6 +538,13 @@ fn history_show_request(request: &Request, doc: &Doc, source: usize) -> Option<R
     let Request::History { root, kind, path } = request else {
         return None;
     };
+    if let Some(graph) = &doc.graph {
+        return Some(Request::Show {
+            root: root.clone(),
+            spec: graph.commit(source)?.oid.clone(),
+            path: None,
+        });
+    }
     let line = doc.lines.get(source)?.to_string();
     let reference = crate::scm::parse_drawer_ref(*kind, &line);
     let spec = crate::scm::drawer_git_spec(&reference)?;
@@ -1158,6 +1190,7 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         selection: PreviewSelection::default(),
         stamp: None,
         source_text: None,
+        graph: None,
     });
     let mut mode = ViewMode::Preview(doc);
     report_identity(
@@ -1809,6 +1842,7 @@ fn draw_doc(
 ) -> (usize, Rect) {
     let area = frame.area();
     let [header, find_area, body, footer] = find.layout(area);
+    let body = doc.draw_graph_header(frame, body);
 
     let file_icon = icon(theme, &doc.name, false, false);
     let icon_style = ui_icon_style(file_icon.rgb);
@@ -3290,6 +3324,7 @@ mod tests {
             selection: PreviewSelection::default(),
             stamp: None,
             source_text: None,
+            graph: None,
         }
     }
 
@@ -4824,6 +4859,7 @@ mod tests {
             selection: PreviewSelection::default(),
             stamp: None,
             source_text: None,
+            graph: None,
         };
         assert!(!doc.wrap, "glow output must not be generically re-wrapped");
         assert!(!doc.numbered, "glow formats its own layout, no gutter");

@@ -328,7 +328,7 @@ fn tree(layout: &Layout, region: Rect) -> Result<Node, String> {
         .iter()
         .find(|split| split.rect == region)
         .ok_or("cannot capture the current split layout")?;
-    if !split.ratio.is_finite() || !(0.1..=0.9).contains(&split.ratio) {
+    if !split.ratio.is_finite() || split.ratio <= 0.0 || split.ratio >= 1.0 {
         return Err("invalid layout split ratio".into());
     }
     let mut first = region;

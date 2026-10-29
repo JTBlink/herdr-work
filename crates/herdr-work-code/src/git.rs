@@ -426,11 +426,28 @@ impl Git {
     // ---- Drawer queries (display-only lists, VS Code Git-Graph style) ----
 
     pub fn graph(&self, limit: usize) -> Result<Vec<String>, String> {
+        self.graph_model(limit).map(|graph| graph.legacy_lines())
+    }
+
+    pub fn graph_model(&self, limit: usize) -> Result<crate::git_graph::Graph, String> {
         let n = format!("-{limit}");
-        lines(run_in(
+        let output = run_in(
             &self.root,
-            &["log", "--graph", "--oneline", "--decorate=short", &n],
-        )?)
+            &[
+                "log",
+                "--graph",
+                "--all",
+                "--date-order",
+                "--color=always",
+                "--decorate=full",
+                "--no-show-signature",
+                "--abbrev=8",
+                "--date=format:%Y-%m-%d %H:%M",
+                "--format=%x00%H%x00%h%x00%D%x00%s%x00%ad%x00%an",
+                &n,
+            ],
+        )?;
+        crate::git_graph::Graph::parse(&output)
     }
 
     pub fn commits(&self, limit: usize) -> Result<Vec<String>, String> {

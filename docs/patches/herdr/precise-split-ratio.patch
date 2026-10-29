@@ -1,0 +1,83 @@
+diff --git a/src/app/api/layouts.rs b/src/app/api/layouts.rs
+index 7419043..8aca93f 100644
+--- a/src/app/api/layouts.rs
++++ b/src/app/api/layouts.rs
+@@ -235,0 +236 @@ impl App {
++        let area = self.state.view.terminal_area;
+@@ -241 +242,4 @@ impl App {
+-            .is_some_and(|tab| tab.layout.set_ratio_at(&params.path, params.ratio));
++            .is_some_and(|tab| {
++                tab.layout
++                    .set_precise_ratio_at(&params.path, params.ratio, area)
++            });
+diff --git a/src/layout.rs b/src/layout.rs
+index 5ce7225..b3912f1 100644
+--- a/src/layout.rs
++++ b/src/layout.rs
+@@ -274,0 +275,20 @@ impl TileLayout {
++    /// Explicit API ratios may request narrow utility panes. Keep each child
++    /// at least one cell wide/high; interactive drag/keyboard limits stay intact.
++    pub fn set_precise_ratio_at(&mut self, path: &[bool], ratio: f32, area: Rect) -> bool {
++        if !ratio.is_finite() {
++            return false;
++        }
++        let splits = self.splits(area);
++        let Some(split) = splits.iter().find(|split| split.path == path) else {
++            return false;
++        };
++        let cells = match split.direction {
++            Direction::Horizontal => split.area.width,
++            Direction::Vertical => split.area.height,
++        };
++        // A headless server may not have a client geometry yet. Preserve the
++        // explicit ratio until a usable viewport exists.
++        let min = if cells < 2 { f32::EPSILON } else { 1.0 / f32::from(cells) };
++        set_ratio_at(&mut self.root, path, ratio.clamp(min, 1.0 - min))
++    }
++
+@@ -701,0 +722,45 @@ mod tests {
++    #[test]
++    fn precise_ratio_allows_a_five_cell_outer_pane_without_changing_interactive_limits() {
++        let (mut layout, owner) = TileLayout::new();
++        layout.split_focused(Direction::Horizontal);
++        let area = Rect::new(0, 0, 200, 50);
++        assert!(layout.set_precise_ratio_at(&[], 5.0 / 200.0, area));
++        assert_eq!(
++            layout
++                .panes(area)
++                .iter()
++                .find(|pane| pane.id == owner)
++                .unwrap()
++                .rect
++                .width,
++            5
++        );
++        assert!(layout.set_precise_ratio_at(&[], 195.0 / 200.0, area));
++        assert_eq!(
++            layout
++                .panes(area)
++                .iter()
++                .find(|pane| pane.id != owner)
++                .unwrap()
++                .rect
++                .width,
++            5
++        );
++        assert!(layout.set_precise_ratio_at(&[], 0.0, area));
++        assert!(layout.panes(area).iter().all(|pane| pane.rect.width >= 1));
++        assert!(!layout.set_precise_ratio_at(&[], f32::NAN, area));
++        assert!(layout.set_precise_ratio_at(&[], 0.72, Rect::default()));
++        assert!((layout.splits(area)[0].ratio - 0.72).abs() < f32::EPSILON);
++        assert!(layout.set_ratio_at(&[], 0.025));
++        assert_eq!(
++            layout
++                .panes(area)
++                .iter()
++                .find(|pane| pane.id == owner)
++                .unwrap()
++                .rect
++                .width,
++            20
++        );
++    }
++

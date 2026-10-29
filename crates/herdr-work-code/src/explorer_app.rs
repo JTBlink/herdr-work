@@ -844,6 +844,43 @@ impl App {
     pub fn host_title(&self) -> &'static str {
         self.pane_label()
     }
+    pub(crate) fn chrome_available(&self) -> bool {
+        matches!(self.overlay, None | Some(Overlay::ContentSearch { .. }))
+    }
+
+    /// Without a host pane the terminal owner performs the close.
+    pub(crate) fn close_sidebar(&mut self) -> bool {
+        if self.pane_ctl.is_none() {
+            return true;
+        }
+        self.hide();
+        false
+    }
+
+    pub(crate) fn chrome_theme(&self) -> IconTheme {
+        self.theme
+    }
+
+    pub(crate) fn search_active(&self) -> bool {
+        matches!(self.overlay, Some(Overlay::ContentSearch { .. }))
+    }
+
+    pub(crate) fn resize_sidebar(&self, current: u16, target: u16, collapsed: bool) {
+        if let Some(ctl) = &self.pane_ctl {
+            ctl.set_label(if collapsed {
+                None
+            } else {
+                Some(self.host_title())
+            });
+            let _ = crate::ipc::resize_sidebar_columns(
+                &ctl.pane_id,
+                current,
+                target,
+                self.sidebar_state.dock_right,
+            );
+        }
+    }
+
     pub fn refresh_host_title(&self) {
         if let Some(ctl) = &self.pane_ctl {
             ctl.set_label(Some(self.host_title()));
@@ -2024,7 +2061,7 @@ impl App {
 
     // ---- Settings modal ----
 
-    fn open_settings(&mut self) {
+    pub(crate) fn open_settings(&mut self) {
         #[cfg(feature = "reference-ui")]
         herdr_work_code::updates::check();
         self.suspend_search_for_modal();

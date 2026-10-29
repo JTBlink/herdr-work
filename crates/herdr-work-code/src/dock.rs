@@ -1,6 +1,8 @@
 //! Pure docking geometry mechanically moved from Sidebar launch.rs.
 //! No plugin identity, configuration or process lifecycle is read here.
 use serde::Deserialize;
+mod precision;
+pub use precision::{PreciseResize, precise_resize_plan};
 const MIN_SIDEBAR_SHARE: f64 = 0.15;
 const MAX_SIDEBAR_SHARE: f64 = 0.5;
 /// Herdr clamps split ratios to at least ten percent.
@@ -39,7 +41,7 @@ pub(crate) struct LayoutPane {
     pub(crate) rect: Option<Rect>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 pub(crate) struct Rect {
     pub(crate) x: i64,
     pub(crate) y: i64,

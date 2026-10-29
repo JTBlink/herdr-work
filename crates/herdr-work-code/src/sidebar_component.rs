@@ -1,6 +1,7 @@
 //! The original Sidebar applications, hosted as a component by HerdrWork's
 //! single terminal/event loop. Rendering and interaction stay in the source
-//! apps; this adapter only routes their existing Exit transitions.
+//! apps; this adapter routes their Exit transitions and product collapse controls.
+use crate::sidebar_chrome::{self, Action};
 use crate::{
     activity::InitialView,
     explorer_app,
@@ -8,8 +9,13 @@ use crate::{
     scm_app,
     state::{self, Exit, View},
 };
-use crossterm::event::Event;
-use ratatui::Frame;
+use crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
+use ratatui::{
+    Frame,
+    layout::{Position, Rect},
+};
 use std::{
     cell::RefCell,
     path::{Path, PathBuf},
@@ -28,6 +34,10 @@ pub struct Sidebar {
     roots: crate::root_memory::RootMemory,
     last_title: Option<&'static str>,
     projects_requested: bool,
+    collapsed: bool,
+    expanded_width: u16,
+    area: Rect,
+    pointer: Option<Position>,
 }
 impl Sidebar {
     pub fn new(root: PathBuf, initial: Option<InitialView>) -> Self {
@@ -60,6 +70,10 @@ impl Sidebar {
             roots,
             last_title: None,
             projects_requested: false,
+            collapsed: false,
+            expanded_width: saved.sidebar_width,
+            area: Rect::default(),
+            pointer: None,
         };
         sidebar.refresh_title();
         sidebar
@@ -88,6 +102,9 @@ impl Sidebar {
         }
     }
     fn refresh_title(&mut self) {
+        if self.collapsed {
+            return;
+        }
         let title = match &self.app {
             ViewApp::Explorer(app) => app.host_title(),
             ViewApp::Git(app) => app.host_title(),
@@ -108,9 +125,89 @@ impl Sidebar {
         }
     }
     pub fn draw(&mut self, frame: &mut Frame) {
-        match &mut self.app {
-            ViewApp::Explorer(app) => app.draw(frame),
-            ViewApp::Git(app) => app.draw(frame),
+        self.area = frame.area();
+        if !self.collapsed {
+            match &mut self.app {
+                ViewApp::Explorer(app) => app.draw(frame),
+                ViewApp::Git(app) => app.draw(frame),
+            }
+        }
+        if self.collapsed || self.chrome_available() {
+            let (active, theme) = match &self.app {
+                ViewApp::Git(app) => (Action::Git, app.chrome_theme()),
+                ViewApp::Explorer(app) => (
+                    if app.search_active() {
+                        Action::Search
+                    } else {
+                        Action::Files
+                    },
+                    app.chrome_theme(),
+                ),
+            };
+            sidebar_chrome::draw(frame, self.collapsed, active, theme, self.pointer);
+        }
+    }
+    fn set_collapsed(&mut self, collapsed: bool) {
+        if self.collapsed == collapsed {
+            return;
+        }
+        if collapsed {
+            self.expanded_width = self.area.width.max(sidebar_chrome::RAIL_WIDTH);
+        }
+        let target = if collapsed {
+            sidebar_chrome::RAIL_WIDTH
+        } else {
+            self.expanded_width
+        };
+        match &self.app {
+            ViewApp::Explorer(app) => app.resize_sidebar(self.area.width, target, collapsed),
+            ViewApp::Git(app) => app.resize_sidebar(self.area.width, target, collapsed),
+        }
+        self.collapsed = collapsed;
+    }
+    fn chrome_action(&mut self, action: Action) -> bool {
+        match action {
+            Action::Collapse => self.set_collapsed(true),
+            Action::Expand => self.set_collapsed(false),
+            Action::Close => {
+                if !self.flush() {
+                    self.set_collapsed(false);
+                    return false;
+                }
+                let quit = match &mut self.app {
+                    ViewApp::Explorer(app) => app.close_sidebar(),
+                    ViewApp::Git(app) => app.close_sidebar(),
+                };
+                // If a host close is refused, show the source app's notice.
+                if !quit {
+                    self.set_collapsed(false);
+                }
+                return quit;
+            }
+            Action::Projects => self.projects_requested = true,
+            Action::Settings => {
+                self.set_collapsed(false);
+                match &mut self.app {
+                    ViewApp::Explorer(app) => app.open_settings(),
+                    ViewApp::Git(app) => app.open_settings(),
+                }
+            }
+            Action::Files | Action::Search | Action::Git => {
+                self.set_collapsed(false);
+                let code = KeyCode::F(match action {
+                    Action::Files => 9,
+                    Action::Search => 10,
+                    _ => 11,
+                });
+                return self.event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+            }
+        }
+        false
+    }
+    fn chrome_available(&self) -> bool {
+        match &self.app {
+            ViewApp::Explorer(app) => app.chrome_available(),
+            ViewApp::Git(app) => app.chrome_available(),
         }
     }
     pub fn busy(&self) -> bool {
@@ -135,6 +232,7 @@ impl Sidebar {
         {
             return false;
         }
+        self.set_collapsed(false);
         self.app = Self::build(root.to_owned(), view, Rc::clone(&self.follower));
         self.refresh_title();
         true
@@ -149,6 +247,59 @@ impl Sidebar {
         }
     }
     pub fn event(&mut self, event: Event) -> bool {
+        if let Event::Mouse(mouse) = event {
+            self.pointer = matches!(mouse.kind, MouseEventKind::Moved | MouseEventKind::Drag(_))
+                .then_some(Position::new(mouse.column, mouse.row));
+            if mouse.kind == MouseEventKind::Down(MouseButton::Left)
+                && (self.collapsed || self.chrome_available())
+                && let Some(action) = sidebar_chrome::hit(
+                    self.area,
+                    self.collapsed,
+                    Position::new(mouse.column, mouse.row),
+                )
+            {
+                return self.chrome_action(action);
+            }
+        }
+        if self.collapsed {
+            match event {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    let action = match key.code {
+                        KeyCode::Char('1') | KeyCode::F(9) => Some(Action::Files),
+                        KeyCode::Char('2') | KeyCode::F(10) => Some(Action::Search),
+                        KeyCode::Char('3') | KeyCode::F(11) => Some(Action::Git),
+                        KeyCode::Char('4') if key.modifiers == KeyModifiers::CONTROL => {
+                            Some(Action::Projects)
+                        }
+                        KeyCode::Char('s') => Some(Action::Settings),
+                        KeyCode::Enter | KeyCode::Right => Some(Action::Expand),
+                        KeyCode::Char('b' | 'q') => Some(Action::Close),
+                        _ => None,
+                    };
+                    if let Some(action) = action {
+                        return self.chrome_action(action);
+                    }
+                }
+                // Never send collapsed dimensions to the source apps: their
+                // preferred-width repair would immediately expand the rail.
+                Event::Resize(width, _) => {
+                    if width != sidebar_chrome::RAIL_WIDTH {
+                        match &self.app {
+                            ViewApp::Explorer(app) => {
+                                app.resize_sidebar(width, sidebar_chrome::RAIL_WIDTH, true)
+                            }
+                            ViewApp::Git(app) => {
+                                app.resize_sidebar(width, sidebar_chrome::RAIL_WIDTH, true)
+                            }
+                        }
+                    }
+                    return false;
+                }
+                Event::Mouse(_) => return false,
+                _ => {}
+            }
+            return false;
+        }
         let exit = match (&mut self.app, event) {
             (ViewApp::Explorer(app), Event::Key(key)) => app.on_key(key),
             (ViewApp::Git(app), Event::Key(key)) => app.on_key(key),
@@ -295,11 +446,21 @@ mod tests {
                         expected.draw(|f| original.draw(f)).unwrap();
                     }
                 }
-                assert_eq!(
-                    actual.backend().buffer(),
-                    expected.backend().buffer(),
-                    "{view:?} {width}x{height}"
-                );
+                for y in 0..height {
+                    for x in 0..width {
+                        if y == 0 && x >= width.saturating_sub(3) && !component.busy() {
+                            continue;
+                        }
+                        assert_eq!(
+                            actual.backend().buffer()[(x, y)],
+                            expected.backend().buffer()[(x, y)],
+                            "{view:?} {width}x{height} at {x},{y}"
+                        );
+                    }
+                }
+                if !component.busy() {
+                    assert_eq!(actual.backend().buffer()[(width - 2, 0)].symbol(), "×");
+                }
                 if width == 28
                     && let Some(dir) = std::env::var_os("HERDR_WORK_TEST_FRAMES")
                 {

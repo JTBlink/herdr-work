@@ -23,7 +23,7 @@ def document_token(value):
     return f'{token:016x}'
 
 
-def check(binary, neighbor=False, reject_close=False, history=False, edit=None, find=False):
+def check(binary, neighbor=False, reject_close=False, history=False, edit=None, find=False, history_kind="Commits"):
     with tempfile.TemporaryDirectory(prefix='hw-viewer-close-') as directory:
         base = Path(directory).resolve()
         profile = base / 'profile'
@@ -41,7 +41,7 @@ def check(binary, neighbor=False, reject_close=False, history=False, edit=None, 
                           '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=.git/no-hooks',
                           'commit', '-qm', 'history viewer fixture']]:
                 subprocess.run(['git', *args], cwd=base, check=True, capture_output=True)
-            control.write_text(f'history\t{base}\tCommits\t')
+            control.write_text(f'history\t{base}\t{history_kind}\t')
         control.chmod(0o600)
         tokens = {'herdr-work-code-preview': str(int(time.time())),
                   'herdr-work-preview-path': document_token(document),
@@ -163,7 +163,8 @@ def check(binary, neighbor=False, reject_close=False, history=False, edit=None, 
                          and shows(b'history viewer fixture'), 'Backspace did not return to history')
                 output.clear()
                 # Double-click the first entry in the history body.
-                click = b'\x1b[<0;5;2M\x1b[<0;5;2m'
+                row = 3 if history_kind == 'Graph' else 2
+                click = f'\x1b[<0;5;{row}M\x1b[<0;5;{row}m'.encode()
                 os.write(master, click)
                 time.sleep(.1)
                 os.write(master, click)

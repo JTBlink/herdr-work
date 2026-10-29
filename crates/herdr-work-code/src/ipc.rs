@@ -117,40 +117,12 @@ pub fn resize_sidebar(layout: &str, owner: &str, dock_right: bool, direction: &s
     let snapshot = product
         .then(|| call_text("pane.list", serde_json::json!({})).ok())
         .flatten();
-    if product {
-        let Some(interior) = crate::dock::interior_resize_target(
-            layout,
-            owner,
-            dock_right,
-            if dock_right { "right" } else { "left" },
-        ) else {
-            return;
-        };
-        let Some(snapshot) = &snapshot else { return };
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(snapshot) else {
-            return;
-        };
-        let neighbor = value["result"]["panes"].as_array().and_then(|panes| {
-            panes
-                .iter()
-                .find(|p| p["pane_id"].as_str() == Some(&interior))
-        });
-        if neighbor.is_none_or(|p| {
-            crate::takeover::independent_plugin_metadata(p)
-                || !p["tokens"]["herdr-work-profile"].is_null()
-        }) {
-            return;
-        }
-        let Ok(info) = call_text("pane.process_info", serde_json::json!({"pane_id":interior}))
-        else {
-            return;
-        };
-        let Ok(info) = serde_json::from_str::<serde_json::Value>(&info) else {
-            return;
-        };
-        if crate::takeover::independent_plugin_process(&info["result"]) {
-            return;
-        }
+    if product
+        && !snapshot
+            .as_deref()
+            .is_some_and(|snapshot| sidebar_resize_safe(layout, owner, dock_right, snapshot))
+    {
+        return;
     }
     let _ = call_text(
         "pane.resize",
@@ -162,6 +134,69 @@ pub fn resize_sidebar(layout: &str, owner: &str, dock_right: bool, direction: &s
     {
         let _ = call_text("pane.focus", serde_json::json!({"pane_id":previous}));
     }
+}
+
+fn sidebar_resize_safe(layout: &str, owner: &str, dock_right: bool, snapshot: &str) -> bool {
+    let Some(interior) = crate::dock::interior_resize_target(
+        layout,
+        owner,
+        dock_right,
+        if dock_right { "right" } else { "left" },
+    ) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(snapshot) else {
+        return false;
+    };
+    let neighbor = value["result"]["panes"].as_array().and_then(|panes| {
+        panes
+            .iter()
+            .find(|p| p["pane_id"].as_str() == Some(&interior))
+    });
+    if neighbor.is_none_or(|p| {
+        crate::takeover::independent_plugin_metadata(p)
+            || !p["tokens"]["herdr-work-profile"].is_null()
+    }) {
+        return false;
+    }
+    let Ok(info) = call_text("pane.process_info", serde_json::json!({"pane_id":interior})) else {
+        return false;
+    };
+    let Ok(info) = serde_json::from_str::<serde_json::Value>(&info) else {
+        return false;
+    };
+    if crate::takeover::independent_plugin_process(&info["result"]) {
+        return false;
+    }
+    true
+}
+
+/// Explicit paths support a narrow rail when the host allows precise ratios.
+/// The normal resize API applies the host's interactive ten-percent floor.
+pub fn resize_sidebar_columns(
+    owner: &str,
+    current: u16,
+    target: u16,
+    right: bool,
+) -> std::io::Result<()> {
+    let layout = call_text("pane.layout", serde_json::json!({"pane_id":owner}))?;
+    let Some(plan) = crate::dock::precise_resize_plan(&layout, owner, current, target, right)
+    else {
+        return Ok(());
+    };
+    if crate::state::product_profile().is_some() {
+        let snapshot = call_text("pane.list", serde_json::json!({}))?;
+        if !sidebar_resize_safe(&layout, owner, right, &snapshot) {
+            return Err(std::io::Error::other(
+                "cannot safely resize sidebar beside an independent plugin",
+            ));
+        }
+    }
+    call_text(
+        "layout.set_split_ratio",
+        serde_json::json!({"pane_id":owner,"path":plan.path,"ratio":plan.ratio}),
+    )?;
+    Ok(())
 }
 
 /// Mark the brief interval before a TUI reaches its event loop. Windows calls

@@ -6,4 +6,5 @@ from viewer_close_fixture import check
 
 
 if __name__ == '__main__':
-    check(str(Path(sys.argv[1]).resolve()), history=True)
+    for kind in ['Commits', 'Graph']:
+        check(str(Path(sys.argv[1]).resolve()), history=True, history_kind=kind)

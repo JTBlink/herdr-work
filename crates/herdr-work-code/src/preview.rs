@@ -65,6 +65,7 @@ pub struct Doc {
     /// BEFORE the content was read: the baseline later polls compare against.
     pub(crate) stamp: Option<FileStamp>,
     pub(crate) source_text: Option<String>,
+    pub(crate) graph: Option<crate::git_graph::Graph>,
 }
 
 pub(crate) struct MediaPreview {
@@ -100,6 +101,10 @@ impl Doc {
     /// then honour any pending source-line scroll request.
     pub(crate) fn relayout(&mut self, width: u16, height: u16) {
         if self.rows_key != Some((width, height, self.wrap)) {
+            if let Some(graph) = &self.graph {
+                self.lines = graph.lines(width);
+                self.wrap = false;
+            }
             self.rows = if let Some(media) = &self.media {
                 render_media_rows(media, width, height)
             } else {
@@ -445,7 +450,8 @@ pub(crate) fn apply_diff_refresh(doc: &mut Doc, mut refreshed: Doc) {
         && doc.name == refreshed.name
         && doc.context == refreshed.context
         && doc.numbered == refreshed.numbered
-        && doc.lines == refreshed.lines
+        && doc.graph == refreshed.graph
+        && (doc.graph.is_some() || doc.lines == refreshed.lines)
     {
         doc.stamp = refreshed.stamp;
         doc.source_text = refreshed.source_text;
@@ -497,6 +503,7 @@ pub(crate) fn load_show(root: &Path, spec: &str, path: Option<&str>) -> Doc {
         selection: PreviewSelection::default(),
         stamp: None,
         source_text: None,
+        graph: None,
     }
 }
 
@@ -834,6 +841,7 @@ fn load_media_file(target: &Path, name: String, video_poster: bool, root: Option
         selection: PreviewSelection::default(),
         stamp: None,
         source_text: None,
+        graph: None,
     }
 }
 
@@ -930,6 +938,7 @@ fn load_file_width(
         selection: PreviewSelection::default(),
         stamp: None,
         source_text,
+        graph: None,
     }
 }
 
@@ -1002,6 +1011,7 @@ pub(crate) fn load_diff(root: &Path, rel: &str, kind: &str) -> Doc {
         selection: PreviewSelection::default(),
         stamp: None,
         source_text: None,
+        graph: None,
     }
 }
 
@@ -1102,6 +1112,23 @@ impl Doc {
     pub fn row_count(&self) -> usize {
         self.rows.len()
     }
+    /// A fixed table header; the returned rectangle is also used for input.
+    pub fn draw_graph_header(&self, frame: &mut Frame, body: Rect) -> Rect {
+        if let Some(graph) = &self.graph {
+            frame.render_widget(
+                Paragraph::new(graph.header(body.width)),
+                Rect::new(body.x, body.y, body.width, body.height.min(1)),
+            );
+            return Rect::new(
+                body.x,
+                body.y + u16::from(body.height > 0),
+                body.width,
+                body.height.saturating_sub(1),
+            );
+        }
+        body
+    }
+
     pub fn draw_body(&mut self, frame: &mut Frame, body: Rect) {
         LAST_BODY_WIDTH.store(body.width, std::sync::atomic::Ordering::Relaxed);
         if let Some(media) = &mut self.media {
@@ -1158,6 +1185,7 @@ pub fn git_show(name: String, context: String, text: &str) -> Doc {
         selection: PreviewSelection::default(),
         stamp: None,
         source_text: None,
+        graph: None,
     }
 }
 /// What the copy worker reports back to the event loop.
