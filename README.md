@@ -37,6 +37,8 @@ Windows 使用 `python install.py --prefix "$env:LOCALAPPDATA/HerdrWork"`，运�
 
 设置中的“文件打开方式”可选择“VS Code”：单击文件、Enter、Quick Open 和搜索结果均交给 VS Code，搜索结果保留行号；文件或目录右键菜单也提供“通过 VS Code 打开”。Git 差异和历史继续使用内置查看器。macOS 优先使用 `code` 命令，并支持标准 Applications 目录下的 VS Code；启动失败显示提示。
 
+Diff 预览标题栏提供上一处、下一处差异按钮和差异计数，也可按 `F7` / `Shift+F7` 循环跳转。连续的删除和新增行作为一处差异，长行换行及调整窗口宽度后仍定位到对应差异块；无文本差异时按钮置灰。
+
 Git Graph 展示所有分支、远端引用和标签，按列显示分支连线、提交说明、日期、作者及短提交号；窄窗口优先保留提交说明与提交号。按 Enter 查看顶部提交，或双击提交行查看详情；Backspace 返回历史，`r` 刷新。
 
 Explorer 和 Git 的设置面板在列表第一项提供“通过 VS Code 打开”入口，点击即可打开当前项目目录，无需修改默认文件打开方式。底部临时提示显示 3 秒后自动消失。

@@ -15,7 +15,9 @@ use std::{
     time::{Duration, Instant},
 };
 use unicode_width::UnicodeWidthChar;
+mod changes;
 mod media;
+pub(crate) use changes::ChangeNavigation;
 pub use media::initialize_terminal_images;
 /// Preview size guards: don't slurp huge files into a pane.
 pub(crate) const MAX_BYTES: usize = 1024 * 1024;
@@ -66,6 +68,7 @@ pub struct Doc {
     pub(crate) stamp: Option<FileStamp>,
     pub(crate) source_text: Option<String>,
     pub(crate) graph: Option<crate::git_graph::Graph>,
+    pub(crate) changes: Option<ChangeNavigation>,
 }
 
 pub(crate) struct MediaPreview {
@@ -504,6 +507,7 @@ pub(crate) fn load_show(root: &Path, spec: &str, path: Option<&str>) -> Doc {
         stamp: None,
         source_text: None,
         graph: None,
+        changes: None,
     }
 }
 
@@ -842,6 +846,7 @@ fn load_media_file(target: &Path, name: String, video_poster: bool, root: Option
         stamp: None,
         source_text: None,
         graph: None,
+        changes: None,
     }
 }
 
@@ -939,6 +944,7 @@ fn load_file_width(
         stamp: None,
         source_text,
         graph: None,
+        changes: None,
     }
 }
 
@@ -974,6 +980,7 @@ pub(crate) fn load_diff(root: &Path, rel: &str, kind: &str) -> Doc {
         .args(&args)
         .current_dir(root)
         .output();
+    let mut starts = Vec::new();
     let lines = match output {
         Err(e) => vec![Line::raw(format!("(git failed: {e})"))],
         Ok(out) => {
@@ -987,7 +994,9 @@ pub(crate) fn load_diff(root: &Path, rel: &str, kind: &str) -> Doc {
                     vec![Line::raw(format!("({})", err.trim()))]
                 }
             } else {
-                crate::diffview::render(rel, &text)
+                let (lines, changes) = crate::diffview::render_with_changes(rel, &text);
+                starts = changes;
+                lines
             }
         }
     };
@@ -1012,6 +1021,7 @@ pub(crate) fn load_diff(root: &Path, rel: &str, kind: &str) -> Doc {
         stamp: None,
         source_text: None,
         graph: None,
+        changes: Some(ChangeNavigation::new(starts)),
     }
 }
 
@@ -1078,6 +1088,12 @@ impl Doc {
         self.stamp
     }
     pub fn set_scroll(&mut self, scroll: usize) {
+        if scroll != self.scroll
+            && let Some(changes) = &mut self.changes
+        {
+            changes.active = None;
+        }
+        self.pending_src = None;
         self.scroll = scroll;
     }
     pub fn goto_line(&mut self, line: usize) {
@@ -1186,6 +1202,7 @@ pub fn git_show(name: String, context: String, text: &str) -> Doc {
         stamp: None,
         source_text: None,
         graph: None,
+        changes: None,
     }
 }
 /// What the copy worker reports back to the event loop.

@@ -185,7 +185,21 @@ fn overlay_bg(spans: Vec<Span<'static>>, range: (usize, usize), bg: Color) -> Ve
 /// Render a unified diff for `rel` (its extension picks the grammar) into
 /// display lines: `old new ±` gutters, tinted rows, highlighted code.
 pub fn render(rel: &str, diff: &str) -> Vec<Line<'static>> {
+    render_with_changes(rel, diff).0
+}
+
+/// Change-block source rows share the exact event sequence used for painting.
+pub(crate) fn render_with_changes(rel: &str, diff: &str) -> (Vec<Line<'static>>, Vec<usize>) {
     let evs = parse_events(diff);
+    let starts = evs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, ev)| {
+            (matches!(ev, Ev::Del(..) | Ev::Add(..))
+                && (i == 0 || !matches!(evs[i - 1], Ev::Del(..) | Ev::Add(..))))
+            .then_some(i)
+        })
+        .collect();
     let ranges = word_ranges(&evs);
 
     let max_no = evs
@@ -252,7 +266,7 @@ pub fn render(rel: &str, diff: &str) -> Vec<Line<'static>> {
             }
         }
     }
-    lines
+    (lines, starts)
 }
 
 #[cfg(test)]
@@ -273,6 +287,21 @@ mod tests {
         "+// TODO: debounce input\n",
         " search(\"hello\");\n",
     );
+
+    #[test]
+    fn navigation_groups_replacements_and_separates_context_and_hunks() {
+        let patch = "--- a/x.rs\n+++ b/x.rs\n@@ -1,5 +1,5 @@\n-removed\n+replacement\n context\n+added\n\\ No newline at end of file\n@@ -20,1 +20,0 @@\n-deleted\n";
+        let (lines, starts) = render_with_changes("x.rs", patch);
+        assert_eq!(starts, vec![0, 3, 5]);
+        assert_eq!(lines.len(), 6);
+        assert!(starts.iter().all(|&src| lines[src].style.bg.is_some()));
+        assert!(
+            render_with_changes("x.bin", "Binary files a/x.bin and b/x.bin differ")
+                .1
+                .is_empty()
+        );
+        assert!(render_with_changes("x.rs", "").1.is_empty());
+    }
 
     #[test]
     fn diff_parses_gutters_tints_and_word_ranges() {

@@ -29,6 +29,7 @@ use crate::preview::*;
 use crate::scm::Drawer;
 use crate::ui::{icon_style as ui_icon_style, palette};
 
+mod changes;
 mod find;
 #[cfg(test)]
 mod graph_tests;
@@ -438,6 +439,7 @@ fn load(request: &Request) -> Doc {
             stamp: None,
             source_text: None,
             graph: None,
+            changes: None,
         },
         Request::File { path, line } => {
             // Stat before reading: a write that lands during the read leaves
@@ -530,6 +532,7 @@ fn loading_doc(request: &Request) -> Doc {
         stamp: None,
         source_text: None,
         graph: None,
+        changes: None,
     }
 }
 
@@ -1191,6 +1194,7 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         stamp: None,
         source_text: None,
         graph: None,
+        changes: None,
     });
     let mut mode = ViewMode::Preview(doc);
     report_identity(
@@ -1531,22 +1535,27 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                                             );
                                         }
                                     }
+                                    KeyCode::F(7) if doc.changes.is_some() => {
+                                        doc.step_change(
+                                            key.modifiers.contains(KeyModifiers::SHIFT),
+                                        );
+                                    }
                                     KeyCode::Up | KeyCode::Char('k') => {
-                                        doc.scroll = doc.scroll.saturating_sub(1)
+                                        doc.set_scroll(doc.scroll.saturating_sub(1))
                                     }
                                     KeyCode::Down | KeyCode::Char('j') => {
-                                        doc.scroll = (doc.scroll + 1).min(max)
+                                        doc.set_scroll((doc.scroll + 1).min(max))
                                     }
                                     // Shift+Space is byte-identical to Space without the
                                     // kitty keyboard protocol, so page-back takes `b`.
                                     KeyCode::PageUp | KeyCode::Char('b') => {
-                                        doc.scroll = doc.scroll.saturating_sub(page)
+                                        doc.set_scroll(doc.scroll.saturating_sub(page))
                                     }
                                     KeyCode::PageDown | KeyCode::Char(' ') => {
-                                        doc.scroll = (doc.scroll + page).min(max)
+                                        doc.set_scroll((doc.scroll + page).min(max))
                                     }
-                                    KeyCode::Home | KeyCode::Char('g') => doc.scroll = 0,
-                                    KeyCode::End | KeyCode::Char('G') => doc.scroll = max,
+                                    KeyCode::Home | KeyCode::Char('g') => doc.set_scroll(0),
+                                    KeyCode::End | KeyCode::Char('G') => doc.set_scroll(max),
                                     KeyCode::Char('w') if doc.media.is_none() => {
                                         doc.pending_src = Some(doc.top_src());
                                         doc.wrap = !doc.wrap;
@@ -1608,6 +1617,9 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                 Event::Mouse(mouse) => match &mut mode {
                     ViewMode::Preview(doc) => {
                         let max = doc.rows.len().saturating_sub(1);
+                        if prompt.is_none() && changes::mouse(doc, mouse, preview_header) {
+                            continue;
+                        }
                         if mouse.kind == MouseEventKind::Down(MouseButton::Left)
                             && matches!(current, Some(Request::History { .. }))
                             && let Some(position) =
@@ -1628,8 +1640,10 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                             }
                         }
                         match mouse.kind {
-                            MouseEventKind::ScrollUp => doc.scroll = doc.scroll.saturating_sub(3),
-                            MouseEventKind::ScrollDown => doc.scroll = (doc.scroll + 3).min(max),
+                            MouseEventKind::ScrollUp => {
+                                doc.set_scroll(doc.scroll.saturating_sub(3))
+                            }
+                            MouseEventKind::ScrollDown => doc.set_scroll((doc.scroll + 3).min(max)),
                             MouseEventKind::Down(MouseButton::Left)
                                 if mouse.row == 0 && mouse.column < 3 =>
                             {
@@ -1853,7 +1867,10 @@ fn draw_doc(
     ];
     let used: usize = left.iter().map(Span::width).sum();
     let entry = find::Find::entry(header);
-    let title_width = if doc.is_media() {
+    let navigation = changes::area(header, doc);
+    let title_width = if navigation.width > 0 {
+        navigation.x.saturating_sub(header.x)
+    } else if doc.is_media() {
         header.width
     } else {
         header.width.saturating_sub(entry.width)
@@ -1897,6 +1914,8 @@ fn draw_doc(
         doc.draw_body(frame, body);
     }
 
+    changes::draw(frame, doc, header);
+
     let wrap_hint = if doc.wrap {
         "w: wrap on"
     } else {
@@ -1912,6 +1931,11 @@ fn draw_doc(
         } else {
             " image preview  q close".into()
         }
+    } else if doc.changes.is_some() {
+        preview_hint(
+            &["F7 下一处 · Shift+F7 上一处", "space/b page", wrap_hint],
+            footer.width,
+        )
     } else if editable {
         preview_hint(&["e edit", "space/b page", wrap_hint], footer.width)
     } else {
@@ -3325,6 +3349,7 @@ mod tests {
             stamp: None,
             source_text: None,
             graph: None,
+            changes: None,
         }
     }
 
@@ -4860,6 +4885,7 @@ mod tests {
             stamp: None,
             source_text: None,
             graph: None,
+            changes: None,
         };
         assert!(!doc.wrap, "glow output must not be generically re-wrapped");
         assert!(!doc.numbered, "glow formats its own layout, no gutter");

@@ -54,7 +54,10 @@ impl Find {
     }
 
     pub(super) fn entry(header: Rect) -> Rect {
-        let width = header.width.saturating_sub(3).min(18);
+        let width = header
+            .width
+            .saturating_sub(3)
+            .min(if header.width < 45 { 3 } else { 18 });
         Rect::new(
             header.right().saturating_sub(width),
             header.y,
@@ -347,7 +350,7 @@ impl Find {
             if let Some(hit) = self.active.and_then(|at| self.hits.get(at)) {
                 let height = usize::from(body.height).max(1);
                 if hit.start.row < doc.scroll || hit.end.row >= doc.scroll + height {
-                    doc.scroll = hit.start.row.saturating_sub(height / 3);
+                    doc.set_scroll(hit.start.row.saturating_sub(height / 3));
                 }
             }
             self.follow = false;

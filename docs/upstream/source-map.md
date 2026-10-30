@@ -32,6 +32,8 @@
 
 ## HerdrWork 必要适配
 
+2026-10-30 Diff 导航：复用 Sidebar 的 `diffview` 事件解析、高亮和 `viewer` 输入循环，派生连续增删块的源行起点；新增共享文档导航状态和标题栏按钮，保留原滚动、换行、选择复制及自动刷新。改动不重写 Diff 算法，不接管独立插件；验证见 [Diff 导航](../verification/diff-navigation.md)。
+
 2026-10-22 顶部 Projects 入口：复用 Code 的活动栏与 Projects 的 `board::place::show`，将原 VS Code 按钮改为后台宿主请求。托管看板通过自有插件 `board` 入口分配终端，传递当前仓库与 HerdrWork 资料；跳过独立插件配置同步、安装提示和旧目录提示。已运行看板沿用原聚焦逻辑，设置与文件菜单中的 VS Code 功能保留。验证见 [Projects 入口](../verification/projects-entry.md)。
 
 VS Code 直接设置入口：Explorer 与 SCM 在文件打开方式后增加当前目录打开动作，共用 `vscode::Launcher` 的有界后台任务和过期结果处理；保留原设置数据与内置预览行为。
