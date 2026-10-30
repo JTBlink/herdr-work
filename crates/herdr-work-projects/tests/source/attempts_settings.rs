@@ -66,6 +66,8 @@ fn the_values_the_refusals_and_who_makes_each_attempt() {
     );
     refused(
         "attempts.pick",
+        "review-tool",
+        r#"attempts\.pick must be you, reviewer, not "review-tool"\. Did you mean reviewer\?"#,
     );
     // a refused value changes nothing
     set_value("attempts.by", &json!("2"), &Scope::you()).unwrap();

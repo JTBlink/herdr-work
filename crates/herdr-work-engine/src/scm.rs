@@ -91,6 +91,8 @@ impl HerdrWork {
                 args: operation.args,
                 instance: Self::worktree_identity(git.root())?,
                 repository: crate::work_git::repository_identity(&git)?,
+                head: crate::git_state::head_oid(git.root()),
+                index: crate::git_state::staged_fingerprint(git.root())?,
                 content: working_stamp(&git)?,
                 check,
                 reference: crate::fingerprint(current.as_bytes()),
@@ -111,6 +113,8 @@ impl HerdrWork {
                 "仓库实例已改变"
             );
             anyhow::ensure!(
+                crate::git_state::head_oid(&plan.root) == plan.head
+                    && crate::git_state::staged_fingerprint(&plan.root)? == plan.index
                     && working_stamp(&git)? == plan.content,
                 "Git 状态已改变，请重新确认操作"
             );
@@ -142,6 +146,7 @@ impl HerdrWork {
                 .map_err(anyhow::Error::msg);
             crate::storage::save(
                 &record,
+                &serde_json::json!({"state":if result.is_ok() {"finished"} else {"unknown"},"head":crate::git_state::head_oid(&plan.root),"plan":plan,"ok":result.is_ok()}),
             )?;
             result
         })

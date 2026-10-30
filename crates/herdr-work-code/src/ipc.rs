@@ -47,12 +47,21 @@ pub fn socket_path() -> Option<PathBuf> {
 pub fn call_text(method: &str, params: serde_json::Value) -> std::io::Result<String> {
     let path = socket_path()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no herdr socket path"))?;
+    call_text_at(&path, method, params)
+}
+
+/// The same bounded exchange for a caller that has verified a specific endpoint.
+pub fn call_text_at(
+    path: &std::path::Path,
+    method: &str,
+    params: serde_json::Value,
+) -> std::io::Result<String> {
     let request = serde_json::json!({
         "id": format!("herdr-work-code:{method}"),
         "method": method,
         "params": params,
     });
-    roundtrip(&path, &request.to_string())
+    roundtrip(path, &request.to_string())
 }
 
 /// Stamp a sidebar pane's identity tokens with a fresh heartbeat timestamp

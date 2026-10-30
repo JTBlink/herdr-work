@@ -215,6 +215,8 @@ impl HerdrWork {
                 action,
                 instance: Self::worktree_identity(repo.root())?,
                 repository: repository_identity(&repo)?,
+                head: crate::git_state::head_oid(repo.root()),
+                index: crate::git_state::staged_fingerprint(repo.root())?,
                 content: working_stamp(&repo)?,
                 references: references(&repo)?,
                 targets: repo
@@ -241,6 +243,8 @@ impl HerdrWork {
                 "仓库实例已改变"
             );
             ensure!(
+                crate::git_state::head_oid(repo.root()) == plan.head
+                    && crate::git_state::staged_fingerprint(repo.root())? == plan.index
                     && working_stamp(&repo)? == plan.content
                     && references(&repo)? == plan.references,
                 "Git 状态已改变，请重新确认操作"
@@ -308,6 +312,7 @@ impl HerdrWork {
             })();
             storage::save(
                 &record,
+                &serde_json::json!({"state":if result.is_ok() {"finished"} else {"unknown"}, "plan":plan, "head":crate::git_state::head_oid(repo.root()), "error":result.as_ref().err().map(|e|e.to_string())}),
             )?;
             match result? {
                 text if text == "DELETE_NOT_MERGED" => {
@@ -382,6 +387,7 @@ impl HerdrWork {
                         let observed = (|| -> Result<serde_json::Value> {
                             let repo = Git::discover(&root).map_err(anyhow::Error::msg)?;
                             Ok(
+                                serde_json::json!({"root":repo.root(), "instance":Self::worktree_identity(repo.root())?, "head":crate::git_state::head_oid(repo.root()), "status":format!("{:?}", repo.status().map_err(anyhow::Error::msg)?)}),
                             )
                         })();
                         operation["record"]["observed"] =

@@ -84,6 +84,7 @@ fn registered_binary(profile: &Path, pane: &str, instance: &str, token: &str) ->
     Some(binary)
 }
 fn rpc(socket: &Path, method: &str, params: Value) -> Result<Value> {
+    crate::transport::request(socket.as_os_str(), method, params)
 }
 fn ui_process(value: &Value, pane: &str, binary: &Path, profile: &Path) -> bool {
     let info = value.get("process_info").unwrap_or(value);

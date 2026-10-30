@@ -216,20 +216,33 @@ impl HerdrWork {
             .target
             .clone()
             .context("Review execution is not bound")?;
-        let source: Vec<_> = review
-            .comments
-            .iter()
-                file: c.file.clone(),
-                side: if c.side == Side::Old {
+        let mut comments = review.comments.iter().collect::<Vec<_>>();
+        comments.sort_by(|a, b| a.file.cmp(&b.file).then(a.start.cmp(&b.start)));
+        let text = comments
+            .into_iter()
+            .map(|comment| {
+                let range = if comment.start == comment.end {
+                    format!("{}:{}", comment.file, comment.start)
                 } else {
-                },
-                start: c.start,
-                end: c.end,
-                lines: c.snippet.clone(),
-                text: c.text.clone(),
-                diff_anchored: true,
+                    format!("{}:{}-{}", comment.file, comment.start, comment.end)
+                };
+                let removed = if comment.side == Side::Old {
+                    " (removed)"
+                } else {
+                    ""
+                };
+                let text = comment
+                    .text
+                    .replace('\r', "")
+                    .lines()
+                    .map(str::trim_end)
+                    .filter(|line| !line.trim().is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("{range}{removed}\n{}\n{text}", comment.snippet)
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .join("\n\n");
         let batch = ReviewBatch {
             id: BatchId(format!(
                 "{}-{}",
@@ -290,9 +303,10 @@ impl HerdrWork {
             "Binding changed during preparation; reconcile the prepared batch before sending"
         );
         self.record_delivery(id, &batch.id, Delivery::Sending)?;
+        let state = match crate::transport::send(&target.socket, &target.pane, &batch.text) {
             Ok(()) => Delivery::Delivered,
-            )) => Delivery::Unknown,
-            Err(_) => Delivery::Failed,
+            Err(crate::transport::SendFailure::Unknown) => Delivery::Unknown,
+            Err(crate::transport::SendFailure::Rejected) => Delivery::Failed,
         };
         self.record_delivery(id, &batch.id, state)?;
         let focus_warning = state == Delivery::Delivered && self.focus(&review.execution).is_err();

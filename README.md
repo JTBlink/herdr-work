@@ -74,6 +74,7 @@ sh install-plugin.sh --release  # 官方安装 VERSION 对应的 GitHub 标签
 
 安装时会为文件树添加默认快捷键：先按 `Ctrl+B`，松开后按 `F`，打开或聚焦当前标签页的 HerdrWork。若修改了 Herdr 前缀键，则使用自定义前缀再按 `F`。安装器只在键位空闲时添加；已有绑定或用户改动会保留，重复安装不重复添加。配置前备份宿主配置，不修改独立 Sidebar 的绑定。使用 `herdr plugin install JTBlink/herdr-work` 安装时也会执行相同的快捷键配置步骤。
 
+
 插件动作提供 Show HerdrWork Explorer、Search、Source Control 和 Quick Open；宿主为自有工作台分配侧边栏终端，已有实例通过身份核验后聚焦。也可在宿主环境执行 `herdr-work activate show-search --root /path/to/repository`，其余动作名为 `show-explorer`、`show-git`、`quick-open`。编辑器或输入弹窗打开时，动作只聚焦并提示保留当前输入；结束输入后可再次选择活动。
 
 ## 开发与验证
@@ -92,11 +93,13 @@ python3 scripts/smoke.py --archives dist
 
 真实双插件共存验证见 [Sidebar 共存验证](docs/verification/sidebar-coexistence.md)。测试复制 Sidebar 程序到临时目录，用独立配置和宿主会话运行双方自动事件，不修改已安装插件或现有窗格。
 
+将 target 替换为 `x86_64-unknown-linux-gnu` 或 `x86_64-pc-windows-msvc` 可在对应原生平台构建。CI 编译、测试、打包并执行隔离安装验证；Release 工作流只在所有平台成功后发布附件。流程采用 draft 创建、附件校验、最后发布。
 
+Sidebar 的实际实现已迁入 `crates/herdr-work-code`，Projects 的 CLI 库和四个底层 crate 已迁入根 workspace，专属任务后端入口为 `crates/herdr-work-projects`。HerdrWork 与独立安装的 Sidebar、Projects 插件各自维护配置、数据和生命周期。后续模块整理按[内部模块架构](docs/architecture/herdr-work-internal-modules.md)统一工程，实施进度见[任务索引](docs/plans/internal-modules/README.md)，实际复用见[源码来源与补丁](docs/upstream/source-map.md)。GitHub 仓库仍使用 `JTBlink/herdr-work` 地址。
 
 ## 来源与许可
 
-独立社区项目，与 Herdr 和来源项目无官方隶属或背书关系。自有代码与三个来源均保留 MIT 许可，安装归档附带原始许可证。
+独立社区项目，与 Herdr 和来源项目无官方隶属或背书关系。自有代码、来源代码与内部进程运行器保留各自 MIT 许可，安装归档附带原始许可证。
 
 - [Herdr](https://github.com/herdrdev/herdr)：终端工作区与 Agent 会话宿主。
 - [Projects](https://github.com/eliasstravik/herdr-projects)：任务、尝试、执行流程与 keeper。

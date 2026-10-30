@@ -13,6 +13,7 @@ from package import verify
 class Archives(unittest.TestCase):
     def archive(self, root, *, backend=True, corrupt=False, product='HerdrWork'):
         files={'bin/herdr-work':b'compiled-herdr-work-fixture','install.py':b'# installer','LICENSE':b'MIT'}
+        for name in ['herdr-projects','herdr-sidebar','process-runtime']:files[f'licenses/{name}.txt']=b'MIT'
         if backend:files['bin/herdr-work-projects']=b'compiled-backend-fixture'
         manifest={'product':product,'version':'0.1.0','sha':'a'*40,'target':'x86_64-unknown-linux-gnu','projects_backend':True,
                   'files':{name:hashlib.sha256(data).hexdigest() for name,data in files.items()}}
@@ -108,6 +109,7 @@ class InstallerLifecycle(unittest.TestCase):
             with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as temp:
                 stage, prefix, _ = self.fixture(Path(temp).resolve(), suffix)
                 original = {}
+                for name in ['sidebar', 'projects', 'independent-tool']:
                     binary = prefix / 'bin' / ('herdr-' + name + suffix)
                     config = prefix / 'independent-plugins' / name / 'config.json'
                     config.parent.mkdir(parents=True)

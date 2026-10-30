@@ -29,6 +29,7 @@ fn direct_worker_ignores_third_party_profiles_and_never_takes_over_plugins() {
         "projects/data/task.json",
         "projects/settings/config.json",
         "projects/reports/report.json",
+        "review-tool/drafts.json",
         "herdr/plugins.json",
         "bin/herdr-sidebar",
         "bin/herdr-projects",

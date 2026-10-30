@@ -6,6 +6,7 @@
 
 原 `upstream/herdr-sidebar/plugins/herdr-sidebar` 已迁入 `crates/herdr-work-code`，包、库和内部命名使用 HerdrWork，自根 workspace、Cargo.lock、target 构建；原独立锁文件退出生产构建。原 MIT 许可证保留于该 crate 的 LICENSE，原说明、维护笔记与插件清单归档在本目录。移除原 fetch-or-build、redeploy 及来源仓库安装/发布脚本，防止手动执行时误下载或关闭独立 Sidebar 窗格；不构成本产品安装入口。
 
+只修改 HerdrWork 仓库内的源码副本。独立安装的 Sidebar、Projects 插件及其注册表、命令、配置、任务、草稿不属于本产品；不得接管、关闭、替换、更新、迁移或卸载它们。共享仓库的文件和 Git 状态仅因用户明确的文件/Git 操作而改变。
 
 默认 Sidebar 直接托管原 `explorer_app::App`、`scm_app::App`；下表中的工作台适配继续用于显式 `ui --standalone`。此前的 [能力盘点](sidebar-capability-audit.md) 记录迁移阶段差异，不能代替当前默认入口的验证。
 
@@ -41,6 +42,7 @@ HerdrWork 保持唯一终端和事件循环。生产 `sidebar-ui` 特性直接�
 
 `crates/herdr-work-projects` 为独立产品入口，调用已导入的 Projects 库。入口在启动线程前强制设置自己的 home/data/settings/reports，资料由 HERDR_WORK_HOME 或默认 ~/.herdr-work 决定；不以继承的 HERDR_PROJECTS_* 路径决定资料，不依赖调用方正确设置 managed 标记。继承的第三方插件 ID/context 会清除，原 Agent 回调中的空插件身份保留。主程序、hook 和生成 launcher 显式传递 HerdrWork home，防止回到独立插件目录。
 
+两个发布程序均由根 Cargo.lock 和 target 构建。Projects 的源码随后已迁入根 workspace，见 [Projects 记录](projects-source.md)；最终模块整合仍由 #17 跟踪。
 
 ## 验证边界
 

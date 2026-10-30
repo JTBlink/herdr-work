@@ -352,6 +352,7 @@ fn git_hook_descendants_and_blocking_hooks_are_bounded_after_commit() {
     let began = Instant::now();
     let result = herdr_work_code::git::herdr_work_bounded(
         |command, _| {
+            herdr_work_engine::process::run(command, Duration::from_secs(1))
                 .map_err(|e| e.to_string())
         },
         || source.commit("bounded hook"),
@@ -366,6 +367,7 @@ fn git_hook_descendants_and_blocking_hooks_are_bounded_after_commit() {
     let began = Instant::now();
     let result = herdr_work_code::git::herdr_work_bounded(
         |command, _| {
+            herdr_work_engine::process::run(command, Duration::from_secs(1))
                 .map_err(|e| e.to_string())
         },
         || source.commit("bounded blocking hook"),

@@ -13,6 +13,8 @@ sha2.workspace = true
 tempfile.workspace = true
 fs2.workspace = true
 herdr-work-code = { workspace = true, features = ["sidebar-ui"] }
+process-wrap = { version = "10.0.1", default-features = false, features = ["std", "process-group", "job-object"] }
+similar = { version = "3.2.0", features = ["text"] }
 
 [dev-dependencies]
 tempfile.workspace = true

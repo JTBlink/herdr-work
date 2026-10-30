@@ -100,8 +100,11 @@ fn the_two_settings_nearest_first_delegate_show_an_automation_and_never_from_a_r
     let no = |name: &str, v: &str| set_value(name, &json!(v), &Scope::you()).unwrap_err().msg;
     assert!(
         has(
+            &no("plan.approve", "review-tool"),
+            r#"plan\.approve must be none, you, reviewer, not "review-tool"\. Did you mean reviewer\?"#
         ),
         "{}",
+        no("plan.approve", "review-tool")
     );
     assert!(has(
         &no("plan.agent", "cluade"),

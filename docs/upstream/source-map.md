@@ -1,5 +1,6 @@
 # 固定源码与导入映射
 
+用户已确定[产品内部模块整合方向](../architecture/herdr-work-internal-modules.md)：本页记录当前来源位置与实际调用，后续迁至根 workspace 和 `crates/`，来源记录最终进入 `docs/provenance/`。Sidebar 已迁入 `crates/herdr-work-code`，Projects 已迁入根 workspace，见 [Sidebar 记录](../provenance/sidebar-source.md)与 [Projects 记录](../provenance/projects-source.md)。
 
 ## 当前获取状态
 
@@ -21,6 +22,7 @@
 | Projects | `crates/herdr-work-projects`、`crates/herdr-work-task-{data,flow,board,web}` | 原 CLI 库、core/flow/board/web、资源及测试；旧脚本仅作测试夹具，原说明和清单归档至 docs/provenance/projects |
 | Sidebar package | `crates/herdr-work-code/` | 原算法、资源及测试；独立插件入口移为显式测试特性，原说明/清单归档到 docs/provenance |
 
+Code 与 Projects 已作为产品内部 crate 命名和维护。根 workspace 现有十个成员：core、engine、tui、主 CLI、Code、Projects worker 与 task-data/flow/board/web。Projects 原 CLI 库合入现有 worker，原五个 package 已迁入，使用根 Cargo.lock 和 target；旧目录已删除。最终九模块职责整理尚未完成。
 
 ## 复用与升级约束
 
@@ -31,6 +33,8 @@
 - 关闭旧更新器、安装下载器和自动开窗格逻辑，通过工作台统一构建和版本验收。
 
 ## HerdrWork 必要适配
+
+2026-10-31 内部运行设施清理：生产包只引用根 workspace 中的 crate；Engine 内部的进程树执行器保留 MIT 版权与原有取消、截止时间及管道排空行为，源码位于 `crates/herdr-work-engine/src/process.rs`，许可证随发行归档保留。显式宿主通信复用 Code 的有界 IPC。决策见 [内部运行设施](../adr/0002-internal-runtime.md)。
 
 2026-10-31 Explorer 删除确认：保留 Sidebar 菜单捕获的删除目标、`actions::delete` 文件 / 目录实现和树刷新，将底栏 y/N 提示替换为独立模态组件。绘制与点击共用几何，默认取消；键鼠不穿透到后台，删除失败后保留原目标和错误。验证见 [删除确认弹窗](../verification/delete-confirmation.md)。
 

@@ -73,6 +73,7 @@ impl HerdrWork {
                 serde_json::to_string(&json!({"focused_pane_cwd":root.canonicalize()?, "focused_pane_id":std::env::var("HERDR_PANE_ID").unwrap_or_default(), "tab_id":std::env::var("HERDR_TAB_ID").unwrap_or_default(), "workspace_id":std::env::var("HERDR_WORKSPACE_ID").unwrap_or_default()}))?,
             );
         }
+        let output = crate::process::run(cmd, Duration::from_secs(60))
             .context("Projects backend unavailable or failed")?;
         if output.is_empty() {
             return Ok(json!({"ok": true}));

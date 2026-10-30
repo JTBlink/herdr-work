@@ -9,6 +9,8 @@ date: 2026-10-19
 用户已确认：来源代码属于 HerdrWork 自身功能，由本项目长期开发、定制和重构。按产品职责组织代码，以一个 Cargo workspace 管理全部生产 Rust package。实际复用已有实现、测试和资源，保留许可证与来源记录。
 
 
+2026-10-31 补充：生产 workspace 的十个包均位于 `crates/`。进程树监督收在 Engine 内部，显式宿主传输复用 Code 的有界 IPC；Git 身份和索引校验通过 Code 客户端读取，行差异直接使用现有算法依赖。外部审查组件的集成与迁移计划已撤销，见 [内部运行设施决策](../adr/0002-internal-runtime.md)。
+
 ## 产品约定
 
 - 产品、主命令、插件分别为 HerdrWork、`herdr-work`、`jtblink.herdr-work`。

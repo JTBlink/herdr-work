@@ -132,8 +132,7 @@ pub(crate) fn write_lock(git: &Git) -> Result<std::fs::File> {
 }
 pub(crate) fn bounded_git<T>(job: impl FnOnce() -> T) -> T {
     herdr_work_code::git::herdr_work_bounded(
-        |command, timeout| {
-        },
+        |command, timeout| crate::process::run(command, timeout).map_err(|e| format!("{e:#}")),
         job,
     )
 }
@@ -234,6 +233,8 @@ impl HerdrWork {
                 }
                 let instance = Self::worktree_identity(repo.root())?;
                 let repository = crate::work_git::repository_identity(&repo)?;
+                let expected_index = crate::git_state::staged_fingerprint(repo.root())?;
+                let expected_head = crate::git_state::head_oid(repo.root());
                 for (staged, entries) in [(true, status.staged), (false, status.unstaged)] {
                     for e in entries {
                         let (expected_content, row_write_error) = if write_error.is_some() {
@@ -294,13 +295,7 @@ impl HerdrWork {
                 );
             }
             let resolved_base = if scope == "branch" {
-                let winner = resolution
-                    .status
-                    .winner
-                    .context("No branch comparison base; pass --base explicitly")?;
-                Some(
-                        .context("No common ancestor for comparison base")?,
-                )
+                Some(crate::git_state::comparison_base(&root, base)?)
             } else {
                 base.map(str::to_owned)
             };
@@ -314,7 +309,11 @@ impl HerdrWork {
                 .find(|e| e.path == file)
                 .and_then(|e| e.orig.as_deref());
             let source = original.unwrap_or(file);
+            let head = crate::git_state::diff_base(crate::git_state::head_oid(&root));
             let show = |rev: &str, path: &str| -> Result<String> {
+                if rev == crate::git_state::EMPTY_TREE {
+                    return Ok(String::new());
+                }
                 let listed = if rev.is_empty() {
                     repo.raw(&[
                         "--literal-pathspecs",
@@ -370,31 +369,45 @@ impl HerdrWork {
                             std::fs::read_to_string(&full).context("Binary or unreadable file")?,
                         )
                     } else {
-                        {
-                                anyhow::bail!("Binary diff has no commentable lines")
-                            }
-                        }
+                        (
+                            show(old_rev, source)?,
+                            if full.exists() {
+                                std::fs::read_to_string(&full)
+                                    .context("Binary or unreadable file")?
+                            } else {
+                                String::new()
+                            },
+                        )
                     }
                 }
                 _ => anyhow::bail!("Unknown diff scope: {scope}"),
             };
+            ensure!(
+                !old.contains('\0') && !new.contains('\0'),
+                "Binary diff has no commentable lines"
+            );
+            ensure!(
+                old.len() <= 4 * 1024 * 1024 && new.len() <= 4 * 1024 * 1024,
+                "File exceeds the 4 MiB diff limit"
+            );
             let signature =
                 storage::fingerprint(&serde_json::to_vec(&(scope, base, source, &old, &new))?);
-            );
-                file.into(),
-                original.map(str::to_owned),
-                &old,
-                &new,
-                &highlighter,
-            );
+            let diff = similar::TextDiff::from_lines(&old, &new);
             let rows = diff
-                .rows
-                .iter()
-                .map(|r| DiffLine {
-                    old: r.old_no(),
-                    new: r.new_no(),
-                    marker: r.marker(),
-                    text: r.text(),
+                .iter_all_changes()
+                .map(|change| DiffLine {
+                    old: change.old_index().map(|n| n as u32 + 1),
+                    new: change.new_index().map(|n| n as u32 + 1),
+                    marker: match change.tag() {
+                        similar::ChangeTag::Delete => '-',
+                        similar::ChangeTag::Insert => '+',
+                        similar::ChangeTag::Equal => ' ',
+                    },
+                    text: change
+                        .value()
+                        .trim_end_matches('\n')
+                        .trim_end_matches('\r')
+                        .to_owned(),
                 })
                 .collect();
             Ok(DiffView {
@@ -466,6 +479,8 @@ impl HerdrWork {
                 "仓库实例已改变"
             );
             ensure!(
+                crate::git_state::staged_fingerprint(repo.root())? == change.expected_index
+                    && crate::git_state::head_oid(repo.root()) == change.expected_head
                     && crate::work_git::working_stamp(&repo)? == change.expected_working
                     && content_stamp(repo.root(), &change.path)? == change.expected_content,
                 "Index or working content changed; refresh before staging"
@@ -501,6 +516,8 @@ impl HerdrWork {
                 instance: Self::worktree_identity(repo.root())?,
                 repository: crate::work_git::repository_identity(&repo)?,
                 branch: repo.status().map_err(anyhow::Error::msg)?.branch,
+                head: crate::git_state::head_oid(repo.root()),
+                staged: crate::git_state::staged_fingerprint(repo.root())?,
             })
         })
     }
@@ -518,7 +535,9 @@ impl HerdrWork {
                 "仓库实例已改变"
             );
             ensure!(
+                crate::git_state::head_oid(repo.root()) == plan.head
                     && repo.status().map_err(anyhow::Error::msg)?.branch == plan.branch
+                    && crate::git_state::staged_fingerprint(repo.root())? == plan.staged,
                 "Branch, HEAD or staged content changed; review again"
             );
             let operation = self.root().join("operations").join(format!(
@@ -537,6 +556,7 @@ impl HerdrWork {
                 &serde_json::json!({"state":"started","plan":plan}),
             )?;
             let result = repo.commit(message).map_err(anyhow::Error::msg);
+            let head = crate::git_state::head_oid(repo.root());
             storage::save(
                 &operation,
                 &serde_json::json!({"state":if result.is_ok() || head == plan.head {"finished"} else {"unknown"},"head":head,"ok":result.is_ok()}),

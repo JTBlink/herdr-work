@@ -87,6 +87,7 @@ def create_archive(target, output, tag=None):
         for label, source in {
             'herdr-projects': 'crates/herdr-work-projects/LICENSE',
             'herdr-sidebar': 'crates/herdr-work-code/LICENSE',
+            'process-runtime': 'crates/herdr-work-engine/LICENSE-process-runtime',
         }.items():
             shutil.copy2(ROOT / source, stage / f'licenses/{label}.txt')
         info['files'] = {p.relative_to(stage).as_posix(): digest(p) for p in sorted(stage.rglob('*')) if p.is_file()}
@@ -134,6 +135,7 @@ def verify(archive):
             if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()) or digest(path) != sha:
                 raise ValueError(f'Manifest checksum mismatch: {rel}')
         suffix = '.exe' if 'windows' in manifest['target'] else ''
+        required = {'bin/herdr-work' + suffix, 'install.py', 'LICENSE'} | {f'licenses/{name}.txt' for name in ['herdr-projects','herdr-sidebar','process-runtime']}
         if manifest['projects_backend']:
             required.add('bin/herdr-work-projects')
         if not required <= actual_files: raise ValueError('Required executable or license missing')

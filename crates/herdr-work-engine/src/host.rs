@@ -5,10 +5,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 fn session(socket: &Path) -> Result<(Value, Vec<Value>)> {
-        socket.as_os_str(),
-        "session.snapshot",
-        json!({}),
-    )?;
+    let value = crate::transport::request(socket.as_os_str(), "session.snapshot", json!({}))?;
     let snapshot = value.get("snapshot").unwrap_or(&value).clone();
     let agents = value
         .get("agents")
@@ -60,6 +57,7 @@ fn panes(snapshot: &Value) -> Vec<&Value> {
 impl HerdrWork {
     /// Let Herdr open or reuse the checkout's workspace and focus it.
     pub fn open_worktree(&self, socket: &Path, root: &Path, path: &Path) -> Result<()> {
+        crate::transport::request(
             socket.as_os_str(),
             "worktree.open",
             json!({"cwd": root, "path": path, "focus": true, "trust_repository": false}),
@@ -183,6 +181,7 @@ impl HerdrWork {
     }
     pub fn focus(&self, execution: &Execution) -> Result<()> {
         let target = self.validate_target(execution)?;
+        crate::transport::request(
             target.socket.as_os_str(),
             "pane.focus",
             json!({"pane_id":target.pane}),

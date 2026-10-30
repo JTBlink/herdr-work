@@ -1,3 +1,4 @@
+"""Draft-first, publish-last release of one verified source SHA."""
 import argparse
 import json
 import os

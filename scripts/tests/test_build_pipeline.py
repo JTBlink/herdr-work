@@ -113,6 +113,7 @@ class ArchiveCleanup(unittest.TestCase):
             for relative in ('scripts/install.py', 'scripts/hook.py', 'README.md',
                              'herdr-plugin.toml', 'LICENSE', 'CHANGELOG.md',
                              'crates/herdr-work-projects/LICENSE',
+                             'crates/herdr-work-code/LICENSE', 'crates/herdr-work-engine/LICENSE-process-runtime',
                              f'target/{target}/release/herdr-work.exe'):
                 file = root / relative
                 file.parent.mkdir(parents=True, exist_ok=True)

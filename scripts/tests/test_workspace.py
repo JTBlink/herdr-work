@@ -17,6 +17,18 @@ PROJECTS = {
 
 
 class ProjectsWorkspace(unittest.TestCase):
+    def test_every_local_production_dependency_stays_in_crates(self):
+        workspace = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']
+        crates = (ROOT / 'crates').resolve()
+        for relative in workspace['members']:
+            manifest = (ROOT / relative / 'Cargo.toml').resolve()
+            self.assertTrue(manifest.is_relative_to(crates))
+            project = tomllib.loads(manifest.read_text())
+            for section in [project, *project.get('target', {}).values()]:
+                for dependency in section.get('dependencies', {}).values():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        self.assertTrue((manifest.parent / dependency['path']).resolve().is_relative_to(crates))
+
     def test_all_projects_packages_are_root_members_with_local_sources(self):
         workspace = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']
         for name in PROJECTS:
@@ -46,6 +58,7 @@ class ProjectsWorkspace(unittest.TestCase):
             for name in ['scripts/install.py', 'scripts/hook.py', 'README.md',
                          'herdr-plugin.toml', 'LICENSE', 'CHANGELOG.md',
                          'crates/herdr-work-projects/LICENSE', 'crates/herdr-work-code/LICENSE',
+                         'crates/herdr-work-engine/LICENSE-process-runtime']:
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('preserved Projects copyright' if 'projects/LICENSE' in name else 'fixture')

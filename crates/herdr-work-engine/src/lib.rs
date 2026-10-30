@@ -3,14 +3,17 @@ mod activation;
 mod code;
 mod editing;
 mod files;
+mod git_state;
 mod host;
 mod preferences;
+pub mod process;
 mod profile;
 mod review;
 mod scm;
 mod search;
 mod storage;
 mod tasks;
+mod transport;
 mod ui_state;
 mod work_git;
 

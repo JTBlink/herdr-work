@@ -158,6 +158,7 @@ fn run() -> Result<()> {
             unreachable!("host activity is dispatched before the profile lock")
         }
         Command::Doctor => print(
+            &serde_json::json!({"product":"HerdrWork","version":env!("CARGO_PKG_VERSION"),"profile":desk.root(),"projects_backend":desk.backend(),"projects_backend_installed":desk.backend().is_file(),"projects_backend_platform":if cfg!(unix){"bundled"}else{"Unix backend required; native Windows task execution unavailable"},"sources":{"projects":"92a2813be9a7c2f8cda737f6b78ed21e8413c3ce","sidebar":"081ed133f3faa377438b51ce435fe8a87c439593"}}),
         ),
         Command::ProfilePath => unreachable!("profile path is resolved before opening the profile"),
         Command::Tasks => print(&desk.tasks()?),

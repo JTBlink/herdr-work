@@ -103,7 +103,7 @@ HerdrWork TUI
 
 ### 一个终端所有者，一条输入分发路径
 
-工作台拥有 raw mode、alternate screen、鼠标捕获、resize 和终端恢复。其余视图只接受已分配的绘制区域、输入和领域快照，返回状态变化及 effects。不能在一个进程内并跑三个原始 `main` / `run`；它们各自管理终端和循环。[P6]、[S2]、[R1]
+工作台拥有 raw mode、alternate screen、鼠标捕获、resize 和终端恢复。其余视图只接受已分配的绘制区域、输入和领域快照，返回状态变化及 effects。不能在一个进程内并跑三个原始 `main` / `run`；它们各自管理终端和循环。[P6]、[S2]
 
 布局建议：任务/Agent 导航、文件/SCM 区、主要阅读/Diff 区、执行状态和评论入口。窄屏折叠次要区域；模态输入优先于局部快捷键，再到全局导航。Agent 交互继续使用 Herdr 的终端 pane，工作台执行“定位/聚焦已有 Agent”，可与 Agent pane 并排布局。当前没有证据证明插件可获得原生 GUI 或在 Ratatui 内直接嵌入另一 Herdr PTY；本方案不把内嵌 Agent 终端视为已具备能力。
 
