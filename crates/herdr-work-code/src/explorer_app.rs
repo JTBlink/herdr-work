@@ -46,6 +46,10 @@ use regex::{Regex, RegexBuilder};
 
 use herdr_work_code::state::Exit;
 
+#[path = "explorer_delete_confirmation.rs"]
+mod delete_confirmation;
+use delete_confirmation::{DeleteConfirmation, Response as DeleteResponse};
+
 const MY_VIEW: View = View::Explorer;
 
 /// How often the git status decorations are re-read while the view is idle
@@ -207,10 +211,7 @@ enum Overlay {
         input: String,
         kind: PromptKind,
     },
-    ConfirmDelete {
-        path: PathBuf,
-        is_dir: bool,
-    },
+    ConfirmDelete(DeleteConfirmation),
     /// The ⚙ settings modal: mouse-toggleable panel settings.
     Settings {
         selected: usize,
@@ -1123,6 +1124,10 @@ impl App {
         if key.kind != KeyEventKind::Press {
             return None;
         }
+        if matches!(self.overlay, Some(Overlay::ConfirmDelete(_))) {
+            self.overlay_key(key);
+            return None;
+        }
         if key.code == KeyCode::Char('q')
             && key.modifiers.contains(KeyModifiers::CONTROL)
             && !key.modifiers.contains(KeyModifiers::ALT)
@@ -1501,7 +1506,7 @@ impl App {
             OpenContent(PathBuf, usize),
             ToggleSetting(usize),
             AdjustWidth(bool),
-            DeleteConfirmed(PathBuf, bool),
+            DeleteConfirmed,
             Picker(PickerAction),
         }
         let settings = self.settings_rows();
@@ -1815,25 +1820,16 @@ impl App {
                     }
                 }
             }
-            Some(Overlay::ConfirmDelete { path, is_dir }) => match key.code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    Cmd::DeleteConfirmed(path.clone(), *is_dir)
-                }
-                _ => Cmd::Close,
+            Some(Overlay::ConfirmDelete(dialog)) => match dialog.key(key) {
+                DeleteResponse::None => Cmd::Nothing,
+                DeleteResponse::Cancel => Cmd::Close,
+                DeleteResponse::Confirm => Cmd::DeleteConfirmed,
             },
             None => Cmd::Nothing,
         };
         match cmd {
             Cmd::Nothing => {}
-            Cmd::Close => {
-                let closing_search = matches!(self.overlay, Some(Overlay::ContentSearch { .. }));
-                // A modal opened from Search resumes it; a plain search close
-                // (Esc in the search box) has nothing parked and drops to tree.
-                self.overlay = self.suspended_search.take();
-                if closing_search && self.merged() {
-                    self.sidebar_state = sidebar::update_state(|state| state.search_active = false);
-                }
-            }
+            Cmd::Close => self.close_overlay(),
             Cmd::Activate => self.activate_menu_entry(),
             Cmd::ConfirmPrompt => self.confirm_prompt(),
             Cmd::OpenQuick(path) => {
@@ -1846,14 +1842,34 @@ impl App {
             }
             Cmd::ToggleSetting(index) => self.toggle_setting(index),
             Cmd::AdjustWidth(wider) => self.adjust_sidebar_width(wider),
-            Cmd::DeleteConfirmed(path, is_dir) => {
-                self.overlay = None;
-                match actions::delete(&path, is_dir) {
-                    Ok(()) => self.refresh_tree(),
-                    Err(err) => self.notice = Notice::new(format!("delete failed: {err}")),
+            Cmd::DeleteConfirmed => self.confirm_delete(),
+            Cmd::Picker(action) => self.handle_picker_action(action),
+        }
+    }
+
+    fn close_overlay(&mut self) {
+        let closing_search = matches!(self.overlay, Some(Overlay::ContentSearch { .. }));
+        self.overlay = self.suspended_search.take();
+        if closing_search && self.merged() {
+            self.sidebar_state = sidebar::update_state(|state| state.search_active = false);
+        }
+    }
+
+    fn confirm_delete(&mut self) {
+        let Some(Overlay::ConfirmDelete(dialog)) = &self.overlay else {
+            return;
+        };
+        let (path, is_dir) = dialog.target();
+        match actions::delete(path, is_dir) {
+            Ok(()) => {
+                self.close_overlay();
+                self.refresh_tree();
+            }
+            Err(error) => {
+                if let Some(Overlay::ConfirmDelete(dialog)) = &mut self.overlay {
+                    dialog.fail(error.to_string());
                 }
             }
-            Cmd::Picker(action) => self.handle_picker_action(action),
         }
     }
 
@@ -1862,6 +1878,7 @@ impl App {
             Nothing,
             Close,
             Activate,
+            DeleteConfirmed,
             ToggleSetting(usize),
             Reopen(u16, u16),
             Picker(PickerAction),
@@ -1956,13 +1973,19 @@ impl App {
                 }
             }
             Some(Overlay::BranchPicker(picker)) => Cmd::Picker(picker.mouse(mouse)),
-            // Prompts/confirms are keyboard-driven; clicks do nothing.
+            Some(Overlay::ConfirmDelete(dialog)) => match dialog.mouse(mouse) {
+                DeleteResponse::None => Cmd::Nothing,
+                DeleteResponse::Cancel => Cmd::Close,
+                DeleteResponse::Confirm => Cmd::DeleteConfirmed,
+            },
+            // Name prompts remain keyboard-driven.
             _ => Cmd::Nothing,
         };
         match cmd {
             Cmd::Nothing => {}
-            Cmd::Close => self.overlay = None,
+            Cmd::Close => self.close_overlay(),
             Cmd::Activate => self.activate_menu_entry(),
+            Cmd::DeleteConfirmed => self.confirm_delete(),
             Cmd::ToggleSetting(index) => self.toggle_setting(index),
             Cmd::Reopen(x, y) => {
                 self.overlay = None;
@@ -3015,7 +3038,12 @@ impl App {
             }
             MenuAction::Delete => {
                 let Some((path, is_dir)) = target else { return };
-                self.overlay = Some(Overlay::ConfirmDelete { path, is_dir });
+                self.notice = Default::default();
+                self.overlay = Some(Overlay::ConfirmDelete(DeleteConfirmation::new(
+                    path,
+                    is_dir,
+                    &self.tree.root_path(),
+                )));
             }
             MenuAction::OpenExternal => {
                 let Some((path, _)) = target else { return };
@@ -3529,6 +3557,7 @@ impl App {
                     picker.draw(frame);
                 }
             }
+            Some(Overlay::ConfirmDelete(ref mut dialog)) => dialog.draw(frame),
             Some(Overlay::Menu { .. }) => self.draw_menu(frame),
             Some(Overlay::Settings { .. }) => self.draw_settings(frame),
             Some(Overlay::QuickOpen { .. }) => self.draw_quick_open(frame),
@@ -3624,10 +3653,8 @@ impl App {
         hints
     }
 
-    /// Rows the footer needs at `width`: notices and confirms WRAP in narrow
-    /// panes (a one-line assumption used to clip "Delete '…' permanently?
-    /// (y/N)" mid-question); the name prompt stays one line (its input
-    /// shrinks instead); hints wrap as before.
+    /// Footer notices wrap in narrow panes; deletion confirmation owns a modal.
+    /// Name prompts keep a single input row and hotkey hints wrap as before.
     fn footer_height(&self, width: u16) -> u16 {
         let git_footer = self.sidebar_state.show_git_footer && self.git_footer_status.is_some();
         let content = if let Some((msg, _)) = self.footer_message() {
@@ -3644,21 +3671,10 @@ impl App {
         (content + u16::from(git_footer)).max(1)
     }
 
-    /// The uniform-style footer message, if one is active: a notice, or the
-    /// delete confirm. Shared by footer_height and draw so they agree.
+    /// The active footer notice, shared by measurement and painting.
     fn footer_message(&self) -> Option<(String, Color)> {
         if let Some(notice) = self.notice.as_ref() {
             return Some((notice.clone(), palette().modified));
-        }
-        if let Some(Overlay::ConfirmDelete { path, .. }) = &self.overlay {
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            return Some((
-                format!("Delete '{name}' permanently? (y/N)"),
-                palette().deleted,
-            ));
         }
         None
     }
@@ -4179,6 +4195,10 @@ impl App {
         }
     }
 }
+
+#[cfg(all(test, not(feature = "reference-ui")))]
+#[path = "explorer_delete_tests.rs"]
+mod delete_tests;
 
 #[cfg(all(test, not(feature = "reference-ui")))]
 #[path = "explorer_menu_tests.rs"]

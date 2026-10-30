@@ -32,6 +32,8 @@
 
 ## HerdrWork 必要适配
 
+2026-10-31 Explorer 删除确认：保留 Sidebar 菜单捕获的删除目标、`actions::delete` 文件 / 目录实现和树刷新，将底栏 y/N 提示替换为独立模态组件。绘制与点击共用几何，默认取消；键鼠不穿透到后台，删除失败后保留原目标和错误。验证见 [删除确认弹窗](../verification/delete-confirmation.md)。
+
 2026-10-30 Diff 导航：复用 Sidebar 的 `diffview` 事件解析、高亮和 `viewer` 输入循环，派生连续增删块的源行起点；新增共享文档导航状态和标题栏按钮，保留原滚动、换行、选择复制及自动刷新。改动不重写 Diff 算法，不接管独立插件；验证见 [Diff 导航](../verification/diff-navigation.md)。
 
 2026-10-22 顶部 Projects 入口：复用 Code 的活动栏与 Projects 的 `board::place::show`，将原 VS Code 按钮改为后台宿主请求。托管看板通过自有插件 `board` 入口分配终端，传递当前仓库与 HerdrWork 资料；跳过独立插件配置同步、安装提示和旧目录提示。已运行看板沿用原聚焦逻辑，设置与文件菜单中的 VS Code 功能保留。验证见 [Projects 入口](../verification/projects-entry.md)。
