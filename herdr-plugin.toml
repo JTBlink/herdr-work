@@ -1,6 +1,6 @@
 id = "jtblink.herdr-work"
 name = "HerdrWork"
-version = "0.1.11"
+version = "0.1.12"
 min_herdr_version = "0.9.3"
 description = "Tasks, agents, files, Git and code review in one HerdrWork terminal."
 platforms = ["macos", "linux"]
