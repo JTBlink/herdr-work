@@ -1,6 +1,6 @@
 //! File-local find. All input belongs to this widget while it has focus;
 //! preview navigation and editor commands keep their existing bindings.
-use crate::preview::{Doc, RenderPos, row_text_without_gutter, selected_row};
+use crate::preview::{Doc, RenderPos, row_text_without_gutter};
 use crate::search::{SearchOptions, content_line_match_ranges};
 use crate::ui::palette;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -17,13 +17,14 @@ use regex::RegexBuilder;
 struct Hit {
     start: RenderPos,
     end: RenderPos,
+    side: Option<usize>,
 }
 
 struct Cache {
     query: String,
     options: SearchOptions,
     lines: Vec<String>,
-    starts: Vec<(usize, usize)>,
+    starts: Vec<Vec<(usize, usize, usize)>>,
 }
 
 #[derive(Default)]
@@ -223,22 +224,41 @@ impl Find {
     /// hit. Coordinates use Unicode scalar columns, like preview selection.
     fn sync(&mut self, doc: &mut Doc, body: Rect) {
         let mut lines: Vec<String> = Vec::new();
-        let mut starts = Vec::with_capacity(doc.rows.len());
-        let mut previous = None;
-        let mut col = 0;
-        for row in &doc.rows {
-            if previous != Some(row.src) {
-                lines.push(String::new());
-                previous = Some(row.src);
-                col = 0;
+        // Each logical side/source line has independent wrap fragments. Never
+        // search a concatenation of the left and right panes or their padding.
+        let mut starts: Vec<Vec<(usize, usize, usize)>> = Vec::new();
+        let mut sides = Vec::new();
+        if let Some(split) = doc
+            .split
+            .as_ref()
+            .filter(|split| !split.fragments.is_empty())
+        {
+            let mut groups = std::collections::BTreeMap::new();
+            for fragment in &split.fragments {
+                let index = *groups
+                    .entry((fragment.side, fragment.source))
+                    .or_insert_with(|| {
+                        lines.push(String::new());
+                        starts.push(Vec::new());
+                        sides.push(Some(fragment.side));
+                        lines.len() - 1
+                    });
+                starts[index].push((fragment.row, fragment.column, lines[index].chars().count()));
+                lines[index].push_str(&fragment.text);
             }
-            starts.push((lines.len().saturating_sub(1), col));
-            let text = row_text_without_gutter(row, doc.gutter());
-            col += text.chars().count();
-            lines
-                .last_mut()
-                .expect("row created its source line")
-                .push_str(&text);
+        } else {
+            let mut previous = None;
+            for (row_index, row) in doc.rows.iter().enumerate() {
+                if previous != Some(row.src) {
+                    lines.push(String::new());
+                    starts.push(Vec::new());
+                    sides.push(None);
+                    previous = Some(row.src);
+                }
+                let index = lines.len() - 1;
+                starts[index].push((row_index, 0, lines[index].chars().count()));
+                lines[index].push_str(&row_text_without_gutter(row, doc.gutter()));
+            }
         }
         let query_changed = self
             .cache
@@ -296,21 +316,22 @@ impl Find {
                         let from = boundaries.partition_point(|byte| *byte < from);
                         let to = boundaries.partition_point(|byte| *byte < to);
                         let position = |col: usize, end: bool| {
-                            let row = starts
-                                .partition_point(|(line, start)| {
-                                    *line < src
-                                        || (*line == src
-                                            && if end { *start < col } else { *start <= col })
-                                })
+                            let parts = &starts[src];
+                            let at = parts
+                                .partition_point(
+                                    |(_, _, start)| if end { *start < col } else { *start <= col },
+                                )
                                 .saturating_sub(1);
+                            let (row, column, start) = parts[at];
                             RenderPos {
                                 row,
-                                col: col - starts[row].1,
+                                col: column + col - start,
                             }
                         };
                         let start = position(from, false);
                         self.hits.push(Hit {
                             start,
+                            side: sides[src],
                             end: if from == to {
                                 start
                             } else {
@@ -320,6 +341,7 @@ impl Find {
                     }
                 }
             }
+            self.hits.sort_by_key(|hit| (hit.start, hit.end));
             if query_changed {
                 self.active = self
                     .hits
@@ -373,7 +395,26 @@ impl Find {
             .skip(doc.scroll)
             .take(usize::from(body.height))
             .map(|(row, rendered)| {
-                let mut line = selected_row(&rendered.line, gutter, row, doc.selection_range());
+                let mut line = doc.selected_line(&rendered.line, row);
+                let visible: Vec<_> = self
+                    .hits
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, hit)| hit.start.row <= row && hit.end.row >= row)
+                    .collect();
+                let side_ranges: Vec<_> = doc
+                    .split
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|split| &split.fragments)
+                    .filter(|fragment| fragment.row == row)
+                    .map(|fragment| {
+                        (
+                            fragment.side,
+                            fragment.column..fragment.column + fragment.text.chars().count(),
+                        )
+                    })
+                    .collect();
                 let mut col: usize = 0;
                 let mut spans = Vec::new();
                 for span in &line.spans {
@@ -383,13 +424,15 @@ impl Find {
                             col: col.saturating_sub(gutter),
                         };
                         let found = if col >= gutter {
-                            let at = self.hits.partition_point(|hit| {
-                                hit.end < pos || (hit.end == pos && hit.start != hit.end)
-                            });
-                            self.hits
-                                .get(at)
-                                .filter(|hit| hit.start <= pos)
-                                .map(|hit| (at, hit))
+                            visible.iter().copied().find(|(_, hit)| {
+                                hit.start <= pos
+                                    && (pos < hit.end || hit.start == hit.end)
+                                    && hit.side.is_none_or(|side| {
+                                        side_ranges.iter().any(|(which, range)| {
+                                            *which == side && range.contains(&pos.col)
+                                        })
+                                    })
+                            })
                         } else {
                             None
                         };
@@ -410,7 +453,8 @@ impl Find {
                 line
             })
             .collect();
-        frame.render_widget(Paragraph::new(rows), body);
+        frame.render_widget(Paragraph::new(rows), doc.text_area(body));
+        doc.draw_overview(frame, body);
     }
 }
 

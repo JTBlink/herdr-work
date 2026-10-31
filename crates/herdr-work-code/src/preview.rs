@@ -16,6 +16,9 @@ use std::{
 };
 use unicode_width::UnicodeWidthChar;
 mod changes;
+mod diff;
+#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
+pub(crate) use diff::load_diff;
 mod media;
 pub(crate) use changes::ChangeNavigation;
 pub use media::initialize_terminal_images;
@@ -69,6 +72,7 @@ pub struct Doc {
     pub(crate) source_text: Option<String>,
     pub(crate) graph: Option<crate::git_graph::Graph>,
     pub(crate) changes: Option<ChangeNavigation>,
+    pub(crate) split: Option<crate::diffview::SideBySide>,
 }
 
 pub(crate) struct MediaPreview {
@@ -104,12 +108,21 @@ impl Doc {
     /// then honour any pending source-line scroll request.
     pub(crate) fn relayout(&mut self, width: u16, height: u16) {
         if self.rows_key != Some((width, height, self.wrap)) {
+            if self.split.is_some() && !self.rows.is_empty() && self.pending_src.is_none() {
+                self.pending_src = Some(self.top_src());
+            }
             if let Some(graph) = &self.graph {
                 self.lines = graph.lines(width);
                 self.wrap = false;
             }
             self.rows = if let Some(media) = &self.media {
                 render_media_rows(media, width, height)
+            } else if let Some(split) = &mut self.split {
+                split
+                    .rows(&self.lines, width.saturating_sub(2), self.wrap)
+                    .into_iter()
+                    .map(|(src, line)| Row { src, line })
+                    .collect()
             } else {
                 build_rows(&self.lines, self.numbered, self.wrap, width)
             };
@@ -142,7 +155,7 @@ impl Doc {
 
     /// True when a mouse release finishes a non-empty selection.
     pub(crate) fn on_mouse(&mut self, mouse: &MouseEvent, body: Rect) -> bool {
-        if self.media.is_some() {
+        if self.media.is_some() || self.overview_mouse(mouse, body) {
             return false;
         }
         match mouse.kind {
@@ -226,6 +239,9 @@ impl Doc {
 
     pub(crate) fn selected_text(&self) -> Option<String> {
         let (start, end) = self.selection_range()?;
+        if let Some(text) = self.split_selected_text(start, end) {
+            return Some(text);
+        }
         let mut selected = String::new();
         for row_index in start.row..=end.row {
             let row = self.rows.get(row_index)?;
@@ -508,6 +524,7 @@ pub(crate) fn load_show(root: &Path, spec: &str, path: Option<&str>) -> Doc {
         source_text: None,
         graph: None,
         changes: None,
+        split: None,
     }
 }
 
@@ -690,6 +707,24 @@ fn capture_preview(
     input: Option<Vec<u8>>,
     max: u64,
 ) -> Result<Vec<u8>, String> {
+    let output = capture_preview_output(command, input, max)?;
+    if !output.status.success() {
+        return Err(format!(
+            "preview tool failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+                .lines()
+                .next()
+                .unwrap_or("unknown error")
+        ));
+    }
+    Ok(output.stdout)
+}
+
+fn capture_preview_output(
+    command: &mut std::process::Command,
+    input: Option<Vec<u8>>,
+    max: u64,
+) -> Result<std::process::Output, String> {
     use std::io::Write as _;
     command
         .stdin(if input.is_some() {
@@ -752,16 +787,11 @@ fn capture_preview(
     if output.len() as u64 > max {
         return Err("preview output exceeded size limit".into());
     }
-    if !status.unwrap().success() {
-        return Err(format!(
-            "preview tool failed: {}",
-            String::from_utf8_lossy(&errors.unwrap())
-                .lines()
-                .next()
-                .unwrap_or("unknown error")
-        ));
-    }
-    Ok(output)
+    Ok(std::process::Output {
+        status: status.unwrap(),
+        stdout: output,
+        stderr: errors.unwrap(),
+    })
 }
 
 fn decode_video_poster(target: &Path, root: Option<&Path>) -> Result<image::RgbaImage, String> {
@@ -847,6 +877,7 @@ fn load_media_file(target: &Path, name: String, video_poster: bool, root: Option
         source_text: None,
         graph: None,
         changes: None,
+        split: None,
     }
 }
 
@@ -945,84 +976,13 @@ fn load_file_width(
         source_text,
         graph: None,
         changes: None,
+        split: None,
     }
 }
 
 pub(crate) fn glow_needs_reload(doc: &Doc, body_width: u16) -> bool {
     let body_width = body_width.max(20);
     doc.glow_width.is_some_and(|width| width != body_width)
-}
-
-#[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
-pub(crate) fn load_diff(root: &Path, rel: &str, kind: &str) -> Doc {
-    let name = rel.rsplit('/').next().unwrap_or(rel).to_string();
-    // Plain (uncolored) diff: crate::diffview parses it and renders the
-    // VS Code look — dual gutters, tinted rows, syntax-highlighted code.
-    let mut args: Vec<String> = vec!["diff".into(), "--no-ext-diff".into()];
-    match kind {
-        "staged" => args.push("--cached".into()),
-        // An untracked file has no diff; --no-index against the null device
-        // renders it as one big addition, like VS Code does.
-        "untracked" => {
-            args.push("--no-index".into());
-            args.push(if cfg!(windows) {
-                "NUL".into()
-            } else {
-                "/dev/null".into()
-            });
-        }
-        _ => {}
-    }
-    args.push("--".into());
-    args.push(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
-
-    let output = std::process::Command::new("git")
-        .args(&args)
-        .current_dir(root)
-        .output();
-    let mut starts = Vec::new();
-    let lines = match output {
-        Err(e) => vec![Line::raw(format!("(git failed: {e})"))],
-        Ok(out) => {
-            // --no-index exits 1 when the files differ; that's not an error.
-            let text = String::from_utf8_lossy(&out.stdout);
-            if text.trim().is_empty() {
-                let err = String::from_utf8_lossy(&out.stderr);
-                if err.trim().is_empty() {
-                    vec![Line::raw("(no changes)")]
-                } else {
-                    vec![Line::raw(format!("({})", err.trim()))]
-                }
-            } else {
-                let (lines, changes) = crate::diffview::render_with_changes(rel, &text);
-                starts = changes;
-                lines
-            }
-        }
-    };
-    let what = match kind {
-        "staged" => "staged",
-        "untracked" => "untracked",
-        _ => "working tree",
-    };
-    Doc {
-        name: name.clone(),
-        context: format!("{} — {what} diff", root.join(rel).display()),
-        lines,
-        numbered: false,
-        media: None,
-        scroll: 0,
-        wrap: true,
-        glow_width: None,
-        rows: Vec::new(),
-        rows_key: None,
-        pending_src: None,
-        selection: PreviewSelection::default(),
-        stamp: None,
-        source_text: None,
-        graph: None,
-        changes: Some(ChangeNavigation::new(starts)),
-    }
 }
 
 impl Doc {
@@ -1163,17 +1123,16 @@ impl Doc {
                 .len()
                 .saturating_sub(usize::from(body.height).max(1)),
         );
-        let range = self.selection_range();
-        let gutter = self.gutter();
         let text: Vec<Line> = self
             .rows
             .iter()
             .enumerate()
             .skip(self.scroll)
             .take(usize::from(body.height))
-            .map(|(row, rendered)| selected_row(&rendered.line, gutter, row, range))
+            .map(|(row, rendered)| self.selected_line(&rendered.line, row))
             .collect();
-        frame.render_widget(Paragraph::new(text), body);
+        frame.render_widget(Paragraph::new(text), self.text_area(body));
+        self.draw_overview(frame, body);
     }
 }
 /// Load on a worker; source line targets show Markdown source so anchors remain exact.
@@ -1203,6 +1162,7 @@ pub fn git_show(name: String, context: String, text: &str) -> Doc {
         source_text: None,
         graph: None,
         changes: None,
+        split: None,
     }
 }
 /// What the copy worker reports back to the event loop.

@@ -30,29 +30,10 @@ pub(crate) fn controls(area: Rect, collapsed: bool) -> Vec<(Rect, Action)> {
         return vec![];
     }
     if !collapsed {
-        return vec![
-            (
-                Rect::new(
-                    area.right().saturating_sub(3).max(area.x),
-                    area.y,
-                    area.width.min(3),
-                    1,
-                ),
-                Action::Close,
-            ),
-            (
-                Rect::new(
-                    area.right().saturating_sub(4).max(area.x),
-                    area.bottom() - 1,
-                    area.width.min(4),
-                    1,
-                ),
-                Action::Collapse,
-            ),
-        ];
+        return vec![(ui::collapse_button_area(area), Action::Collapse)];
     }
     let rail = area;
-    let mut buttons = vec![];
+    let mut buttons = vec![(Rect::new(area.x, area.y, area.width, 1), Action::Expand)];
     // Reserve the final two rows even in a short terminal.
     let body_height = area.height.saturating_sub(2);
     let actions = [
@@ -69,7 +50,7 @@ pub(crate) fn controls(area: Rect, collapsed: bool) -> Vec<(Rect, Action)> {
             buttons.push((
                 Rect::new(
                     rail.x,
-                    rail.y + row,
+                    rail.y + 1 + row,
                     rail.width,
                     slot.min(body_height - row),
                 ),
@@ -79,14 +60,10 @@ pub(crate) fn controls(area: Rect, collapsed: bool) -> Vec<(Rect, Action)> {
     }
     if area.height >= 2 {
         buttons.push((
-            Rect::new(rail.x, area.bottom() - 2, rail.width, 1),
-            Action::Expand,
+            Rect::new(rail.x, area.bottom() - 1, rail.width, 1),
+            Action::Close,
         ));
     }
-    buttons.push((
-        Rect::new(rail.x, area.bottom() - 1, rail.width, 1),
-        Action::Close,
-    ));
     buttons
 }
 
@@ -109,9 +86,6 @@ pub(crate) fn draw(
         frame.render_widget(Clear, area);
     }
     for (rect, action) in controls(area, collapsed) {
-        if action == Action::Collapse {
-            continue;
-        } // The source app draws «.
         let hovered = pointer.is_some_and(|p| rect.contains(p));
         let style = ui::activity_button_style(action == active, hovered);
         let icon = match action {
@@ -122,7 +96,7 @@ pub(crate) fn draw(
             Action::Settings => ui::activity_icon(theme, ActivityIcon::Settings),
             Action::Expand => "»",
             Action::Close => "×",
-            Action::Collapse => unreachable!(),
+            Action::Collapse => "«",
         };
         frame.render_widget(Clear, rect);
         frame.render_widget(Paragraph::new("").style(style), rect);

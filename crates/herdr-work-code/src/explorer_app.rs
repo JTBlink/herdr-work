@@ -3385,6 +3385,7 @@ impl App {
         if self.merged() {
             self.draw_activity_bar(frame, activity);
         }
+        herdr_work_code::ui::draw_collapse_button(frame);
         if search_active {
             let search_area = Rect::new(
                 header.x,
@@ -3393,8 +3394,7 @@ impl App {
                 header.height.saturating_add(body.height),
             );
             self.draw_content_search(frame, search_area);
-            let [hint, button] =
-                Layout::horizontal([Constraint::Min(0), Constraint::Length(3)]).areas(footer);
+            let hint = footer;
             self.git_footer_zones = FooterZones::default();
             if self.sidebar_state.show_git_footer
                 && let Some(status) = &self.git_footer_status
@@ -3408,10 +3408,7 @@ impl App {
                     self.mouse_pos,
                 );
             }
-            frame.render_widget(
-                Paragraph::new("«".bold().fg(palette().header_accent)).alignment(Alignment::Center),
-                button,
-            );
+
             self.body = BodyGeom::default();
             return;
         }
@@ -3461,23 +3458,14 @@ impl App {
             offset: self.scroll,
         };
 
-        // Collapse button at the bottom-right of the LAST footer line,
-        // mirroring herdr's own sidebar. hits_collapse_button targets the
-        // pane's bottom row, which is exactly that line.
         let last_line = Rect::new(
             footer.x,
             footer.y + footer.height.saturating_sub(1),
             footer.width,
             1,
         );
-        let [_, footer_button] =
-            Layout::horizontal([Constraint::Min(0), Constraint::Length(3)]).areas(last_line);
-        frame.render_widget(
-            Paragraph::new("«".bold().fg(palette().header_accent)).alignment(Alignment::Center),
-            footer_button,
-        );
         let footer_lines: Vec<Line> = if let Some((msg, color)) = self.footer_message() {
-            wrap_footer_message(&msg, footer.width, 4)
+            wrap_footer_message(&msg, footer.width, 0)
                 .into_iter()
                 .map(|l| l.fg(color).into())
                 .collect()
@@ -3531,12 +3519,7 @@ impl App {
         }
         self.git_footer_zones = FooterZones::default();
         if git_footer {
-            let status_area = Rect::new(
-                last_line.x,
-                last_line.y,
-                last_line.width.saturating_sub(3),
-                1,
-            );
+            let status_area = Rect::new(last_line.x, last_line.y, last_line.width, 1);
             if let Some(status) = &self.git_footer_status {
                 self.git_footer_zones = draw_git_footer(
                     frame,
@@ -3548,12 +3531,7 @@ impl App {
                 );
             }
         } else if footer_empty {
-            let hint_area = Rect::new(
-                last_line.x,
-                last_line.y,
-                last_line.width.saturating_sub(3),
-                1,
-            );
+            let hint_area = Rect::new(last_line.x, last_line.y, last_line.width, 1);
             frame.render_widget(
                 Paragraph::new(" m / ctrl+rclick: menu".dim().italic()),
                 hint_area,
@@ -3686,7 +3664,7 @@ impl App {
     fn footer_height(&self, width: u16) -> u16 {
         let git_footer = self.sidebar_state.show_git_footer && self.git_footer_status.is_some();
         let content = if let Some((msg, _)) = self.footer_message() {
-            wrap_footer_message(&msg, width, 4).len() as u16
+            wrap_footer_message(&msg, width, 0).len() as u16
         } else if matches!(self.overlay, Some(Overlay::Prompt { .. })) {
             1
         } else if self.show_hotkeys() {
@@ -4386,10 +4364,10 @@ mod tests {
 
     #[test]
     fn collapse_button_hit_region_is_header_right_edge() {
-        assert!(hits_collapse_button(30, 49, 32, 50), "footer right edge");
-        assert!(hits_collapse_button(28, 49, 32, 50));
-        assert!(!hits_collapse_button(27, 49, 32, 50), "left of the button");
-        assert!(!hits_collapse_button(30, 0, 32, 50), "header row");
+        assert!(hits_collapse_button(30, 0, 32, 50), "header right edge");
+        assert!(hits_collapse_button(29, 0, 32, 50));
+        assert!(!hits_collapse_button(28, 0, 32, 50), "left of the button");
+        assert!(!hits_collapse_button(30, 49, 32, 50), "old footer row");
         assert!(!hits_collapse_button(30, 48, 32, 50), "tree row");
     }
 

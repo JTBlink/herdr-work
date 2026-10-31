@@ -507,7 +507,7 @@ mod tests {
                     }
                 }
                 if !component.busy() {
-                    assert_eq!(actual.backend().buffer()[(width - 2, 0)].symbol(), "×");
+                    assert_eq!(actual.backend().buffer()[(width - 2, 0)].symbol(), "«");
                 }
                 if width == 28
                     && let Some(dir) = std::env::var_os("HERDR_WORK_TEST_FRAMES")

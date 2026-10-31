@@ -338,3 +338,40 @@ fn regex_anchors_count_zero_width_hits_and_navigate_without_panicking() {
     assert_eq!(find.active, Some(2));
     assert_eq!(find.hits[2].start, find.hits[2].end);
 }
+
+#[test]
+fn split_diff_searches_each_side_across_wraps_without_searching_padding_or_the_other_side() {
+    let old = format!(
+        "old {} needle across soft wraps tail",
+        "中文 prefix ".repeat(8)
+    );
+    let new = format!(
+        "new {} needle across soft wraps tail",
+        "中文 prefix ".repeat(8)
+    );
+    let patch = format!("@@ -1,1 +1,1 @@\n-{old}\n+{new}\n");
+    let (lines, starts, split) = crate::diffview::render_full("x.txt", &patch);
+    let mut doc = crate::preview::git_show("x.txt".into(), "diff".into(), "");
+    doc.lines = lines;
+    doc.split = split;
+    doc.changes = Some(crate::preview::ChangeNavigation::new(starts));
+    let mut find = search("needle across soft wraps");
+    for width in [100, 80, 40, 120] {
+        render(&mut find, &mut doc, width, 40);
+        assert_eq!(find.hits.len(), 2, "both old and new sides, width={width}");
+        if width >= 80 {
+            assert_eq!(
+                find.hits.iter().filter(|hit| hit.side == Some(0)).count(),
+                1
+            );
+            assert_eq!(
+                find.hits.iter().filter(|hit| hit.side == Some(1)).count(),
+                1
+            );
+        }
+    }
+    find.show();
+    find.insert("tailnew");
+    render(&mut find, &mut doc, 100, 40);
+    assert!(find.hits.is_empty(), "never join text from opposite sides");
+}

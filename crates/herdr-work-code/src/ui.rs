@@ -479,11 +479,28 @@ pub fn draw_scrollbar(frame: &mut Frame, area: Rect, total: usize, viewport: usi
     );
 }
 
-/// True when a click at pane-local (column, row) lands on the `«` collapse
-/// button: the 3-cell region at the right end of the bottom line, mirroring
-/// herdr's own sidebar collapse control.
+/// Sidebar folding uses the former close-button slot in the top-right corner.
+pub fn collapse_button_area(area: Rect) -> Rect {
+    Rect::new(
+        area.right().saturating_sub(3).max(area.x),
+        area.y,
+        area.width.min(3),
+        area.height.min(1),
+    )
+}
+
 pub fn hits_collapse_button(column: u16, row: u16, pane_width: u16, pane_height: u16) -> bool {
-    row == pane_height.saturating_sub(1) && column >= pane_width.saturating_sub(4)
+    collapse_button_area(Rect::new(0, 0, pane_width, pane_height))
+        .contains(ratatui::layout::Position::new(column, row))
+}
+
+pub fn draw_collapse_button(frame: &mut Frame) {
+    frame.render_widget(
+        Paragraph::new("«")
+            .style(Style::default().bold().fg(palette().header_accent))
+            .centered(),
+        collapse_button_area(frame.area()),
+    );
 }
 
 /// Sidebar navigation vocabulary, shared with the product activity rail.

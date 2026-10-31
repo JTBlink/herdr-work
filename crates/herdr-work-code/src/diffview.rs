@@ -3,6 +3,9 @@
 //! segment of paired lines. Input is plain `git diff` output (no ANSI) — the
 //! parsing is ours, so the look is too.
 
+mod split;
+pub(crate) use split::{ChangeKind, SideBySide};
+
 use std::collections::HashMap;
 
 use ratatui::style::{Color, Style};
@@ -191,6 +194,32 @@ pub fn render(rel: &str, diff: &str) -> Vec<Line<'static>> {
 /// Change-block source rows share the exact event sequence used for painting.
 pub(crate) fn render_with_changes(rel: &str, diff: &str) -> (Vec<Line<'static>>, Vec<usize>) {
     let evs = parse_events(diff);
+    render_events(rel, &evs)
+}
+
+pub(crate) fn render_full(
+    rel: &str,
+    diff: &str,
+) -> (Vec<Line<'static>>, Vec<usize>, Option<SideBySide>) {
+    let evs = parse_events(diff);
+    let (lines, starts) = render_events(rel, &evs);
+    let split = SideBySide::from_events(&evs);
+    (lines, starts, split)
+}
+
+pub(crate) fn render_unchanged(rel: &str, text: &str) -> (Vec<Line<'static>>, SideBySide) {
+    let evs: Vec<_> = text
+        .lines()
+        .enumerate()
+        .map(|(i, text)| Ev::Ctx(i + 1, i + 1, text.into()))
+        .collect();
+    (
+        render_events(rel, &evs).0,
+        SideBySide::from_events(&evs).unwrap_or_default(),
+    )
+}
+
+fn render_events(rel: &str, evs: &[Ev]) -> (Vec<Line<'static>>, Vec<usize>) {
     let starts = evs
         .iter()
         .enumerate()
@@ -200,7 +229,7 @@ pub(crate) fn render_with_changes(rel: &str, diff: &str) -> (Vec<Line<'static>>,
             .then_some(i)
         })
         .collect();
-    let ranges = word_ranges(&evs);
+    let ranges = word_ranges(evs);
 
     let max_no = evs
         .iter()

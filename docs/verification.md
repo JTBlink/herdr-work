@@ -2,6 +2,8 @@
 
 任务实时状态以 [GitHub Issues](https://github.com/JTBlink/herdr-work/issues) 为准。以下是实现入口与可复现标准，不将手动场景写成已完成的自动验收。
 
+全文对照、右侧差异概览与顶部折叠的验证见 [全文 Diff 与顶部折叠](verification/full-context-diff.md)。
+
 ## 用户确认的关闭标准
 
 真实代码实现并复用上游业务逻辑，编译通过即可关闭。macOS 本机构建；Linux/Windows 以固定源码 SHA 的 GitHub Actions 成功记录为依据。打包任务必须产生真实归档，通过内容和 SHA256 校验。手动交互、性能、生命周期演练为建议，不阻塞关闭。

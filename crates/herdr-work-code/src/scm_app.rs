@@ -3663,6 +3663,7 @@ impl App {
         if self.merged() {
             self.draw_activity_bar(frame, activity);
         }
+        herdr_work_code::ui::draw_collapse_button(frame);
         self.draw_header(frame, header);
         if !multi {
             self.draw_message(frame, message);
@@ -3687,16 +3688,13 @@ impl App {
                 footer_content,
             );
         }
-        // Collapse button at the bottom-right of the last footer line,
-        // mirroring the explorer (and herdr's own sidebar).
         let last_line = Rect::new(
             footer.x,
             footer.y + footer.height.saturating_sub(1),
             footer.width,
             1,
         );
-        let [footer_status, footer_button] =
-            Layout::horizontal([Constraint::Min(0), Constraint::Length(3)]).areas(last_line);
+        let footer_status = last_line;
         self.zones.git_footer = FooterZones::default();
         if git_footer {
             if let Some(status) = self.active_repo().map(|repo| repo.status.clone()) {
@@ -3717,14 +3715,6 @@ impl App {
                 footer_status,
             );
         }
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                "«",
-                Style::default().bold().fg(palette().header_accent),
-            ))
-            .centered(),
-            footer_button,
-        );
 
         self.draw_overlay(frame);
     }

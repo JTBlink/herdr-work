@@ -440,6 +440,7 @@ fn load(request: &Request) -> Doc {
             source_text: None,
             graph: None,
             changes: None,
+            split: None,
         },
         Request::File { path, line } => {
             // Stat before reading: a write that lands during the read leaves
@@ -533,6 +534,7 @@ fn loading_doc(request: &Request) -> Doc {
         source_text: None,
         graph: None,
         changes: None,
+        split: None,
     }
 }
 
@@ -1195,6 +1197,7 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         source_text: None,
         graph: None,
         changes: None,
+        split: None,
     });
     let mut mode = ViewMode::Preview(doc);
     report_identity(
@@ -1857,6 +1860,7 @@ fn draw_doc(
     let area = frame.area();
     let [header, find_area, body, footer] = find.layout(area);
     let body = doc.draw_graph_header(frame, body);
+    let body = doc.draw_diff_header(frame, body);
 
     let file_icon = icon(theme, &doc.name, false, false);
     let icon_style = ui_icon_style(file_icon.rgb);
@@ -3350,6 +3354,7 @@ mod tests {
             source_text: None,
             graph: None,
             changes: None,
+            split: None,
         }
     }
 
@@ -4886,6 +4891,7 @@ mod tests {
             source_text: None,
             graph: None,
             changes: None,
+            split: None,
         };
         assert!(!doc.wrap, "glow output must not be generically re-wrapped");
         assert!(!doc.numbered, "glow formats its own layout, no gutter");

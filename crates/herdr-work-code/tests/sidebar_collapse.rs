@@ -64,7 +64,7 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                 assert!(startup.contains('»') && !startup.contains("demo"));
                 automatic.event(Event::Resize(4, 24));
                 let rail = render(&mut automatic, 4, 24);
-                for row in [1, 4, 7, 10, 13] {
+                for row in [2, 5, 8, 11, 14] {
                     assert_ne!(rail[(1, row)].symbol(), " ");
                 }
                 if theme == IconTheme::Emoji
@@ -78,10 +78,10 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                         &rail,
                     );
                 }
-                click(&mut automatic, 1, 22);
+                click(&mut automatic, 1, 0);
                 automatic.tick();
                 assert!(!text(&render(&mut automatic, 38, 24)).contains('»'));
-                click(&mut automatic, 36, 23);
+                click(&mut automatic, 36, 0);
                 assert!(text(&render(&mut automatic, 4, 24)).contains('»'));
                 // An explicit activity opens the normal view, including an
                 // already-running sidebar that was created automatically.
@@ -96,8 +96,8 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                 if initial == InitialView::Explorer {
                     assert!(text(&before).contains("visible.txt"));
                 }
-                assert_eq!(before[(36, 0)].symbol(), "×");
-                click(&mut sidebar, 36, 23);
+                assert_eq!(before[(36, 0)].symbol(), "«");
+                click(&mut sidebar, 36, 0);
                 sidebar.event(Event::Resize(4, 24));
                 let rail = render(&mut sidebar, 4, 24);
                 assert!(!text(&rail).contains("demo"));
@@ -125,14 +125,14 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                         && !hovered.contains("设置"),
                     "collapsed rail must remain icon-only on hover"
                 );
-                assert_eq!(rail[(1, 22)].symbol(), "»");
+                assert_eq!(rail[(1, 0)].symbol(), "»");
                 assert_eq!(rail[(1, 23)].symbol(), "×");
                 for (row, icon) in [
-                    (1, herdr_work_code::ui::ActivityIcon::Files),
-                    (4, herdr_work_code::ui::ActivityIcon::Search),
-                    (7, herdr_work_code::ui::ActivityIcon::SourceControl),
-                    (10, herdr_work_code::ui::ActivityIcon::Tasks),
-                    (13, herdr_work_code::ui::ActivityIcon::Settings),
+                    (2, herdr_work_code::ui::ActivityIcon::Files),
+                    (5, herdr_work_code::ui::ActivityIcon::Search),
+                    (8, herdr_work_code::ui::ActivityIcon::SourceControl),
+                    (11, herdr_work_code::ui::ActivityIcon::Tasks),
+                    (14, herdr_work_code::ui::ActivityIcon::Settings),
                 ] {
                     let row_text = (0..4).map(|x| rail[(x, row)].symbol()).collect::<String>();
                     assert!(row_text.contains(herdr_work_code::ui::activity_icon(theme, icon)));
@@ -144,26 +144,26 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                     );
                 }
                 // Projects opens independently; the sidebar stays collapsed.
-                click(&mut sidebar, 2, 10);
+                click(&mut sidebar, 2, 11);
                 assert!(sidebar.take_projects_request());
                 assert!(!sidebar.take_projects_request());
-                assert_eq!(render(&mut sidebar, 4, 24)[(1, 22)].symbol(), "»");
-                click(&mut sidebar, 2, 22);
+                assert_eq!(render(&mut sidebar, 4, 24)[(1, 0)].symbol(), "»");
+                click(&mut sidebar, 2, 0);
                 let after = render(&mut sidebar, 38, 24);
                 assert_eq!(before, after, "expand must preserve the current app");
-                click(&mut sidebar, 36, 23);
+                click(&mut sidebar, 36, 0);
                 render(&mut sidebar, 4, 24);
-                click(&mut sidebar, 2, 4);
+                click(&mut sidebar, 2, 5);
                 assert!(state::load_state().search_active);
                 assert!(!text(&render(&mut sidebar, 38, 24)).contains('»'));
-                click(&mut sidebar, 36, 23);
+                click(&mut sidebar, 36, 0);
                 render(&mut sidebar, 4, 24);
-                click(&mut sidebar, 2, 7);
+                click(&mut sidebar, 2, 8);
                 assert_eq!(state::load_state().active, state::View::SourceControl);
                 render(&mut sidebar, 38, 24);
-                click(&mut sidebar, 36, 23);
+                click(&mut sidebar, 36, 0);
                 render(&mut sidebar, 4, 24);
-                click(&mut sidebar, 2, 13);
+                click(&mut sidebar, 2, 14);
                 assert!(sidebar.busy());
                 let settings = render(&mut sidebar, 38, 24);
                 assert_eq!(settings[(0, 0)].symbol(), "┌");
@@ -184,7 +184,7 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
     }
     assert!(sidebar.busy(), "commit input should retain focus");
     render(&mut sidebar, 38, 24);
-    click(&mut sidebar, 36, 23);
+    click(&mut sidebar, 36, 0);
     assert!(text(&render(&mut sidebar, 4, 24)).contains('»'));
     sidebar.event(Event::Key(KeyEvent::new(
         KeyCode::Enter,
@@ -198,12 +198,13 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
     assert!(sidebar.flush());
     if std::env::var_os("HERDR_PANE_ID").is_none() {
         assert!(
-            click(&mut sidebar, 36, 0),
-            "without a host, × must request terminal shutdown"
+            !click(&mut sidebar, 36, 0),
+            "top button folds instead of closing the terminal"
         );
+        assert!(text(&render(&mut sidebar, 4, 24)).contains('»'));
         let mut sidebar = Sidebar::new(root, Some(InitialView::Explorer));
         render(&mut sidebar, 38, 24);
-        click(&mut sidebar, 36, 23);
+        click(&mut sidebar, 36, 0);
         render(&mut sidebar, 4, 24);
         assert!(
             click(&mut sidebar, 2, 23),
