@@ -3,13 +3,40 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 from build import ROOT, TARGETS
 from package import digest, verify
 
 
+def changelog_entry(changelog, tag):
+    """Select one exact version; never publish Unreleased or older entries."""
+    version = tag.removeprefix('v')
+    entries = []
+    for section in re.split(r'^##[ \t]+', changelog, flags=re.MULTILINE)[1:]:
+        heading, _, body = section.partition('\n')
+        if re.match(r'v?' + re.escape(version) + r'(?:[ \t]|$)', heading):
+            entries.append(body.strip())
+    if len(entries) != 1 or not entries[0]:
+        raise ValueError(f'Expected one non-empty CHANGELOG entry for {tag}')
+    return entries[0]
+
+
+def release_notes(changelog, tag, sha, repo):
+    entry = changelog_entry(changelog, tag)
+    return (f'## 本版更新\n\n{entry}\n\n'
+            f'[完整更新记录](https://github.com/{repo}/blob/{tag}/CHANGELOG.md)\n\n'
+            '<details>\n<summary>平台与校验信息</summary>\n\n'
+            'macOS / Linux 包含 Projects 执行后端；Windows 提供文件、Git 与审查功能，'
+            '不包含 Projects 执行后端。\n\n'
+            '归档包含许可证、`MANIFEST.json` 和用户目录安装器；'
+            '`SHA256SUMS` 提供附件校验和。\n\n'
+            f'构建源码：`{sha}`\n\n</details>\n')
+
+
 def publish(assets, tag, sha, repo):
+    notes = release_notes((ROOT / 'CHANGELOG.md').read_text(encoding='utf-8'), tag, sha, repo)
     assets = Path(assets)
     archives = sorted([*assets.glob('*.tar.gz'), *assets.glob('*.zip')])
     manifests = [verify(p) for p in archives]
@@ -28,16 +55,18 @@ def publish(assets, tag, sha, repo):
     else:
         # A failed network request must not be treated as proof the release is absent.
         subprocess.run(['gh','api',f'repos/{repo}/git/ref/tags/{tag}'],check=True,capture_output=True)
-        notes = ('HerdrWork '+tag+'\n\nSource: '+sha+'\n\n'
-                 'macOS/Linux include the original Projects execution backend. Windows includes the native files/Git/review HerdrWork; Projects task execution remains Unix-only.\n'
-                 'Each archive includes original licenses, MANIFEST.json and a user-prefix installer. SHA256SUMS covers all assets.\n\n'
-                 + (ROOT/'CHANGELOG.md').read_text())
         with tempfile.TemporaryDirectory() as temp:
-            p=Path(temp)/'notes.md';p.write_text(notes)
+            p=Path(temp)/'notes.md';p.write_text(notes, encoding='utf-8')
             command=['gh','release','create',tag,'--repo',repo,'--verify-tag','--draft','--title','HerdrWork '+tag,'--notes-file',str(p)]
             if '-' in tag:command.append('--prerelease')
             subprocess.run(command,check=True)
         current={'assets':[]}
+    # Refresh a resumed draft as well, including drafts created by older scripts.
+    if existing.returncode == 0:
+        with tempfile.TemporaryDirectory() as temp:
+            p = Path(temp) / 'notes.md'
+            p.write_text(notes, encoding='utf-8')
+            gh('release', 'edit', tag, '--notes-file', str(p))
     files=[*archives,*[p.with_name(p.name+'.sha256') for p in archives]]
     sums=assets/'SHA256SUMS';sums.write_text(''.join(f'{digest(p)}  {p.name}\n' for p in files))
     files.append(sums)
