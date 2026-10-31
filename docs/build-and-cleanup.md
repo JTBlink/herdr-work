@@ -2,6 +2,20 @@
 
 编译和打包沿用根 workspace、锁文件和固定工具链。两个 Unix 产品程序由一次 Cargo 调用构建，共享依赖编译；Windows 只构建主程序，Projects 执行后端仍仅支持 Unix。
 
+## 一键编译打包
+
+macOS Apple Silicon / Linux x86_64 在仓库根执行：
+
+```sh
+sh herdr-work-plugins.sh --build-only  # 自动识别平台，编译并打包到 dist/
+sh herdr-work-plugins.sh               # 编译打包后安装到 bin/，并链接到 Herdr
+sh herdr-work-plugins.sh --release     # 通过 Herdr 安装 VERSION 对应的发行版
+```
+
+源码模式需要 Rust 1.99.0、Python 3.12+、Git 和平台编译工具。`--build-only` 不需要 Herdr，也不修改已安装程序、快捷键或插件注册；默认安装需要 Herdr 0.9.3+。可从任意目录通过脚本绝对路径调用。归档及 `.sha256` 保留到仓库 `dist/`，同平台只保留最新一份；失败不清理上一份可用归档。源码安装链接当前仓库，请保留仓库目录。
+
+## 分步构建与验证
+
 ```sh
 python3 scripts/build.py --target aarch64-apple-darwin
 python3 scripts/package.py create --target aarch64-apple-darwin
