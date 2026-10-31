@@ -262,7 +262,7 @@ fn fit(text: &str, width: usize) -> String {
     format!("{text}{}", " ".repeat(pad))
 }
 
-fn clip_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
+pub(crate) fn clip_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
     let full: usize = spans.iter().map(Span::width).sum();
     if full <= width {
         return spans;

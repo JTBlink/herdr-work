@@ -89,7 +89,6 @@ pub fn reference_operation(reference: &DrawerRef, action: MenuAction) -> Option<
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Drawer {
     Graph,
-    Commits,
     FileHistory,
     Branches,
     Worktrees,
@@ -99,9 +98,8 @@ pub enum Drawer {
 }
 
 impl Drawer {
-    pub const ALL: [Drawer; 8] = [
+    pub const ALL: [Drawer; 7] = [
         Drawer::Graph,
-        Drawer::Commits,
         Drawer::FileHistory,
         Drawer::Branches,
         Drawer::Worktrees,
@@ -113,7 +111,6 @@ impl Drawer {
     pub fn title(self) -> &'static str {
         match self {
             Drawer::Graph => "Graph",
-            Drawer::Commits => "Commits",
             Drawer::FileHistory => "File History",
             Drawer::Branches => "Branches",
             Drawer::Worktrees => "Worktrees",
@@ -129,7 +126,7 @@ impl Drawer {
 
     /// History views open as documents; repository resources remain drawers.
     pub fn opens_preview(self) -> bool {
-        matches!(self, Self::Graph | Self::Commits | Self::FileHistory)
+        matches!(self, Self::Graph | Self::FileHistory)
     }
 }
 
@@ -229,7 +226,7 @@ pub fn pretty_remote_url(url: &str) -> String {
 
 pub fn parse_drawer_ref(kind: Drawer, line: &str) -> DrawerRef {
     match kind {
-        Drawer::Graph | Drawer::Commits | Drawer::FileHistory => line
+        Drawer::Graph | Drawer::FileHistory => line
             .split_whitespace()
             .find(|tok| {
                 tok.len() >= 7
@@ -339,7 +336,6 @@ impl Drawer {
     pub fn load(self, git: &Git, file: Option<&str>, limit: usize) -> Result<Vec<String>, String> {
         match self {
             Self::Graph => git.graph(limit),
-            Self::Commits => git.commits(limit),
             Self::FileHistory => match file {
                 Some(path) => git.file_history(path, limit),
                 None => Ok(vec!["(select a file above)".into()]),

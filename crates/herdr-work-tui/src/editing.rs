@@ -319,6 +319,9 @@ impl App {
             }
             return Ok(false);
         }
+        if self.history_key(key) {
+            return Ok(false);
+        }
         if self.preview_key(key, area) {
             return Ok(false);
         }

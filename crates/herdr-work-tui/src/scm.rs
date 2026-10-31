@@ -19,6 +19,11 @@ pub(crate) enum ScmTarget {
     Change(usize),
     Drawer(Drawer),
     History(Drawer, usize),
+    HistoryCommit(usize),
+    HistoryFile(usize),
+    HistoryRetry,
+    HistoryMore,
+    HistoryMoreFiles,
 }
 #[derive(Default)]
 pub(crate) struct GitUi {
@@ -43,10 +48,9 @@ impl App {
             if self.tab != Tab::Scm {
                 self.switch_tab(Tab::Scm);
             }
-            if self.active_drawer != Some(Drawer::Graph) {
-                self.load_drawer(Drawer::Graph)?;
-            }
+            self.open_graph();
         } else {
+            self.history.clear_preview();
             self.drawer_request += 1;
             self.active_drawer = None;
             self.drawer_show = None;
@@ -199,6 +203,7 @@ impl App {
                 self.prepare_commit()?;
             }
             ScmTarget::Change(index) => {
+                self.history.clear_preview();
                 self.git.active = self
                     .code
                     .as_ref()
@@ -218,6 +223,18 @@ impl App {
                     change.path,
                     if change.staged { "staged" } else { "unstaged" }.into(),
                 )?;
+            }
+            target @ (ScmTarget::HistoryCommit(_)
+            | ScmTarget::HistoryFile(_)
+            | ScmTarget::HistoryRetry
+            | ScmTarget::HistoryMore
+            | ScmTarget::HistoryMoreFiles) => self.activate_history_row(target, false),
+            ScmTarget::Drawer(Drawer::Graph) => {
+                let open = !self.drawer_open[Drawer::Graph.index()];
+                self.drawer_open[Drawer::Graph.index()] = open;
+                if open {
+                    self.ensure_history();
+                }
             }
             ScmTarget::Drawer(kind) => {
                 if self.drawer_open[kind.index()] && self.active_drawer == Some(kind) {
@@ -452,6 +469,10 @@ impl App {
         let Some(kind) = self.active_drawer else {
             return;
         };
+        if kind == Drawer::Graph {
+            self.draw_history(f, area);
+            return;
+        }
         let title = format!(
             "{} · {}",
             kind.title(),

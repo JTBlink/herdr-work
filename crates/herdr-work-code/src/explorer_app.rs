@@ -48,6 +48,8 @@ use herdr_work_code::state::Exit;
 
 #[path = "explorer_delete_confirmation.rs"]
 mod delete_confirmation;
+#[path = "explorer_live_refresh.rs"]
+mod live_refresh;
 use delete_confirmation::{DeleteConfirmation, Response as DeleteResponse};
 
 const MY_VIEW: View = View::Explorer;
@@ -69,6 +71,7 @@ struct RepoDecorationRefresh {
 
 struct DecorationRefresh {
     repos: Vec<RepoDecorationRefresh>,
+    repositories: Vec<Git>,
 }
 
 fn ignored_scan_due(backoff_until: Option<std::time::Instant>, now: std::time::Instant) -> bool {
@@ -370,6 +373,8 @@ pub struct App {
     /// Every repository the tree can see — the containing one plus child
     /// repos, exactly the set the Source Control view shows.
     repos: Vec<Git>,
+    live_tree: live_refresh::LiveTree,
+    background_refresh: bool,
     /// Git status decorations for the visible rows (issue #19).
     deco: Decorations,
     /// Last decoration refresh, throttling the git polling.
@@ -513,6 +518,12 @@ impl App {
             picking: None,
             cwd_follower,
             repos,
+            live_tree: Default::default(),
+            background_refresh: sidebar::background_refresh_enabled(
+                std::env::var(sidebar::BACKGROUND_REFRESH_ENV)
+                    .ok()
+                    .as_deref(),
+            ),
             deco: Decorations::empty(),
             // Overwritten when the first background refresh is queued below.
             last_deco: std::time::Instant::now(),
@@ -547,6 +558,7 @@ impl App {
     pub fn tick(&mut self) {
         self.sync_shared_settings();
         self.sync_shared_tree();
+        self.tick_live_tree();
         self.collect_quick_index();
         self.collect_content_search();
         self.collect_git_sync();
@@ -648,16 +660,21 @@ impl App {
             self.deco_backoff_until.clear();
             return;
         }
-        if self.deco_rx.is_some() || (!force && !self.pane_is_focused()) {
+        if self.deco_rx.is_some() || (!force && !self.background_refresh && !self.pane_is_focused())
+        {
             return;
         }
         let ignored_backoffs = self.deco_backoff_until.clone();
         let scan_now = std::time::Instant::now();
         let include_ignored = self.sidebar_state.git_deco;
-        let repos = self.repos.clone();
+        let mut repos = self.repos.clone();
+        let root = self.tree.root_path();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let repos = repos
+            if repos.is_empty() {
+                repos = Git::discover_all(&root);
+            }
+            let statuses = repos
                 .iter()
                 .filter_map(|repo| {
                     let status = repo.status().ok()?;
@@ -681,7 +698,10 @@ impl App {
                     })
                 })
                 .collect();
-            let _ = tx.send(DecorationRefresh { repos });
+            let _ = tx.send(DecorationRefresh {
+                repos: statuses,
+                repositories: repos,
+            });
         });
         self.deco_rx = Some(rx);
     }
@@ -690,6 +710,7 @@ impl App {
         let Some(rx) = &self.deco_rx else { return };
         match rx.try_recv() {
             Ok(refresh) => {
+                self.repos = refresh.repositories;
                 self.git_footer_status = refresh.repos.first().map(|repo| repo.status.clone());
                 let mut statuses = Vec::with_capacity(refresh.repos.len());
                 for repo in refresh.repos {
@@ -1421,7 +1442,7 @@ impl App {
                 self.scroll = 0;
                 self.rebuild();
             }
-            TitleAction::ViewAsTree | TitleAction::ViewAsList => {}
+            TitleAction::ViewAsTree | TitleAction::ViewAsList | TitleAction::OpenGraph => {}
         }
     }
 
@@ -3247,6 +3268,7 @@ impl App {
     }
 
     fn refresh_tree(&mut self) {
+        self.live_tree = Default::default();
         self.tree.refresh();
         self.invalidate_quick_index();
         self.rediscover_repos();

@@ -25,6 +25,7 @@ mod drafts;
 
 mod editing;
 mod footer;
+mod history;
 mod hover;
 mod input;
 mod interaction;

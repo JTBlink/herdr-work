@@ -135,6 +135,7 @@ pub(crate) struct App {
     pub(crate) editor: Option<herdr_work_engine::EditorSession>,
     pub(crate) edit_request: Option<PathBuf>,
     pub(crate) git: crate::scm::GitUi,
+    pub(crate) history: crate::history::HistoryUi,
     pub(crate) hover: crate::hover::HoverState,
     pub(crate) editor_request: u64,
     pub(crate) editor_poll: Option<(u64, u64)>,
@@ -143,7 +144,7 @@ pub(crate) struct App {
     pub(crate) editor_close_after_leave: bool,
     pub(crate) scm_cursor: usize,
     pub(crate) active_drawer: Option<herdr_work_code::scm::Drawer>,
-    pub(crate) drawer_open: [bool; 8],
+    pub(crate) drawer_open: [bool; herdr_work_code::scm::Drawer::ALL.len()],
     pub(crate) drawers:
         std::collections::HashMap<herdr_work_code::scm::Drawer, herdr_work_engine::DrawerView>,
     pub(crate) drawer_request: u64,
@@ -247,6 +248,7 @@ impl App {
             editor: None,
             edit_request: None,
             git: Default::default(),
+            history: Default::default(),
             hover: Default::default(),
             editor_request: 0,
             editor_poll: None,
@@ -255,7 +257,7 @@ impl App {
             editor_close_after_leave: false,
             scm_cursor: 0,
             active_drawer: None,
-            drawer_open: [false; 8],
+            drawer_open: [false; herdr_work_code::scm::Drawer::ALL.len()],
             drawers: Default::default(),
             drawer_request: 0,
             drawer_state: LoadState::Ready,
@@ -797,7 +799,8 @@ impl App {
         self.search_rows.clear();
         self.active_drawer = None;
         self.drawers.clear();
-        self.drawer_open = [false; 8];
+        self.drawer_open = [false; herdr_work_code::scm::Drawer::ALL.len()];
+        self.history = Default::default();
         self.drawer_request += 1;
         self.review = None;
         self.code = None;
@@ -843,7 +846,8 @@ impl App {
         self.drawer_request += 1;
         self.drawers.clear();
         self.active_drawer = None;
-        self.drawer_open = [false; 8];
+        self.drawer_open = [false; herdr_work_code::scm::Drawer::ALL.len()];
+        self.history = Default::default();
         self.overlay = None;
         self.switch_tab(Tab::Files);
         self.load_workspace_after_change()?;

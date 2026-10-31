@@ -250,6 +250,33 @@ pub fn doc_key_for_history(root: &Path, kind: Drawer, path: Option<&str>) -> Str
 /// The document tab title. Product titles have an explicit namespace and
 /// preview/pinned marker; the reference UI retains its source label format.
 pub fn tab_label(doc_key: &str, pinned: bool) -> String {
+    if doc_key.starts_with("history:") && doc_key.ends_with(":Graph") {
+        return if crate::state::product_profile().is_some() {
+            product_document_label("Git Graph", if pinned { "pinned" } else { "preview" })
+        } else if pinned {
+            "Git Graph".into()
+        } else {
+            "Git Graph · preview".into()
+        };
+    }
+    if let Some(key) = doc_key.strip_prefix("commit:") {
+        let mut parts = key.rsplitn(4, ':');
+        let path = parts.next().unwrap_or_default();
+        let _parent = parts.next();
+        let oid = parts.next().unwrap_or_default();
+        let name = if path.is_empty() {
+            format!("Commit {}", &oid[..oid.len().min(8)])
+        } else {
+            path.rsplit('/').next().unwrap_or(path).to_string()
+        };
+        return if crate::state::product_profile().is_some() {
+            product_document_label(&name, if pinned { "pinned" } else { "preview" })
+        } else if pinned {
+            name
+        } else {
+            format!("{name} · preview")
+        };
+    }
     let display_key = if let Some(diff) = doc_key.strip_prefix("diff:") {
         diff.rsplit_once(':').map(|(path, _)| path).unwrap_or(diff)
     } else if let Some(show) = doc_key
@@ -298,6 +325,12 @@ impl Request {
             Self::File { path, .. } => doc_key_for_file(path),
             Self::Diff { root, rel, kind } => doc_key_for_diff(root, rel, kind),
             Self::Show { root, spec, path } => doc_key_for_show(root, spec, path.as_deref()),
+            Self::Commit {
+                root,
+                oid,
+                parent,
+                path,
+            } => doc_key_for_commit(root, oid, *parent, path.as_deref()),
             Self::History { root, kind, path } => doc_key_for_history(root, *kind, path.as_deref()),
         }
     }
@@ -325,6 +358,12 @@ enum Request {
     Show {
         root: PathBuf,
         spec: String,
+        path: Option<String>,
+    },
+    Commit {
+        root: PathBuf,
+        oid: String,
+        parent: usize,
         path: Option<String>,
     },
     History {
@@ -355,6 +394,20 @@ pub fn show_request(root: &Path, spec: &str, path: Option<&str>) -> String {
     format!("show\t{}\t{spec}\t{}", root.display(), path.unwrap_or(""))
 }
 
+pub fn commit_request(root: &Path, oid: &str, parent: usize, path: Option<&str>) -> String {
+    format!(
+        "commit\t{}",
+        serde_json::to_string(&(root, oid, parent, path)).expect("serializable commit target")
+    )
+}
+pub fn doc_key_for_commit(root: &Path, oid: &str, parent: usize, path: Option<&str>) -> String {
+    format!(
+        "commit:{}:{oid}:{parent}:{}",
+        root.display(),
+        path.unwrap_or("")
+    )
+}
+
 /// Preview of a repository graph, commit log, or one file's history.
 pub fn history_request(root: &Path, kind: Drawer, path: Option<&str>) -> String {
     format!(
@@ -378,6 +431,19 @@ fn parse_request(raw: &str) -> Option<Request> {
             let rel = parts.next()?.to_string();
             let kind = parts.next().unwrap_or("worktree").to_string();
             Some(Request::Diff { root, rel, kind })
+        }
+        Some("commit") => {
+            let (root, oid, parent, path): (PathBuf, String, usize, Option<String>) =
+                serde_json::from_str(parts.next()?).ok()?;
+            if !matches!(oid.len(), 40 | 64) || !oid.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return None;
+            }
+            Some(Request::Commit {
+                root,
+                oid,
+                parent,
+                path,
+            })
         }
         Some("show") => {
             let root = PathBuf::from(parts.next()?);
@@ -417,6 +483,12 @@ fn request_payload(request: &Request) -> String {
             .unwrap_or_else(|| file_request(path)),
         Request::Diff { root, rel, kind } => diff_request(root, rel, kind),
         Request::Show { root, spec, path } => show_request(root, spec, path.as_deref()),
+        Request::Commit {
+            root,
+            oid,
+            parent,
+            path,
+        } => commit_request(root, oid, *parent, path.as_deref()),
         Request::History { root, kind, path } => history_request(root, *kind, path.as_deref()),
     }
 }
@@ -439,6 +511,7 @@ fn load(request: &Request) -> Doc {
             stamp: None,
             source_text: None,
             graph: None,
+            commit: None,
             changes: None,
             split: None,
         },
@@ -452,6 +525,12 @@ fn load(request: &Request) -> Doc {
         }
         Request::Diff { root, rel, kind } => load_diff(root, rel, kind),
         Request::Show { root, spec, path } => load_show(root, spec, path.as_deref()),
+        Request::Commit {
+            root,
+            oid,
+            parent,
+            path,
+        } => crate::preview::commit::load(root, oid, *parent, path.as_deref()),
         Request::History {
             root,
             kind: Drawer::Graph,
@@ -515,6 +594,13 @@ fn loading_doc(request: &Request) -> Doc {
             root.display().to_string(),
         ),
         Request::Show { root, spec, .. } => (spec.clone(), root.display().to_string()),
+        Request::Commit {
+            root, oid, path, ..
+        } => (
+            path.clone()
+                .unwrap_or_else(|| format!("Commit {}", &oid[..oid.len().min(8)])),
+            root.display().to_string(),
+        ),
         Request::History { root, kind, .. } => (kind.title().into(), root.display().to_string()),
     };
     Doc {
@@ -533,6 +619,7 @@ fn loading_doc(request: &Request) -> Doc {
         stamp: None,
         source_text: None,
         graph: None,
+        commit: None,
         changes: None,
         split: None,
     }
@@ -1186,6 +1273,19 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         crate::state::load_state().icons,
     );
     let mut current = read_control(control);
+    // A large graph owns its tab even while temporarily inspecting a historical file.
+    let mut graph_identity = current
+        .as_ref()
+        .filter(|r| {
+            matches!(
+                r,
+                Request::History {
+                    kind: Drawer::Graph,
+                    ..
+                }
+            )
+        })
+        .map(Request::doc_key);
     let mut preview_load = current.clone().map(start_preview_load);
     let doc = current.as_ref().map(loading_doc).unwrap_or_else(|| Doc {
         name: "(nothing to show)".into(),
@@ -1203,13 +1303,17 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         stamp: None,
         source_text: None,
         graph: None,
+        commit: None,
         changes: None,
         split: None,
     });
     let mut mode = ViewMode::Preview(doc);
     report_identity(
         &mode,
-        current.as_ref().map(Request::doc_key).as_deref(),
+        graph_identity
+            .clone()
+            .or_else(|| current.as_ref().map(Request::doc_key))
+            .as_deref(),
         control,
     );
 
@@ -1237,6 +1341,8 @@ pub fn run(control: &Path) -> std::io::Result<()> {
     let mut notice: Option<String> = None;
     let mut history_return: Option<Request> = None;
     let mut history_click: Option<(usize, Instant)> = None;
+    let mut graph_view: Option<crate::history_view::GraphView> = None;
+    let mut commit_return: Option<Request> = None;
     let mut last_heartbeat = crate::state::unix_now();
     let mut last_external_check = Instant::now();
     let mut last_diff_refresh = Instant::now();
@@ -1295,6 +1401,12 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                         Some(Request::History { .. }) => {
                             Some("q 关闭 · ↑↓ 滚动 · Enter 查看顶部提交 · 双击查看提交 · r 刷新")
                         }
+                        Some(Request::Commit { path: Some(_), .. }) => {
+                            Some("[← 返回提交] Backspace · F7 下一处差异 · ↑↓ 滚动")
+                        }
+                        Some(Request::Commit { .. }) => {
+                            Some("单击文件查看 Diff · Enter 查看顶部文件 · P 切换父提交 · r 重试")
+                        }
                         Some(Request::Show { .. }) if history_return.is_some() => {
                             Some("q 关闭 · Backspace 返回历史列表 · ↑↓ 滚动")
                         }
@@ -1312,6 +1424,40 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                         notice.as_deref().or(navigation_hint),
                         &mut find,
                     );
+                    if !find.open
+                        && let Some(Request::History {
+                            root,
+                            kind: Drawer::Graph,
+                            ..
+                        }) = &current
+                    {
+                        if graph_view
+                            .as_ref()
+                            .is_none_or(|view| &view.browser.root != root)
+                        {
+                            graph_view = Some(crate::history_view::GraphView::new(root.clone()));
+                        }
+                        if let Some(view) = &mut graph_view {
+                            if !view.initialized
+                                && let Some(graph) = &doc.graph
+                            {
+                                view.browser.graph = graph.clone();
+                                view.initialized = true;
+                            }
+                            if view.tick() {
+                                doc.graph = Some(view.browser.graph.clone());
+                                doc.rows_key = None;
+                            }
+                            let graph_area = Rect::new(
+                                area.x,
+                                area.y + 1,
+                                area.width,
+                                area.height.saturating_sub(2),
+                            );
+                            frame.render_widget(ratatui::widgets::Clear, graph_area);
+                            view.draw(frame, graph_area);
+                        }
+                    }
                 }
                 ViewMode::Edit(editor) => {
                     (page, edit_width, edit_body) = draw_editor(frame, editor, theme);
@@ -1324,7 +1470,10 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         if identity_pending {
             report_identity(
                 &mode,
-                current.as_ref().map(Request::doc_key).as_deref(),
+                graph_identity
+                    .clone()
+                    .or_else(|| current.as_ref().map(Request::doc_key))
+                    .as_deref(),
                 control,
             );
             identity_pending = false;
@@ -1348,11 +1497,12 @@ pub fn run(control: &Path) -> std::io::Result<()> {
             paste_enabled = wants_paste;
         }
         let mut should_close = false;
-        let poll = if preview_load.is_some() {
-            LOAD_POLL
-        } else {
-            POLL
-        };
+        let poll =
+            if preview_load.is_some() || graph_view.as_ref().is_some_and(|v| v.browser.busy()) {
+                LOAD_POLL
+            } else {
+                POLL
+            };
         if event::poll(poll)? {
             let event = event::read()?;
             let event = if let Some(prompt) = &prompt {
@@ -1404,7 +1554,10 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                                 restore_current_control(control, &current);
                                 report_identity(
                                     &mode,
-                                    current.as_ref().map(Request::doc_key).as_deref(),
+                                    graph_identity
+                                        .clone()
+                                        .or_else(|| current.as_ref().map(Request::doc_key))
+                                        .as_deref(),
                                     control,
                                 );
                             }
@@ -1459,7 +1612,10 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                                 restore_current_control(control, &current);
                                 report_identity(
                                     &mode,
-                                    current.as_ref().map(Request::doc_key).as_deref(),
+                                    graph_identity
+                                        .clone()
+                                        .or_else(|| current.as_ref().map(Request::doc_key))
+                                        .as_deref(),
                                     control,
                                 );
                             }
@@ -1476,101 +1632,195 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                                 let shortcut = (key.modifiers.contains(KeyModifiers::CONTROL)
                                     && !key.modifiers.contains(KeyModifiers::ALT))
                                     || key.modifiers.contains(KeyModifiers::SUPER);
-                                match key.code {
-                                    KeyCode::Enter => {
-                                        navigate = current.as_ref().and_then(|request| {
-                                            history_show_request(request, doc, doc.top_src())
+                                if !find.open
+                                    && matches!(
+                                        current,
+                                        Some(Request::History {
+                                            kind: Drawer::Graph,
+                                            ..
+                                        })
+                                    )
+                                    && !matches!(key.code, KeyCode::Esc | KeyCode::Char('q'))
+                                    && !shortcut
+                                {
+                                    if let Some(target) =
+                                        graph_view.as_mut().and_then(|view| view.on_key(key))
+                                    {
+                                        navigate = Some(Request::Commit {
+                                            root: target.root,
+                                            oid: target.oid,
+                                            parent: target.parent,
+                                            path: Some(target.path),
                                         });
                                     }
-                                    KeyCode::Backspace => navigate = history_return.clone(),
-                                    KeyCode::Char('r')
-                                        if matches!(current, Some(Request::History { .. })) =>
-                                    {
-                                        navigate = current.clone();
-                                    }
-                                    KeyCode::Char('a') if shortcut => doc.select_all(),
-                                    KeyCode::Char('c') if shortcut => {
-                                        // Same ordered queue as release copies, so an older
-                                        // automatic copy cannot land after this one.
-                                        match doc.selected_text() {
-                                            None => {
-                                                notice = Some("select text before copying".into())
-                                            }
-                                            Some(text) => {
-                                                if copier.is_none() {
-                                                    copier = start_release_copier();
-                                                }
-                                                match &copier {
-                                                    Some(copier) => copier.submit(CopyRequest {
-                                                        text,
-                                                        automatic: false,
-                                                    }),
-                                                    None => notice = Some(copy_selection(doc)),
-                                                }
-                                            }
-                                        }
-                                    }
-                                    KeyCode::Esc | KeyCode::Char('q') => {
-                                        should_close =
-                                            close_own_pane(control, &current, &mut notice);
-                                    }
-                                    KeyCode::Char('e') => {
-                                        if let Some(copier) = &copier {
-                                            copier.drop_waiting_automatic();
-                                        }
-                                        if doc.media.is_some() {
-                                            notice = Some("media previews are read-only".into());
-                                        } else if let Some(Request::File { path, .. }) =
-                                            current.as_ref()
+                                } else {
+                                    match key.code {
+                                        KeyCode::Enter
+                                            if matches!(
+                                                current,
+                                                Some(Request::Commit { path: None, .. })
+                                            ) =>
                                         {
-                                            match Editor::open(path, MAX_BYTES, MAX_LINES) {
-                                                Ok(editor) => {
-                                                    mode = ViewMode::Edit(editor);
-                                                    preview_load = None;
-                                                    notice = None;
-                                                    report_identity(
-                                                        &mode,
-                                                        current
-                                                            .as_ref()
-                                                            .map(Request::doc_key)
-                                                            .as_deref(),
-                                                        control,
-                                                    );
-                                                }
-                                                Err(e) => notice = Some(e.to_string()),
+                                            if let (
+                                                Some(Request::Commit {
+                                                    root, oid, parent, ..
+                                                }),
+                                                Some(file),
+                                            ) = (
+                                                &current,
+                                                doc.commit_file_source(doc.top_src()).or_else(
+                                                    || {
+                                                        doc.commit_details()
+                                                            .and_then(|d| d.files.first())
+                                                    },
+                                                ),
+                                            ) {
+                                                navigate = Some(Request::Commit {
+                                                    root: root.clone(),
+                                                    oid: oid.clone(),
+                                                    parent: *parent,
+                                                    path: Some(file.path.clone()),
+                                                });
                                             }
-                                        } else {
-                                            notice = Some(
-                                                "diffs and history previews are read-only".into(),
+                                        }
+                                        KeyCode::Char('P') if doc.commit_details().is_some() => {
+                                            if let (
+                                                Some(Request::Commit { root, oid, .. }),
+                                                Some(d),
+                                            ) = (&current, doc.commit_details())
+                                            {
+                                                navigate = Some(Request::Commit {
+                                                    root: root.clone(),
+                                                    oid: oid.clone(),
+                                                    parent: (d.parent + 1) % d.parents.len().max(1),
+                                                    path: None,
+                                                });
+                                            }
+                                        }
+                                        KeyCode::Enter => {
+                                            navigate = current.as_ref().and_then(|request| {
+                                                history_show_request(request, doc, doc.top_src())
+                                            });
+                                        }
+                                        KeyCode::Backspace => {
+                                            navigate = commit_return
+                                                .clone()
+                                                .or_else(|| history_return.clone())
+                                                .or_else(|| match &current {
+                                                    Some(Request::Commit {
+                                                        root,
+                                                        oid,
+                                                        parent,
+                                                        path: Some(_),
+                                                    }) => Some(Request::Commit {
+                                                        root: root.clone(),
+                                                        oid: oid.clone(),
+                                                        parent: *parent,
+                                                        path: None,
+                                                    }),
+                                                    _ => None,
+                                                })
+                                        }
+                                        KeyCode::Char('r')
+                                            if matches!(
+                                                current,
+                                                Some(
+                                                    Request::History { .. }
+                                                        | Request::Commit { .. }
+                                                )
+                                            ) =>
+                                        {
+                                            navigate = current.clone();
+                                        }
+                                        KeyCode::Char('a') if shortcut => doc.select_all(),
+                                        KeyCode::Char('c') if shortcut => {
+                                            // Same ordered queue as release copies, so an older
+                                            // automatic copy cannot land after this one.
+                                            match doc.selected_text() {
+                                                None => {
+                                                    notice =
+                                                        Some("select text before copying".into())
+                                                }
+                                                Some(text) => {
+                                                    if copier.is_none() {
+                                                        copier = start_release_copier();
+                                                    }
+                                                    match &copier {
+                                                        Some(copier) => {
+                                                            copier.submit(CopyRequest {
+                                                                text,
+                                                                automatic: false,
+                                                            })
+                                                        }
+                                                        None => notice = Some(copy_selection(doc)),
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        KeyCode::Esc | KeyCode::Char('q') => {
+                                            should_close =
+                                                close_own_pane(control, &current, &mut notice);
+                                        }
+                                        KeyCode::Char('e') => {
+                                            if let Some(copier) = &copier {
+                                                copier.drop_waiting_automatic();
+                                            }
+                                            if doc.media.is_some() {
+                                                notice =
+                                                    Some("media previews are read-only".into());
+                                            } else if let Some(Request::File { path, .. }) =
+                                                current.as_ref()
+                                            {
+                                                match Editor::open(path, MAX_BYTES, MAX_LINES) {
+                                                    Ok(editor) => {
+                                                        mode = ViewMode::Edit(editor);
+                                                        preview_load = None;
+                                                        notice = None;
+                                                        report_identity(
+                                                            &mode,
+                                                            current
+                                                                .as_ref()
+                                                                .map(Request::doc_key)
+                                                                .as_deref(),
+                                                            control,
+                                                        );
+                                                    }
+                                                    Err(e) => notice = Some(e.to_string()),
+                                                }
+                                            } else {
+                                                notice = Some(
+                                                    "diffs and history previews are read-only"
+                                                        .into(),
+                                                );
+                                            }
+                                        }
+                                        KeyCode::F(7) if doc.changes.is_some() => {
+                                            doc.step_change(
+                                                key.modifiers.contains(KeyModifiers::SHIFT),
                                             );
                                         }
+                                        KeyCode::Up | KeyCode::Char('k') => {
+                                            doc.set_scroll(doc.scroll.saturating_sub(1))
+                                        }
+                                        KeyCode::Down | KeyCode::Char('j') => {
+                                            doc.set_scroll((doc.scroll + 1).min(max))
+                                        }
+                                        // Shift+Space is byte-identical to Space without the
+                                        // kitty keyboard protocol, so page-back takes `b`.
+                                        KeyCode::PageUp | KeyCode::Char('b') => {
+                                            doc.set_scroll(doc.scroll.saturating_sub(page))
+                                        }
+                                        KeyCode::PageDown | KeyCode::Char(' ') => {
+                                            doc.set_scroll((doc.scroll + page).min(max))
+                                        }
+                                        KeyCode::Home | KeyCode::Char('g') => doc.set_scroll(0),
+                                        KeyCode::End | KeyCode::Char('G') => doc.set_scroll(max),
+                                        KeyCode::Char('w') if doc.media.is_none() => {
+                                            doc.pending_src = Some(doc.top_src());
+                                            doc.wrap = !doc.wrap;
+                                        }
+                                        _ => {}
                                     }
-                                    KeyCode::F(7) if doc.changes.is_some() => {
-                                        doc.step_change(
-                                            key.modifiers.contains(KeyModifiers::SHIFT),
-                                        );
-                                    }
-                                    KeyCode::Up | KeyCode::Char('k') => {
-                                        doc.set_scroll(doc.scroll.saturating_sub(1))
-                                    }
-                                    KeyCode::Down | KeyCode::Char('j') => {
-                                        doc.set_scroll((doc.scroll + 1).min(max))
-                                    }
-                                    // Shift+Space is byte-identical to Space without the
-                                    // kitty keyboard protocol, so page-back takes `b`.
-                                    KeyCode::PageUp | KeyCode::Char('b') => {
-                                        doc.set_scroll(doc.scroll.saturating_sub(page))
-                                    }
-                                    KeyCode::PageDown | KeyCode::Char(' ') => {
-                                        doc.set_scroll((doc.scroll + page).min(max))
-                                    }
-                                    KeyCode::Home | KeyCode::Char('g') => doc.set_scroll(0),
-                                    KeyCode::End | KeyCode::Char('G') => doc.set_scroll(max),
-                                    KeyCode::Char('w') if doc.media.is_none() => {
-                                        doc.pending_src = Some(doc.top_src());
-                                        doc.wrap = !doc.wrap;
-                                    }
-                                    _ => {}
                                 }
                             }
                             ViewMode::Edit(editor) => {
@@ -1627,55 +1877,115 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                 Event::Mouse(mouse) => match &mut mode {
                     ViewMode::Preview(doc) => {
                         let max = doc.rows.len().saturating_sub(1);
-                        if prompt.is_none() && changes::mouse(doc, mouse, preview_header) {
-                            continue;
-                        }
-                        if mouse.kind == MouseEventKind::Down(MouseButton::Left)
-                            && matches!(current, Some(Request::History { .. }))
-                            && let Some(position) =
-                                doc.text_position_at(preview_body, mouse.column, mouse.row)
-                            && let Some(row) = doc.rows.get(position.row)
+                        if !find.open
+                            && mouse.row > 0
+                            && matches!(
+                                current,
+                                Some(Request::History {
+                                    kind: Drawer::Graph,
+                                    ..
+                                })
+                            )
                         {
-                            let source = row.src;
-                            let now = Instant::now();
-                            let double = history_click.is_some_and(|(previous, at)| {
-                                previous == source
-                                    && now.duration_since(at) < Duration::from_millis(400)
-                            });
-                            history_click = Some((source, now));
-                            if double {
-                                navigate = current
-                                    .as_ref()
-                                    .and_then(|request| history_show_request(request, doc, source));
-                            }
-                        }
-                        match mouse.kind {
-                            MouseEventKind::ScrollUp => {
-                                doc.set_scroll(doc.scroll.saturating_sub(3))
-                            }
-                            MouseEventKind::ScrollDown => doc.set_scroll((doc.scroll + 3).min(max)),
-                            MouseEventKind::Down(MouseButton::Left)
-                                if mouse.row == 0 && mouse.column < 3 =>
+                            if let Some(target) =
+                                graph_view.as_mut().and_then(|view| view.on_mouse(mouse))
                             {
-                                should_close = close_own_pane(control, &current, &mut notice);
+                                navigate = Some(Request::Commit {
+                                    root: target.root,
+                                    oid: target.oid,
+                                    parent: target.parent,
+                                    path: Some(target.path),
+                                });
                             }
-                            _ => {
-                                // Copy on release, like herdr's own panes — unless the
-                                // user turned that off in herdr (`[ui] copy_on_select`).
-                                // Off the event loop: a hung clipboard tool must not
-                                // freeze the preview.
-                                if doc.on_mouse(&mouse, preview_body)
-                                    && let Some(text) = doc.selected_text()
-                                {
-                                    if copier.is_none() {
-                                        copier = start_release_copier();
-                                    }
-                                    match &copier {
-                                        Some(copier) => copier.submit(CopyRequest {
-                                            text,
-                                            automatic: true,
+                        } else {
+                            if mouse.kind == MouseEventKind::Down(MouseButton::Left)
+                                && mouse.row + 1 == terminal.size()?.height
+                                && mouse.column < 16
+                            {
+                                navigate = commit_return
+                                    .clone()
+                                    .or_else(|| history_return.clone())
+                                    .or_else(|| match &current {
+                                        Some(Request::Commit {
+                                            root,
+                                            oid,
+                                            parent,
+                                            path: Some(_),
+                                        }) => Some(Request::Commit {
+                                            root: root.clone(),
+                                            oid: oid.clone(),
+                                            parent: *parent,
+                                            path: None,
                                         }),
-                                        None => notice = Some(copy_selection(doc)),
+                                        _ => None,
+                                    });
+                            }
+                            if mouse.kind == MouseEventKind::Down(MouseButton::Left)
+                                && let Some(file) =
+                                    doc.commit_file_at(preview_body, mouse.column, mouse.row)
+                                && let Some(Request::Commit {
+                                    root, oid, parent, ..
+                                }) = &current
+                            {
+                                navigate = Some(Request::Commit {
+                                    root: root.clone(),
+                                    oid: oid.clone(),
+                                    parent: *parent,
+                                    path: Some(file.path.clone()),
+                                });
+                            }
+                            if prompt.is_none() && changes::mouse(doc, mouse, preview_header) {
+                                continue;
+                            }
+                            if mouse.kind == MouseEventKind::Down(MouseButton::Left)
+                                && matches!(current, Some(Request::History { .. }))
+                                && let Some(position) =
+                                    doc.text_position_at(preview_body, mouse.column, mouse.row)
+                                && let Some(row) = doc.rows.get(position.row)
+                            {
+                                let source = row.src;
+                                let now = Instant::now();
+                                let double = history_click.is_some_and(|(previous, at)| {
+                                    previous == source
+                                        && now.duration_since(at) < Duration::from_millis(400)
+                                });
+                                history_click = Some((source, now));
+                                if double {
+                                    navigate = current.as_ref().and_then(|request| {
+                                        history_show_request(request, doc, source)
+                                    });
+                                }
+                            }
+                            match mouse.kind {
+                                MouseEventKind::ScrollUp => {
+                                    doc.set_scroll(doc.scroll.saturating_sub(3))
+                                }
+                                MouseEventKind::ScrollDown => {
+                                    doc.set_scroll((doc.scroll + 3).min(max))
+                                }
+                                MouseEventKind::Down(MouseButton::Left)
+                                    if mouse.row == 0 && mouse.column < 3 =>
+                                {
+                                    should_close = close_own_pane(control, &current, &mut notice);
+                                }
+                                _ => {
+                                    // Copy on release, like herdr's own panes — unless the
+                                    // user turned that off in herdr (`[ui] copy_on_select`).
+                                    // Off the event loop: a hung clipboard tool must not
+                                    // freeze the preview.
+                                    if doc.on_mouse(&mouse, preview_body)
+                                        && let Some(text) = doc.selected_text()
+                                    {
+                                        if copier.is_none() {
+                                            copier = start_release_copier();
+                                        }
+                                        match &copier {
+                                            Some(copier) => copier.submit(CopyRequest {
+                                                text,
+                                                automatic: true,
+                                            }),
+                                            None => notice = Some(copy_selection(doc)),
+                                        }
                                     }
                                 }
                             }
@@ -1711,10 +2021,19 @@ pub fn run(control: &Path) -> std::io::Result<()> {
             // Keep the control file in sync so polling cannot undo navigation.
             match write_scratch_file(control, &request_payload(&request)) {
                 Ok(()) => {
+                    commit_return = match (&current, &request) {
+                        (
+                            Some(origin @ Request::Commit { path: None, .. }),
+                            Request::Commit { path: Some(_), .. },
+                        ) => Some(origin.clone()),
+                        (_, Request::Commit { path: None, .. } | Request::History { .. }) => None,
+                        _ => commit_return,
+                    };
                     history_return = match (&current, &request) {
-                        (Some(origin @ Request::History { .. }), Request::Show { .. }) => {
-                            Some(origin.clone())
-                        }
+                        (
+                            Some(origin @ Request::History { .. }),
+                            Request::Show { .. } | Request::Commit { .. },
+                        ) => Some(origin.clone()),
                         (_, Request::History { .. }) => None,
                         _ => history_return,
                     };
@@ -1742,7 +2061,10 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         if heartbeat_due(last_heartbeat, crate::state::unix_now()) {
             report_identity(
                 &mode,
-                current.as_ref().map(Request::doc_key).as_deref(),
+                graph_identity
+                    .clone()
+                    .or_else(|| current.as_ref().map(Request::doc_key))
+                    .as_deref(),
                 control,
             );
             // Settings live in a shared file another pane may rewrite; the
@@ -1766,7 +2088,16 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                         break Ok(());
                     }
                 } else {
+                    graph_identity = matches!(
+                        request,
+                        Request::History {
+                            kind: Drawer::Graph,
+                            ..
+                        }
+                    )
+                    .then(|| request.doc_key());
                     history_return = None;
+                    commit_return = None;
                     history_click = None;
                     mode = ViewMode::Preview(loading_doc(&request));
                     current = Some(request.clone());
@@ -2111,6 +2442,16 @@ pub fn open_in_pane(
     payload: &str,
 ) -> Result<PreviewTarget, String> {
     let mut state = crate::state::load_state();
+    let dedicated_graph = matches!(
+        parse_request(payload),
+        Some(Request::History {
+            kind: Drawer::Graph,
+            ..
+        })
+    );
+    if dedicated_graph {
+        state.preview_placement = crate::state::PreviewPlacement::Tab;
+    }
     // VS Code is a file-opening preference. Diff/history retain their
     // internal viewer and never silently become a document tab.
     if state.preview_placement == crate::state::PreviewPlacement::VsCode {
@@ -2191,7 +2532,7 @@ pub fn open_in_pane(
     }
 
     // 2. Overwrite the ephemeral tab (inline: the tab's one viewer pane).
-    if let Some(p) = reusable_preview(&previews, inline) {
+    if !dedicated_graph && let Some(p) = reusable_preview(&previews, inline) {
         write_scratch_file(&p.control, payload).map_err(|e| format!("preview failed: {e}"))?;
         remember_origin(&p.pane_id, &origin_tab_id);
         if !inline {
@@ -2227,7 +2568,19 @@ pub fn open_in_pane(
             state.sidebar_width,
         )
     } else {
-        spawn_preview_tab(my_pane_id, spawn_cwd, doc_key, payload, &origin_tab_id)
+        let target = spawn_preview_tab(my_pane_id, spawn_cwd, doc_key, payload, &origin_tab_id)?;
+        if dedicated_graph {
+            // This is a newly created clean tab, so it can be reserved before the viewer starts.
+            let _ = ipc::call_text(
+                "pane.report_metadata",
+                serde_json::json!({"pane_id":target.pane_id,"source":METADATA_SOURCE,"tokens":{TOKEN_PINNED:"1"}}),
+            );
+            let _ = ipc::call_text(
+                "tab.rename",
+                serde_json::json!({"tab_id":target.tab_id,"label":tab_label(doc_key,true)}),
+            );
+        }
+        Ok(target)
     }
 }
 
@@ -3171,7 +3524,7 @@ mod tests {
     fn history_requests_round_trip_and_keep_repository_and_file_identity() {
         let root = Path::new("/projects/example repo");
         let mut keys = std::collections::HashSet::new();
-        for kind in [Drawer::Graph, Drawer::Commits, Drawer::FileHistory] {
+        for kind in [Drawer::Graph, Drawer::FileHistory] {
             let path = (kind == Drawer::FileHistory).then_some("src/示例 file.rs");
             let payload = history_request(root, kind, path);
             let request = parse_request(&payload).unwrap();
@@ -3197,6 +3550,30 @@ mod tests {
             doc_key_for_history(root, Drawer::FileHistory, Some("two.rs"))
         );
         assert!(parse_request("history\t/project\tBranches").is_none());
+    }
+
+    #[test]
+    fn commit_requests_keep_unusual_paths_and_parent_identity() {
+        let root = Path::new("/projects/example repo");
+        let oid = "a".repeat(40);
+        for path in [None, Some("src/示例\tfile\n.rs")] {
+            let payload = commit_request(root, &oid, 1, path);
+            let request = parse_request(&payload).unwrap();
+            assert_eq!(
+                request,
+                Request::Commit {
+                    root: root.into(),
+                    oid: oid.clone(),
+                    parent: 1,
+                    path: path.map(str::to_owned)
+                }
+            );
+            assert_eq!(request_payload(&request), payload);
+            assert_ne!(request.doc_key(), doc_key_for_commit(root, &oid, 0, path));
+            assert!(
+                !tab_label(&doc_key_for_commit(root, &oid, 1, None), false).contains("/projects")
+            );
+        }
     }
 
     #[test]
@@ -3233,7 +3610,7 @@ mod tests {
         git(&["add", "."]);
         git(&["commit", "-qm", "unrelated-file-change"]);
 
-        for kind in [Drawer::Graph, Drawer::Commits, Drawer::FileHistory] {
+        for kind in [Drawer::Graph, Drawer::FileHistory] {
             let request = Request::History {
                 root: root.into(),
                 kind,
@@ -3360,6 +3737,7 @@ mod tests {
             stamp: None,
             source_text: None,
             graph: None,
+            commit: None,
             changes: None,
             split: None,
         }
@@ -4897,6 +5275,7 @@ mod tests {
             stamp: None,
             source_text: None,
             graph: None,
+            commit: None,
             changes: None,
             split: None,
         };

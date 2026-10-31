@@ -610,7 +610,11 @@ impl App {
             },
             Command::Drawer(kind) => {
                 self.switch_tab(Tab::Scm);
-                self.load_drawer(kind)?;
+                if kind == herdr_work_code::scm::Drawer::Graph {
+                    self.open_graph();
+                } else {
+                    self.load_drawer(kind)?;
+                }
             }
         }
         Ok(())

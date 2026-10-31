@@ -430,13 +430,30 @@ impl Git {
     }
 
     pub fn graph_model(&self, limit: usize) -> Result<crate::git_graph::Graph, String> {
+        self.history_graph(limit, crate::history::Scope::All)
+    }
+
+    pub fn history_graph(
+        &self,
+        limit: usize,
+        scope: crate::history::Scope,
+    ) -> Result<crate::git_graph::Graph, String> {
+        if scope == crate::history::Scope::Current
+            && self.raw(&["rev-parse", "--verify", "HEAD"]).is_err()
+        {
+            return Ok(crate::git_graph::Graph::default());
+        }
         let n = format!("-{limit}");
         let output = run_in(
             &self.root,
             &[
                 "log",
                 "--graph",
-                "--all",
+                if scope == crate::history::Scope::All {
+                    "--all"
+                } else {
+                    "HEAD"
+                },
                 "--date-order",
                 "--color=always",
                 "--decorate=full",

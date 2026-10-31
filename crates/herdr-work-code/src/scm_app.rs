@@ -1,6 +1,6 @@
 //! TUI state and rendering: the VS Code Source Control panel — commit message
 //! box (with the ✨ suggest button), Commit button, collapsible Staged/Changes
-//! sections, Git-Graph-style drawers (GRAPH, COMMITS, FILE HISTORY, BRANCHES,
+//! sections, Git-Graph-style drawers (GRAPH, FILE HISTORY, BRANCHES,
 //! REMOTES, STASHES, TAGS), theme-matched file icons, mouse support, and a
 //! Ctrl+right-click context menu — kept interaction-consistent with
 //! herdr-aa-filetree. No own border/title: herdr already frames the pane and
@@ -9,6 +9,10 @@
 //! When herdr-aa-filetree is also installed, the panel can merge with it into
 //! a single "Sidebar" pane with an activity-bar view switcher (see sidebar.rs).
 
+mod history;
+#[cfg(test)]
+mod history_tests;
+mod live_refresh;
 use herdr_work_code::notice::Notice;
 use herdr_work_code::scm_widgets::{
     BodyGeom, MESSAGE_MAX_ROWS, inline_field_width, message_placeholder, message_window,
@@ -193,6 +197,10 @@ enum Row {
     Unstaged(usize, usize),
     DrawerHeader(Drawer),
     DrawerLine(Drawer, usize),
+    HistoryFile(usize),
+    HistoryNotice,
+    HistoryMore,
+    HistoryMoreFiles,
 }
 
 impl Row {
@@ -208,7 +216,12 @@ impl Row {
             | Row::ChangesDir(r, _)
             | Row::Staged(r, _)
             | Row::Unstaged(r, _) => Some(r),
-            Row::DrawerHeader(_) | Row::DrawerLine(..) => None,
+            Row::DrawerHeader(_)
+            | Row::DrawerLine(..)
+            | Row::HistoryFile(_)
+            | Row::HistoryNotice
+            | Row::HistoryMore
+            | Row::HistoryMoreFiles => None,
         }
     }
 
@@ -437,9 +450,11 @@ pub struct App {
     snap: bool,
     focus: Focus,
     theme: IconTheme,
-    drawers: [DrawerPanel; 8],
+    drawers: [DrawerPanel; Drawer::ALL.len()],
     /// The file the FILE HISTORY drawer follows: the last selected file row.
     history_target: Option<String>,
+    history: crate::history::Browser,
+    history_expanded: bool,
     /// Footer notice: (text, is_error). Cleared on input or after three seconds.
     flash: Notice<(String, bool)>,
     vscode_open: herdr_work_code::vscode::Launcher,
@@ -492,6 +507,7 @@ pub struct App {
     pub tree_view: bool,
     /// Keep polling Git status while unfocused ([`sidebar::BACKGROUND_REFRESH_ENV`]).
     background_refresh: bool,
+    live_status: live_refresh::LiveStatus,
 }
 
 const MY_VIEW: View = View::SourceControl;
@@ -539,10 +555,10 @@ impl App {
         // One source of truth: the global setting, so every pane and every
         // folder agrees (a per-folder copy used to override it forever).
         let tree_view = sidebar_state.scm_tree_view;
-        let mut drawers: [DrawerPanel; 8] = Default::default();
+        let mut drawers: [DrawerPanel; Drawer::ALL.len()] = Default::default();
         for kind in Drawer::ALL {
-            drawers[kind.index()].expanded =
-                !kind.opens_preview() && saved.drawers.iter().any(|d| d == kind.title());
+            drawers[kind.index()].expanded = (!kind.opens_preview() || kind == Drawer::Graph)
+                && saved.drawers.iter().any(|d| d == kind.title());
         }
         let active = saved
             .active_root
@@ -590,6 +606,8 @@ impl App {
             theme,
             drawers,
             history_target,
+            history: crate::history::Browser::default(),
+            history_expanded: false,
             flash: Default::default(),
             vscode_open: Default::default(),
             suggesting: None,
@@ -617,6 +635,7 @@ impl App {
             persisted_draft_roots,
             pending_unified_width: None,
             tree_view,
+            live_status: Default::default(),
             background_refresh: sidebar::background_refresh_enabled(
                 std::env::var(sidebar::BACKGROUND_REFRESH_ENV)
                     .ok()
@@ -774,10 +793,10 @@ impl App {
         );
     }
 
-    /// Re-read every repo's git status (this is the change auto-detection —
-    /// tick() calls it every [`crate::REFRESH_EVERY`]); keeps the flash so
-    /// periodic ticks don't eat notices.
+    /// Explicit operations refresh synchronously; passive ticks use the background
+    /// reader. Invalidate that reader so it cannot undo the operation's fresh state.
     pub fn refresh(&mut self) {
+        self.live_status.cancel();
         let mut error = None;
         for repo in &mut self.repos {
             match repo.git.status() {
@@ -875,6 +894,9 @@ impl App {
     /// Periodic timer tick: retry repo discovery if we started outside one,
     /// pick up external changes, and collect finished ✧ suggestion / sync runs.
     pub fn tick(&mut self) {
+        if self.overlay.is_none() {
+            self.poll_history();
+        }
         if let Some(result) = self.vscode_open.poll(&self.cwd) {
             self.flash = Notice::new(match result {
                 Ok(()) => ("已通过 VS Code 打开".into(), false),
@@ -938,19 +960,7 @@ impl App {
                 }
             }
         }
-        if !self.background_refresh && !self.pane_is_focused() {
-            return;
-        }
-        if self.repos.is_empty() {
-            self.repos = Git::discover_all(&self.cwd)
-                .into_iter()
-                .map(Repo::new)
-                .collect();
-            if !self.repos.is_empty() {
-                self.discover_err.clear();
-            }
-        }
-        self.refresh();
+        self.tick_live_status();
     }
 
     pub fn is_syncing(&self) -> bool {
@@ -1005,6 +1015,9 @@ impl App {
     }
 
     fn reload_expanded_drawers(&mut self) {
+        if self.drawers[Drawer::Graph.index()].expanded {
+            self.refresh_history();
+        }
         let Some(git) = self.active_repo().map(|r| r.git.clone()) else {
             return;
         };
@@ -1014,30 +1027,7 @@ impl App {
                 continue;
             }
             let lines = kind.load(git, self.history_target.as_deref(), DRAWER_LIMIT);
-            self.drawers[kind.index()].lines = match lines {
-                Ok(lines) if lines.is_empty() => vec!["(none)".to_string()],
-                Ok(lines) => lines,
-                Err(e) => vec![format!("({e})")],
-            };
-            let panel = &mut self.drawers[kind.index()];
-            panel.refs = panel
-                .lines
-                .iter()
-                .map(|l| parse_drawer_ref(kind, l))
-                .collect();
-            match kind {
-                Drawer::Worktrees => {
-                    panel.lines = panel
-                        .lines
-                        .iter()
-                        .map(|l| pretty_worktree_line(l))
-                        .collect();
-                }
-                Drawer::Remotes => {
-                    panel.lines = panel.lines.iter().map(|l| pretty_remote_line(l)).collect();
-                }
-                _ => {}
-            }
+            self.set_drawer_lines(kind, lines);
         }
     }
 
@@ -1096,6 +1086,12 @@ impl App {
         }
         for kind in Drawer::ALL {
             self.rows.push(Row::DrawerHeader(kind));
+            if kind == Drawer::Graph {
+                if self.drawers[kind.index()].expanded {
+                    self.rows.extend(self.history_rows());
+                }
+                continue;
+            }
             if !kind.opens_preview() && self.drawers[kind.index()].expanded {
                 for i in 0..self.drawers[kind.index()].lines.len() {
                     self.rows.push(Row::DrawerLine(kind, i));
@@ -1288,6 +1284,7 @@ impl App {
             KeyCode::Tab => self.focus = Focus::Message,
             KeyCode::BackTab => self.focus = Focus::Commit,
             KeyCode::Char('c') => self.focus = Focus::Message,
+            KeyCode::Char('v') => self.open_history(Drawer::Graph),
             KeyCode::Up | KeyCode::Char('k') => self.move_by(-1),
             KeyCode::Down | KeyCode::Char('j') => self.move_by(1),
             KeyCode::PageUp => self.move_by(-(self.page as isize)),
@@ -1375,6 +1372,7 @@ impl App {
         if let Some(&(_, action)) = self.title_zones.iter().find(|(rect, _)| hits(*rect, x, y)) {
             match action {
                 TitleAction::ViewAsTree | TitleAction::ViewAsList => self.toggle_tree_view(),
+                TitleAction::OpenGraph => self.open_history(Drawer::Graph),
                 TitleAction::Refresh => self.refresh(),
                 TitleAction::CollapseAll => self.collapse_all(),
                 _ => {}
@@ -1583,11 +1581,34 @@ impl App {
                         self.activate();
                     }
                 }
+                Row::DrawerHeader(Drawer::Graph) if x >= self.last_width.saturating_sub(12) => {
+                    self.history.scope.toggle();
+                    self.history.refresh();
+                }
                 Row::DrawerHeader(_) => {
                     self.focus = Focus::List;
                     self.select(index);
                     if !(double && self.pin_if_open(index)) {
                         self.activate();
+                    }
+                }
+                row @ (Row::HistoryFile(_)
+                | Row::HistoryNotice
+                | Row::HistoryMore
+                | Row::HistoryMoreFiles
+                | Row::DrawerLine(Drawer::Graph, _)) => {
+                    self.focus = Focus::List;
+                    self.select(index);
+                    let scope = match row {
+                        Row::DrawerLine(Drawer::Graph, source) => {
+                            self.history.graph.rows.get(source).is_some_and(|r| {
+                                x as usize == crate::ansi::to_lines(&r.graph)[0].width()
+                            })
+                        }
+                        _ => false,
+                    };
+                    if !(double && self.pin_if_open(index)) {
+                        self.activate_history(row, scope);
                     }
                 }
                 Row::DrawerLine(kind, i) => {
@@ -2476,6 +2497,22 @@ impl App {
     /// file moves to its folder, like VS Code's tree.
     fn fold_selected(&mut self, expand: bool) {
         let Some(index) = self.selected else { return };
+        if let Some(row @ (Row::DrawerLine(Drawer::Graph, _) | Row::HistoryFile(_))) =
+            self.rows.get(index).copied()
+        {
+            if matches!(row, Row::HistoryFile(_)) {
+                if !expand
+                    && let Some(parent) = self.rows[..index]
+                        .iter()
+                        .rposition(|r| matches!(r, Row::DrawerLine(Drawer::Graph, _)))
+                {
+                    self.select(parent);
+                }
+            } else if self.history_expanded != expand {
+                self.activate_history(row, true);
+            }
+            return;
+        }
         let dir = |row: Row| match row {
             Row::StagedDir(r, d) => Some((r, d, true)),
             Row::ChangesDir(r, d) => Some((r, d, false)),
@@ -2746,7 +2783,9 @@ impl App {
         let payload = herdr_work_code::viewer::history_request(repo.git.root(), kind, path);
         let doc_key = herdr_work_code::viewer::doc_key_for_history(repo.git.root(), kind, path);
         match herdr_work_code::viewer::open_in_pane(&pane_id, repo.git.root(), &doc_key, &payload) {
-            Ok(target) => self.last_preview = Some((doc_key, target)),
+            Ok(target) => {
+                self.last_preview = Some((doc_key, target));
+            }
             Err(error) => self.flash = Notice::new((error, true)),
         }
     }
@@ -2825,6 +2864,9 @@ impl App {
     /// The document key a click on `index` would open, for the rows that
     /// preview (changed files and drawer refs). `None` for non-preview rows.
     fn doc_key_for_row(&self, index: usize) -> Option<String> {
+        if let Some(key) = self.rows.get(index).and_then(|row| self.history_key(*row)) {
+            return Some(key);
+        }
         match self.rows.get(index)? {
             Row::Staged(r, i) => {
                 let repo = self.repos.get(*r)?;
@@ -2937,6 +2979,17 @@ impl App {
                 .get(*i)
                 .and_then(drawer_spec)
                 .map(|s| format!("drawer:{}:{}", kind.title(), s)),
+            Row::HistoryFile(i) => self.history.details().and_then(|d| {
+                d.files.get(*i).map(|f| {
+                    format!(
+                        "history-file:{}:{}:{}",
+                        self.history.root.display(),
+                        d.oid,
+                        f.path
+                    )
+                })
+            }),
+            Row::HistoryNotice | Row::HistoryMore | Row::HistoryMoreFiles => None,
             Row::Message(_) | Row::Commit(_) => None,
         }
     }
@@ -2950,7 +3003,9 @@ impl App {
     fn snapshot_scm(&self) -> sidebar::ScmState {
         let drawers = Drawer::ALL
             .iter()
-            .filter(|k| !k.opens_preview() && self.drawers[k.index()].expanded)
+            .filter(|k| {
+                (!k.opens_preview() || **k == Drawer::Graph) && self.drawers[k.index()].expanded
+            })
             .map(|k| k.title().to_string())
             .collect();
         let active_root = self
@@ -3236,6 +3291,11 @@ impl App {
         match row {
             // Widget rows aren't keyboard-selectable; nothing to activate.
             Row::Message(_) | Row::Commit(_) => {}
+            row @ (Row::DrawerLine(Drawer::Graph, _)
+            | Row::HistoryFile(_)
+            | Row::HistoryNotice
+            | Row::HistoryMore
+            | Row::HistoryMoreFiles) => self.activate_history(row, false),
             Row::DrawerLine(kind, i) => self.open_drawer_ref(kind, i),
             Row::RepoHeader(r) => {
                 self.repos[r].collapsed = !self.repos[r].collapsed;
@@ -3249,7 +3309,9 @@ impl App {
                 self.repos[r].changes_collapsed = !self.repos[r].changes_collapsed;
                 self.rebuild();
             }
-            Row::DrawerHeader(kind) if kind.opens_preview() => self.open_history(kind),
+            Row::DrawerHeader(kind) if kind.opens_preview() && kind != Drawer::Graph => {
+                self.open_history(kind)
+            }
             Row::DrawerHeader(kind) => {
                 self.drawers[kind.index()].expanded = !self.drawers[kind.index()].expanded;
                 self.reload_expanded_drawers();
@@ -3534,6 +3596,13 @@ impl App {
     }
 
     fn hovered_action_hint(&self) -> Option<&'static str> {
+        if self.mouse_pos.is_some_and(|(x, y)| {
+            self.title_zones
+                .iter()
+                .any(|(rect, action)| *action == TitleAction::OpenGraph && hits(*rect, x, y))
+        }) {
+            return Some("打开 Git Graph 大图（v）");
+        }
         let index = self.hovered?;
         let x = self.mouse_pos?.0;
         match *self.rows.get(index)? {
@@ -3896,7 +3965,12 @@ impl App {
             } else {
                 TitleAction::ViewAsTree
             };
-            let actions = [view_action, TitleAction::Refresh, TitleAction::CollapseAll];
+            let actions = [
+                TitleAction::OpenGraph,
+                view_action,
+                TitleAction::Refresh,
+                TitleAction::CollapseAll,
+            ];
             let w = title_actions_width(self.theme, &actions);
             let ax = area.x + area.width.saturating_sub(gear_w as u16 + w);
             let (spans, zones) =
@@ -4133,6 +4207,29 @@ impl App {
                             hovered_action,
                         )
                     }
+                    Row::DrawerHeader(Drawer::Graph) => {
+                        let label = format!(
+                            "{} Graph",
+                            if self.drawers[Drawer::Graph.index()].expanded {
+                                "▾"
+                            } else {
+                                "▸"
+                            }
+                        );
+                        let scope = format!("[{}]", self.history.scope.label());
+                        let available = width.saturating_sub(
+                            unicode_width::UnicodeWidthStr::width(scope.as_str()) + 1,
+                        );
+                        ListItem::new(format!(
+                            "{:<available$} {scope}",
+                            truncate_to(label, available)
+                        ))
+                    }
+                    row @ (Row::HistoryFile(_)
+                    | Row::HistoryNotice
+                    | Row::HistoryMore
+                    | Row::HistoryMoreFiles
+                    | Row::DrawerLine(Drawer::Graph, _)) => self.history_item(row, width),
                     Row::DrawerHeader(kind) => {
                         let mut item = section_item(
                             kind.title(),
@@ -4684,7 +4781,7 @@ mod history_preview_tests {
     }
 
     #[test]
-    fn history_views_never_add_sidebar_children_or_persist_expansion() {
+    fn only_graph_expands_inline_and_file_history_opens_as_a_document() {
         let fixture = tempfile::tempdir().unwrap();
         let mut app = App::new(
             fixture.path().into(),
@@ -4716,9 +4813,10 @@ mod history_preview_tests {
                     .drawers
                     .iter()
                     .any(|title| title == kind.title()),
-                !kind.opens_preview(),
+                !kind.opens_preview() || kind == Drawer::Graph,
             );
         }
+        assert!(!Drawer::ALL.iter().any(|kind| kind.title() == "Commits"));
     }
 }
 
@@ -4884,11 +4982,11 @@ mod tests {
     }
 
     #[test]
-    fn background_refresh_is_opt_in() {
-        assert!(!sidebar::background_refresh_enabled(None));
-        assert!(!sidebar::background_refresh_enabled(Some("")));
+    fn background_refresh_is_enabled_unless_explicitly_disabled() {
+        assert!(sidebar::background_refresh_enabled(None));
+        assert!(sidebar::background_refresh_enabled(Some("")));
         assert!(!sidebar::background_refresh_enabled(Some("0")));
-        assert!(!sidebar::background_refresh_enabled(Some("true")));
+        assert!(sidebar::background_refresh_enabled(Some("true")));
         assert!(sidebar::background_refresh_enabled(Some("1")));
         assert!(sidebar::background_refresh_enabled(Some(" 1 ")));
     }
@@ -4896,7 +4994,7 @@ mod tests {
     #[test]
     fn drawer_lines_parse_into_actionable_refs() {
         assert_eq!(
-            parse_drawer_ref(Drawer::Commits, "a1b2c3d Add telemetry module"),
+            parse_drawer_ref(Drawer::Graph, "a1b2c3d Add telemetry module"),
             DrawerRef::Commit("a1b2c3d".into())
         );
         // Graph edge-only lines carry no commit; subject words never match
@@ -5102,7 +5200,6 @@ mod tests {
             titles,
             [
                 "Graph",
-                "Commits",
                 "File History",
                 "Branches",
                 "Worktrees",

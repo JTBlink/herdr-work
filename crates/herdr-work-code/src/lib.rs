@@ -20,6 +20,8 @@ pub mod fontsetup;
 pub mod git;
 pub mod git_graph;
 pub mod gitdeco;
+pub mod history;
+pub mod history_view;
 pub mod icons;
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub mod ipc;

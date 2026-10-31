@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import socket
 import struct
@@ -133,7 +134,7 @@ def check(binary, placement, blocked=False, history=False):
                     elif method == 'tab.create':
                         next_tab += 1
                         tab = f'w1:t{next_tab}'
-                        name = 'parking' if params['label'] == 'Working panes (temporary preview)' else 'viewer'
+                        name = ('parking' if params['label'] == 'Working panes (temporary preview)' else 'graph-viewer' if 'Git Graph' in params['label'] else 'viewer')
                         panes[name] = {'pane_id': name, 'tab_id': tab, 'workspace_id': 'w1',
                                        'terminal_id': 'terminal-' + name, 'tokens': {}}
                         layouts[tab] = Layout(name)
@@ -199,19 +200,25 @@ def check(binary, placement, blocked=False, history=False):
                 wait_for(lambda: b'File History' in output)
                 # Select the changed file without opening its diff.
                 os.write(master, b'gj')
-                for title, y, file in [('Graph', 10, ''), ('Commits', 11, ''),
-                                       ('File History', 12, 'example-a.txt')]:
-                    click = f'\x1b[<0;5;{y}M\x1b[<0;5;{y}m'.encode()
-                    os.write(master, click)
-                    payload = f'history\t{root}\t{title}\t{file}'
-                    wait_for(lambda: any(path.read_text() == payload
-                                        for path in (profile / 'sidebar/scratch').glob('*.ctl')))
-                # Enter uses the same Preview action; rows never expanded above it.
-                os.write(master, b'\r')
-                deadline = time.monotonic() + .3
-                while time.monotonic() < deadline:
-                    drain()
-                assert not any('git show' in r.get('params', {}).get('text', '') for r in requests)
+                def commit_controls():
+                    return [json.loads(path.read_text().split('\t', 1)[1])
+                            for path in (profile / 'sidebar/scratch').glob('*.ctl')
+                            if path.read_text().startswith('commit\t')]
+                # Expand the compact graph, then single-click its commit and file.
+                os.write(master, b'\x1b[<0;5;11M\x1b[<0;5;11m')
+                wait_for(lambda: b'historyfixture' in re.sub(rb'\s+', b'', re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', bytes(output))))
+                os.write(master, b'\x1b[<0;10;12M\x1b[<0;10;12m')
+                wait_for(lambda: any(target[-1] is None for target in commit_controls()))
+                wait_for(lambda: b'example-b.txt' in output)
+                os.write(master, b'\x1b[<0;10;13M\x1b[<0;10;13m')
+                wait_for(lambda: any(target[-1] == 'example-a.txt' for target in commit_controls()))
+                # Collapsing Graph restores File History to the next row.
+                os.write(master, b'\x1b[<0;5;11M\x1b[<0;5;11m')
+                os.write(master, b'\x1b[<0;5;12M\x1b[<0;5;12m')
+                payload = f'history\t{root}\tFile History\texample-a.txt'
+                wait_for(lambda: any(path.read_text() == payload
+                                    for path in (profile / 'sidebar/scratch').glob('*.ctl')))
+                assert b'Commits' not in output
             else:
                 wait_for(lambda: b'example-b.txt' in output)
                 # First tree row: x=5, y=5 in the TUI's SGR mouse coordinates.
@@ -244,6 +251,18 @@ def check(binary, placement, blocked=False, history=False):
             assert not any(r['params'].get(key) == 'original' for r in mutations
                            for key in ['pane_id', 'source_pane_id', 'target_pane_id'])
             assert panes['original']['tokens'] == original_tokens
+            if history:
+                previous_tabs = len([r for r in requests if r['method'] == 'tab.create'])
+                os.write(master, b'v')
+                wait_for(lambda: 'graph-viewer' in panes and 'herdr-work-preview-pinned' in panes['graph-viewer']['tokens'])
+                assert panes['graph-viewer']['tab_id'] != 'w1:t1'
+                assert len([r for r in requests if r['method'] == 'tab.create']) == previous_tabs + 1
+                os.write(master, b'v')
+                deadline = time.monotonic() + .4
+                while time.monotonic() < deadline:
+                    drain()
+                assert len([r for r in requests if r['method'] == 'tab.create']) == previous_tabs + 1, 'Repeated large-graph action created a duplicate tab'
+                assert json.loads((profile / 'sidebar/state.json').read_text())['preview_placement'] == placement
             print(f'{placement} (blocked={blocked}, history={history}): mouse clicks honor preview placement and reuse; independent plugin geometry untouched')
         finally:
             os.close(master)

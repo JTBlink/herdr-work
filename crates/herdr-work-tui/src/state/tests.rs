@@ -752,7 +752,7 @@ fn sidebar_preferences_persist_and_apply_to_the_original_tree() {
 }
 
 #[test]
-fn search_and_eight_git_drawers_use_original_queries() {
+fn search_and_seven_git_drawers_use_original_queries() {
     use herdr_work_code::scm::Drawer;
     let (_temp, mut app) = loaded_app();
     for args in [
@@ -3451,14 +3451,25 @@ fn graph_lives_in_content_tabs_and_keeps_sidebar_navigation_independent() {
             area,
         )
         .unwrap();
-        receive(&mut app);
+        let deadline = std::time::Instant::now() + TEST_JOB_TIMEOUT;
+        while app.history.graph.as_ref().is_some_and(|v| v.browser.busy()) {
+            app.tick_history();
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
         assert_eq!(app.active_drawer, Some(Drawer::Graph));
         assert!(app.focus == Focus::Content);
         assert!(matches!(app.drawer_state, crate::loading::LoadState::Ready));
-        assert!(!app.scm_rows().iter().any(|row| matches!(
-            row.3,
-            ScmTarget::Drawer(Drawer::Graph) | ScmTarget::History(Drawer::Graph, _)
-        )));
+        assert!(
+            app.scm_rows()
+                .iter()
+                .any(|row| row.3 == ScmTarget::Drawer(Drawer::Graph))
+        );
+        assert!(
+            !herdr_work_code::scm::Drawer::ALL
+                .iter()
+                .any(|kind| kind.title() == "Commits")
+        );
         let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
         terminal.draw(|frame| app.draw(frame)).unwrap();
         let buffer = terminal.backend().buffer();
@@ -3494,12 +3505,112 @@ fn graph_lives_in_content_tabs_and_keeps_sidebar_navigation_independent() {
     assert_eq!(app.active_drawer, Some(Drawer::Graph));
     let pending = app.drawer_request;
     app.key(KeyCode::Char('g')).unwrap();
-    receive(&mut app);
     app.apply(
         app.context.epoch,
         Ok(Data::Show(pending, Ok("stale graph detail".into()))),
     );
     assert!(app.tab == Tab::Review);
+    assert!(app.active_drawer.is_none());
+    assert!(app.drawer_show.is_none());
+}
+
+#[test]
+fn compact_history_commit_file_and_graph_return_share_immutable_targets() {
+    use crate::scm::ScmTarget;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use herdr_work_code::scm::Drawer;
+    let (_temp, mut app) = loaded_app();
+    for args in [
+        vec!["add", "."],
+        vec![
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=.git/no-hooks",
+            "commit",
+            "-qm",
+            "提交详情\n\n保留完整正文",
+        ],
+    ] {
+        assert!(
+            Command::new("git")
+                .args(args)
+                .current_dir(&app.root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    app.switch_tab(Tab::Scm);
+    app.drawer_open[Drawer::Graph.index()] = true;
+    app.ensure_history();
+    let deadline = std::time::Instant::now() + TEST_JOB_TIMEOUT;
+    while app.history.sidebar.busy() {
+        app.tick_history();
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        app.scm_rows()
+            .iter()
+            .any(|row| matches!(row.3, ScmTarget::HistoryCommit(_)))
+    );
+    app.activate_history_row(ScmTarget::HistoryCommit(0), false);
+    while app
+        .drawer_doc
+        .as_ref()
+        .and_then(|doc| doc.commit_details())
+        .is_none()
+        || app.history.sidebar.busy()
+    {
+        app.tick_history();
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        app.drawer_doc
+            .as_ref()
+            .unwrap()
+            .plain_text()
+            .contains("保留完整正文")
+    );
+    assert!(
+        app.scm_rows()
+            .iter()
+            .any(|row| matches!(row.3, ScmTarget::HistoryFile(_)))
+    );
+    std::fs::write(app.root.join("visible.txt"), "UNCOMMITTED\n").unwrap();
+    app.activate_history_row(ScmTarget::HistoryFile(0), false);
+    while app
+        .drawer_doc
+        .as_ref()
+        .unwrap()
+        .plain_text()
+        .contains("正在读取")
+    {
+        app.tick_history();
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        !app.drawer_doc
+            .as_ref()
+            .unwrap()
+            .plain_text()
+            .contains("UNCOMMITTED")
+    );
+    app.focus = Focus::Content;
+    assert!(app.history_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)));
+    app.open_graph();
+    assert!(app.drawer_doc.is_none());
+    assert!(app.history.graph.is_some());
+    assert!(app.history.expanded);
+    app.select_graph_content(false).unwrap();
+    app.tick_history();
     assert!(app.active_drawer.is_none());
     assert!(app.drawer_show.is_none());
 }

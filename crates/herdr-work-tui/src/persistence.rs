@@ -40,6 +40,24 @@ impl App {
                 .unwrap_or_default()
         };
         let value = match &row.3 {
+            ScmTarget::HistoryCommit(index) => serde_json::json!([
+                "history-commit",
+                self.relative_ui_path(&self.history.sidebar.root),
+                self.history.sidebar.graph.commit(*index).map(|c| &c.oid)
+            ]),
+            ScmTarget::HistoryFile(index) => serde_json::json!([
+                "history-file",
+                self.relative_ui_path(&self.history.sidebar.root),
+                self.history.sidebar.details().map(|d| &d.oid),
+                self.history
+                    .sidebar
+                    .details()
+                    .and_then(|d| d.files.get(*index))
+                    .map(|f| &f.path)
+            ]),
+            ScmTarget::HistoryRetry | ScmTarget::HistoryMore | ScmTarget::HistoryMoreFiles => {
+                serde_json::json!(["history-status"])
+            }
             ScmTarget::Repository(i) => serde_json::json!(["repo", repo(*i)]),
             ScmTarget::Commit(i) => serde_json::json!(["commit", repo(*i)]),
             ScmTarget::Message(i) => serde_json::json!(["message", repo(*i)]),

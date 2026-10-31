@@ -58,6 +58,9 @@ impl App {
         {
             return self.sidebar_title_action(*action);
         }
+        if self.history_mouse(event, area) {
+            return Ok(());
+        }
         if self.preview_mouse(&event, area) {
             return Ok(());
         }
@@ -210,6 +213,27 @@ impl App {
                             let root = self.selected_repository();
                             self.ensure_draft(&root)?;
                             self.suggest_commit()?;
+                            return Ok(());
+                        }
+                        if !right
+                            && entry.3
+                                == crate::scm::ScmTarget::Drawer(
+                                    herdr_work_code::scm::Drawer::Graph,
+                                )
+                            && event.column >= body.right().saturating_sub(12)
+                        {
+                            if self.history.sidebar.root != self.selected_repository() {
+                                self.ensure_history();
+                            }
+                            self.history.sidebar.scope.toggle();
+                            self.history.sidebar.refresh();
+                            return Ok(());
+                        }
+                        if !right
+                            && matches!(entry.3, crate::scm::ScmTarget::HistoryCommit(_))
+                            && matches!(entry.3, crate::scm::ScmTarget::HistoryCommit(i) if self.history.sidebar.graph.rows.get(i).is_some_and(|row| usize::from(event.column.saturating_sub(body.x)) == herdr_work_code::ansi::to_lines(&row.graph)[0].width()))
+                        {
+                            self.activate_history_row(entry.3.clone(), true);
                             return Ok(());
                         }
                         if right {

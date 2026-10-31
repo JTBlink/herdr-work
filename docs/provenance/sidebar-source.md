@@ -4,6 +4,8 @@
 
 ## 所有权与来源
 
+2026-10-31 在内部 Code 模块复用原 SCM 行模型、Git CLI、Graph 拓扑、文档预览、固定标签及 Diff 渲染，增加结构化提交详情与侧栏文件展开；移除重复 Commits 展示，工具栏打开独立大图。共享读取和完整图谱组件分别位于 `src/history.rs`、`src/history_view.rs`，默认 Sidebar 与 standalone 工作台共同消费；不引入独立插件配置或生命周期。交互及验收见 [Git 历史交互验证](../verification/git-history-interaction.md)。
+
 原 `upstream/herdr-sidebar/plugins/herdr-sidebar` 已迁入 `crates/herdr-work-code`，包、库和内部命名使用 HerdrWork，自根 workspace、Cargo.lock、target 构建；原独立锁文件退出生产构建。原 MIT 许可证保留于该 crate 的 LICENSE，原说明、维护笔记与插件清单归档在本目录。移除原 fetch-or-build、redeploy 及来源仓库安装/发布脚本，防止手动执行时误下载或关闭独立 Sidebar 窗格；不构成本产品安装入口。
 
 只修改 HerdrWork 仓库内的源码副本。独立安装的 Sidebar、Projects 插件及其注册表、命令、配置、任务、草稿不属于本产品；不得接管、关闭、替换、更新、迁移或卸载它们。共享仓库的文件和 Git 状态仅因用户明确的文件/Git 操作而改变。

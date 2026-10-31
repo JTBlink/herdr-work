@@ -30,7 +30,6 @@ enum ViewApp {
 pub struct Sidebar {
     app: ViewApp,
     follower: Rc<RefCell<CwdFollower>>,
-    last_tick: Instant,
     roots: crate::root_memory::RootMemory,
     last_title: Option<&'static str>,
     projects_requested: bool,
@@ -69,7 +68,6 @@ impl Sidebar {
         let mut sidebar = Self {
             app,
             follower,
-            last_tick: Instant::now(),
             roots,
             last_title: None,
             projects_requested: false,
@@ -412,10 +410,7 @@ impl Sidebar {
             ViewApp::Git(app) => {
                 app.heartbeat();
                 app.poll_picker();
-                if self.last_tick.elapsed() >= Duration::from_millis(1500) {
-                    app.tick();
-                    self.last_tick = Instant::now();
-                }
+                app.tick();
             }
         }
     }

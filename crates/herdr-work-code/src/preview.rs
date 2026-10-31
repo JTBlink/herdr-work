@@ -16,6 +16,7 @@ use std::{
 };
 use unicode_width::UnicodeWidthChar;
 mod changes;
+pub mod commit;
 mod diff;
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub(crate) use diff::load_diff;
@@ -71,6 +72,7 @@ pub struct Doc {
     pub(crate) stamp: Option<FileStamp>,
     pub(crate) source_text: Option<String>,
     pub(crate) graph: Option<crate::git_graph::Graph>,
+    pub(crate) commit: Option<Box<crate::history::CommitDetails>>,
     pub(crate) changes: Option<ChangeNavigation>,
     pub(crate) split: Option<crate::diffview::SideBySide>,
 }
@@ -523,6 +525,7 @@ pub(crate) fn load_show(root: &Path, spec: &str, path: Option<&str>) -> Doc {
         stamp: None,
         source_text: None,
         graph: None,
+        commit: None,
         changes: None,
         split: None,
     }
@@ -876,6 +879,7 @@ fn load_media_file(target: &Path, name: String, video_poster: bool, root: Option
         stamp: None,
         source_text: None,
         graph: None,
+        commit: None,
         changes: None,
         split: None,
     }
@@ -975,6 +979,7 @@ fn load_file_width(
         stamp: None,
         source_text,
         graph: None,
+        commit: None,
         changes: None,
         split: None,
     }
@@ -1161,6 +1166,7 @@ pub fn git_show(name: String, context: String, text: &str) -> Doc {
         stamp: None,
         source_text: None,
         graph: None,
+        commit: None,
         changes: None,
         split: None,
     }

@@ -23,7 +23,7 @@ def document_token(value):
     return f'{token:016x}'
 
 
-def check(binary, neighbor=False, reject_close=False, history=False, edit=None, find=False, history_kind="Commits"):
+def check(binary, neighbor=False, reject_close=False, history=False, edit=None, find=False, history_kind="Graph"):
     with tempfile.TemporaryDirectory(prefix='hw-viewer-close-') as directory:
         base = Path(directory).resolve()
         profile = base / 'profile'
@@ -154,25 +154,25 @@ def check(binary, neighbor=False, reject_close=False, history=False, edit=None, 
         try:
             if history:
                 wait_for(lambda: shows(b'history viewer fixture'), 'History did not load')
-                os.write(master, b'\r')
-                wait_for(lambda: shows(b'+viewer close fixture'), 'Enter did not show the commit patch')
-                assert control.read_text().startswith(f'show\t{base}\t')
-                output.clear()
-                os.write(master, b'\x7f')
-                wait_for(lambda: control.read_text().startswith('history\t')
-                         and shows(b'history viewer fixture'), 'Backspace did not return to history')
-                output.clear()
-                # Double-click the first entry in the history body.
-                row = 3 if history_kind == 'Graph' else 2
-                click = f'\x1b[<0;5;{row}M\x1b[<0;5;{row}m'.encode()
-                os.write(master, click)
-                time.sleep(.1)
-                os.write(master, click)
-                wait_for(lambda: shows(b'+viewer close fixture'), 'Double-click did not show the commit patch')
-                # A sidebar request must replace the old navigation context.
+                if history_kind == 'Graph':
+                    # The large graph keeps its control identity when a commit is selected.
+                    os.write(master, b'\r')
+                    wait_for(lambda: shows('作者时间'.encode()), 'Enter did not show commit details')
+                    assert control.read_text().startswith('history\t')
+                    os.write(master, b'\t\r')
+                    wait_for(lambda: control.read_text().startswith('commit\t') and shows(b'viewer close fixture'), 'Detail file did not open historical Diff')
+                    target = json.loads(control.read_text().split('\t', 1)[1])
+                    assert target[-1] == 'example.md'
+                    output.clear()
+                    os.write(master, b'\x7f')
+                    wait_for(lambda: control.read_text().startswith('history\t') and shows(b'history viewer fixture'), 'Backspace did not restore graph selection')
+                    # A single click selects a graph commit; no double-click is required.
+                    os.write(master, b'\x1b[<0;8;4M\x1b[<0;8;4m')
+                    assert process.poll() is None
+                # External File History requests keep their file-specific Git query.
                 output.clear()
                 control.write_text(f'history\t{base}\tFile History\texample.md')
-                wait_for(lambda: shows(b'history viewer fixture'), 'File History did not replace Commits')
+                wait_for(lambda: shows(b'File History') and re.search(rb'[0-9a-f]{7}historyviewerfixture', re.sub(rb'\s+', b'', re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', bytes(output)))), 'File History did not replace Graph')
                 os.write(master, b'\r')
                 wait_for(lambda: control.read_text().startswith('show\t')
                          and control.read_text().endswith('\texample.md'), 'File History lost its file scope')

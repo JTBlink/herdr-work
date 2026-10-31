@@ -1,4 +1,4 @@
-"""Click Graph, Commits and File History in the real Sidebar using a private host."""
+"""Click compact Graph commits, changed files and File History in the real Sidebar using a private host."""
 from pathlib import Path
 import sys
 

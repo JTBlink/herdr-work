@@ -577,6 +577,7 @@ pub fn branch_icon(theme: IconTheme) -> &'static str {
 /// of a panel's title bar).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TitleAction {
+    OpenGraph,
     NewFile,
     NewFolder,
     Refresh,
@@ -601,6 +602,8 @@ pub fn title_actions_visible(last_mouse: Option<std::time::Instant>) -> bool {
 /// otherwise.
 pub fn title_action_icon(theme: IconTheme, action: TitleAction) -> &'static str {
     match (theme, action) {
+        (IconTheme::Material, TitleAction::OpenGraph) => "\u{eac4}",
+        (IconTheme::Emoji, TitleAction::OpenGraph) => "⑂",
         (IconTheme::Material, TitleAction::NewFile) => "\u{ea7f}", //  cod-new_file
         (IconTheme::Material, TitleAction::NewFolder) => "\u{ea80}", //  cod-new_folder
         (IconTheme::Material, TitleAction::Refresh) => "\u{eb37}", //  cod-refresh

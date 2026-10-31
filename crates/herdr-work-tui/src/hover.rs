@@ -64,6 +64,7 @@ impl App {
                 TitleAction::CollapseAll,
             ],
             Tab::Scm | Tab::Review => vec![
+                TitleAction::OpenGraph,
                 if self.git.tree {
                     TitleAction::ViewAsList
                 } else {
@@ -110,6 +111,7 @@ impl App {
     }
     pub(crate) fn sidebar_title_action(&mut self, action: TitleAction) -> Result<()> {
         match action {
+            TitleAction::OpenGraph => self.select_graph_content(true)?,
             TitleAction::NewFile | TitleAction::NewFolder => {
                 self.menu_path = self.selected_path().ok();
                 self.menu_command(Command::FileAction(if action == TitleAction::NewFile {
@@ -138,7 +140,7 @@ impl App {
                             .insert((repo.root.clone(), false));
                     }
                 }
-                self.drawer_open = [false; 8];
+                self.drawer_open = [false; herdr_work_code::scm::Drawer::ALL.len()];
                 self.active_drawer = None;
                 self.scm_cursor = 0;
             }

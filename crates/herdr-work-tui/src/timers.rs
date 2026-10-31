@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 impl App {
     pub(crate) fn tick_background(&mut self, now: Instant, last_editor_poll: &mut Instant) -> bool {
-        let mut redraw = self.tick_preview() | self.tick_hover();
+        let mut redraw = self.tick_preview() | self.tick_hover() | self.tick_history();
         let mut errors = Vec::new();
         for (name, result) in [
             ("活动请求", self.tick_activation(now)),
