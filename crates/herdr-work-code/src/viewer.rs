@@ -1339,6 +1339,7 @@ pub fn run(control: &Path) -> std::io::Result<()> {
     let mut edit_body = Rect::default();
     let mut prompt: Option<Prompt> = None;
     let mut notice: Option<String> = None;
+    let mut browser_open = crate::browser::Launcher::default();
     let mut history_return: Option<Request> = None;
     let mut history_click: Option<(usize, Instant)> = None;
     let mut graph_view: Option<crate::history_view::GraphView> = None;
@@ -1655,6 +1656,17 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                                     }
                                 } else {
                                     match key.code {
+                                        KeyCode::Char('B')
+                                            if !shortcut
+                                                && !key.modifiers.contains(KeyModifiers::ALT) =>
+                                        {
+                                            if let Some(Request::File { path, .. }) = &current
+                                                && crate::browser::is_web_page(path)
+                                            {
+                                                browser_open.start(path, path);
+                                                notice = Some("正在通过浏览器打开网页…".into());
+                                            }
+                                        }
                                         KeyCode::Enter
                                             if matches!(
                                                 current,
@@ -1877,6 +1889,19 @@ pub fn run(control: &Path) -> std::io::Result<()> {
                 Event::Mouse(mouse) => match &mut mode {
                     ViewMode::Preview(doc) => {
                         let max = doc.rows.len().saturating_sub(1);
+                        if mouse.kind == MouseEventKind::Down(MouseButton::Left)
+                            && let Some(Request::File { path, .. }) = &current
+                            && crate::browser::is_web_page(path)
+                            && crate::preview::web::button(
+                                preview_header,
+                                find::Find::entry(preview_header).width,
+                            )
+                            .contains((mouse.column, mouse.row).into())
+                        {
+                            browser_open.start(path, path);
+                            notice = Some("正在通过浏览器打开网页…".into());
+                            continue;
+                        }
                         if !find.open
                             && mouse.row > 0
                             && matches!(
@@ -2113,6 +2138,16 @@ pub fn run(control: &Path) -> std::io::Result<()> {
             }
             last_external_check = Instant::now();
         }
+        let browser_scope = match &current {
+            Some(Request::File { path, .. }) => path.as_path(),
+            _ => Path::new(""),
+        };
+        if let Some(result) = browser_open.poll(browser_scope) {
+            notice = Some(match result {
+                Ok(()) => "已通过浏览器打开网页".into(),
+                Err(error) => format!("浏览器打开失败：{error}"),
+            });
+        }
         if let Some(copier) = &copier {
             while let Ok(result) = copier.results.try_recv() {
                 let osc52 = matches!(result, ReleaseCopy::Osc52(_));
@@ -2210,7 +2245,14 @@ fn draw_doc(
     let used: usize = left.iter().map(Span::width).sum();
     let entry = find::Find::entry(header);
     let navigation = changes::area(header, doc);
-    let title_width = if navigation.width > 0 {
+    let browser_button = if editable && crate::browser::is_web_page(Path::new(&doc.name)) {
+        crate::preview::web::button(header, entry.width)
+    } else {
+        Rect::default()
+    };
+    let title_width = if browser_button.width > 0 {
+        browser_button.x.saturating_sub(header.x)
+    } else if navigation.width > 0 {
         navigation.x.saturating_sub(header.x)
     } else if doc.is_media() {
         header.width
@@ -2249,6 +2291,7 @@ fn draw_doc(
         );
     }
 
+    crate::preview::web::draw(frame, browser_button);
     if find.open {
         find.draw_body(frame, doc, body);
         find.draw(frame, find_area);
@@ -2454,7 +2497,10 @@ pub fn open_in_pane(
     }
     // VS Code is a file-opening preference. Diff/history retain their
     // internal viewer and never silently become a document tab.
-    if state.preview_placement == crate::state::PreviewPlacement::VsCode {
+    if matches!(
+        state.preview_placement,
+        crate::state::PreviewPlacement::VsCode | crate::state::PreviewPlacement::Browser
+    ) {
         state.preview_placement = crate::state::PreviewPlacement::Replace;
     }
     let list = ipc::call_text("pane.list", serde_json::json!({}))
@@ -3519,6 +3565,48 @@ fn side_neighbor(layout_json: &str, pane_id: &str, on_the_left: bool) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn html_source_preview_offers_browser_action_without_hiding_find_or_close() {
+        use ratatui::{Terminal, backend::TestBackend};
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("index.html");
+        std::fs::write(&path,"<!doctype html>\n<html lang=\"zh-CN\">\n  <title>网页预览</title>\n  <body>在浏览器中打开这个页面</body>\n</html>\n").unwrap();
+        let mut doc = load_file(&path, None);
+        doc.context = "demo/index.html".into();
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        terminal
+            .draw(|frame| {
+                draw_doc(
+                    frame,
+                    &mut doc,
+                    IconTheme::Emoji,
+                    true,
+                    None,
+                    &mut find::Find::default(),
+                );
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let header = (0..100)
+            .map(|x| buffer[(x, 0)].symbol())
+            .collect::<String>();
+        for label in ["✕", "index.html", "浏览器", "查找"] {
+            assert!(header.replace(' ', "").contains(label), "{header}");
+        }
+        if let Some(output) = std::env::var_os("HERDR_WORK_TEST_FRAMES") {
+            std::fs::create_dir_all(&output).unwrap();
+            let cells=buffer.content.iter().map(|c|serde_json::json!({"text":c.symbol(),"fg":format!("{:?}",c.fg),"bg":format!("{:?}",c.bg)})).collect::<Vec<_>>();
+            std::fs::write(
+                Path::new(&output).join("html-browser-preview.json"),
+                serde_json::to_vec(
+                    &serde_json::json!({"width":100,"height":14,"cells":cells,"fixture":true}),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        }
+    }
 
     #[test]
     fn history_requests_round_trip_and_keep_repository_and_file_identity() {

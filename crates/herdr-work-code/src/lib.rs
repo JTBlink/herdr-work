@@ -8,6 +8,7 @@ pub mod actions;
 pub mod activity;
 pub mod ansi;
 pub mod branch_ui;
+pub mod browser;
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub mod context_menu;
 pub mod diffview;

@@ -18,6 +18,7 @@ use unicode_width::UnicodeWidthChar;
 mod changes;
 pub mod commit;
 mod diff;
+pub mod web;
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub(crate) use diff::load_diff;
 mod media;

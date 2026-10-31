@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 pub enum MenuAction {
     Preview,
     OpenVsCode,
+    OpenBrowser,
     NewFile,
     NewFolder,
     CopyPath,
@@ -73,6 +74,17 @@ pub fn menu_entries(target: Option<bool>, in_repo: bool) -> Vec<MenuEntry> {
         MenuEntry::Action(MenuAction::ChangeFolder, "打开文件夹…"),
         MenuEntry::Action(MenuAction::ChangeFolderTyped, "输入文件夹路径…"),
     ]);
+    entries
+}
+
+pub fn menu_entries_for_path(target: Option<(&Path, bool)>, in_repo: bool) -> Vec<MenuEntry> {
+    let mut entries = menu_entries(target.map(|(_, directory)| directory), in_repo);
+    if target.is_some_and(|(path, directory)| !directory && crate::browser::is_web_page(path)) {
+        entries.insert(
+            1,
+            MenuEntry::Action(MenuAction::OpenBrowser, "通过浏览器打开"),
+        );
+    }
     entries
 }
 

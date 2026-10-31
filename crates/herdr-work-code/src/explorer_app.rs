@@ -341,6 +341,7 @@ pub struct App {
     /// Transient status/error line, cleared on input or after three seconds.
     notice: Notice<String>,
     vscode_open: herdr_work_code::vscode::Launcher,
+    browser_open: herdr_work_code::browser::Launcher,
     // Merged-sidebar state.
     sidebar_state: sidebar::State,
     other_exe: Option<std::path::PathBuf>,
@@ -505,6 +506,7 @@ impl App {
             suspended_search: None,
             notice: Default::default(),
             vscode_open: Default::default(),
+            browser_open: Default::default(),
             sidebar_state,
             other_exe,
             activity: ActivityZones::default(),
@@ -563,6 +565,12 @@ impl App {
         self.collect_content_search();
         self.collect_git_sync();
         self.collect_vscode_open();
+        if let Some(result) = self.browser_open.poll(&self.tree.root_path()) {
+            self.notice = Notice::new(match result {
+                Ok(()) => "已通过浏览器打开网页".into(),
+                Err(error) => format!("浏览器打开失败：{error}"),
+            });
+        }
         self.start_content_search_if_due();
         self.collect_decorations();
         if self.last_deco.elapsed() < DECO_REFRESH {
@@ -940,6 +948,12 @@ impl App {
     }
 
     fn open_preview_at(&mut self, path: &Path, line: Option<usize>) {
+        if self.sidebar_state.preview_placement == sidebar::PreviewPlacement::Browser
+            && crate::browser::is_web_page(path)
+        {
+            self.open_browser(path);
+            return;
+        }
         if self.sidebar_state.preview_placement == sidebar::PreviewPlacement::VsCode {
             self.open_vscode(path, line);
             return;
@@ -1391,9 +1405,11 @@ impl App {
                         self.toggle();
                     }
                 } else if self.sidebar_state.preview_placement == sidebar::PreviewPlacement::VsCode
+                    || (self.sidebar_state.preview_placement == sidebar::PreviewPlacement::Browser
+                        && crate::browser::is_web_page(&path))
                 {
                     if !double {
-                        self.open_vscode(&path, None);
+                        self.open_preview_at(&path, None);
                     }
                 } else if self.sidebar_state.custom_editor_on_click
                     && actions::configured_editor().is_some()
@@ -1507,7 +1523,12 @@ impl App {
         let in_repo = target
             .as_ref()
             .is_some_and(|(path, _)| Git::owner_of(path).is_ok());
-        let entries = actions::menu_entries(target.as_ref().map(|(_, is_dir)| *is_dir), in_repo);
+        let entries = actions::menu_entries_for_path(
+            target
+                .as_ref()
+                .map(|(path, is_dir)| (path.as_path(), *is_dir)),
+            in_repo,
+        );
         let selected = entries
             .iter()
             .position(|e| matches!(e, MenuEntry::Action(..)))
@@ -2567,6 +2588,18 @@ impl App {
         );
     }
 
+    fn open_browser(&mut self, path: &Path) {
+        let started = self.browser_open.start(&self.tree.root_path(), path);
+        self.notice = Notice::new(
+            if started {
+                "正在通过浏览器打开网页…"
+            } else {
+                "浏览器启动中，请稍候…"
+            }
+            .into(),
+        );
+    }
+
     fn collect_vscode_open(&mut self) {
         if let Some(result) = self.vscode_open.poll(&self.tree.root_path()) {
             self.notice = Notice::new(match result {
@@ -3010,6 +3043,11 @@ impl App {
             None => self.tree.root_path(),
         };
         match action {
+            MenuAction::OpenBrowser => {
+                if let Some((path, false)) = target {
+                    self.open_browser(&path);
+                }
+            }
             MenuAction::OpenVsCode => {
                 let path = target
                     .as_ref()

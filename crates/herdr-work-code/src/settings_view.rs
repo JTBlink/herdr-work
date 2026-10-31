@@ -55,6 +55,7 @@ pub fn text(value: &str) -> &str {
         "tab" => "新标签页",
         "pane" => "分栏窗格",
         "replace" => "替换工作区",
+        "browser" => "浏览器（网页）",
         "not set" => "未设置",
         "on (host n/a)" => "开启（宿主不支持）",
         "off (host n/a)" => "关闭（宿主不支持）",

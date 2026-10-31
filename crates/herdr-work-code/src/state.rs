@@ -212,6 +212,7 @@ pub enum PreviewPlacement {
     Pane,
     Replace,
     VsCode,
+    Browser,
 }
 
 impl PreviewPlacement {
@@ -221,6 +222,7 @@ impl PreviewPlacement {
             Self::Pane => "pane",
             Self::Replace => "replace",
             Self::VsCode => "vscode",
+            Self::Browser => "browser",
         }
     }
 
@@ -228,7 +230,7 @@ impl PreviewPlacement {
         match self {
             Self::Tab => Self::Pane,
             Self::Pane => Self::Replace,
-            Self::Replace | Self::VsCode => Self::Tab,
+            Self::Replace | Self::VsCode | Self::Browser => Self::Tab,
         }
     }
 
@@ -237,7 +239,8 @@ impl PreviewPlacement {
     pub fn next_product(self) -> Self {
         match self {
             Self::Replace => Self::VsCode,
-            Self::VsCode => Self::Tab,
+            Self::VsCode => Self::Browser,
+            Self::Browser => Self::Tab,
             _ => self.other(),
         }
     }
@@ -253,6 +256,7 @@ impl PreviewPlacement {
             "pane" => Some(Self::Pane),
             "replace" => Some(Self::Replace),
             "vscode" => Some(Self::VsCode),
+            "browser" => Some(Self::Browser),
             _ => None,
         }
     }
@@ -1219,13 +1223,22 @@ mod tests {
         );
         assert_eq!(
             PreviewPlacement::VsCode.next_product(),
-            PreviewPlacement::Tab
+            PreviewPlacement::Browser
         );
         assert_eq!(
             parse_state(r#"{"preview_placement":"vscode"}"#).preview_placement,
             PreviewPlacement::VsCode
         );
         assert!(!PreviewPlacement::VsCode.is_inline());
+        assert_eq!(
+            PreviewPlacement::Browser.next_product(),
+            PreviewPlacement::Tab
+        );
+        assert_eq!(
+            parse_state(r#"{"preview_placement":"browser"}"#).preview_placement,
+            PreviewPlacement::Browser
+        );
+        assert!(!PreviewPlacement::Browser.is_inline());
     }
 
     #[test]

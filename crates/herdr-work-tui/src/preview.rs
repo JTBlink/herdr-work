@@ -28,11 +28,40 @@ impl App {
                 || (matches!(self.tab, Tab::Files | Tab::Search) && self.preview_path.is_some())))
         .then(|| Rect::new(area.right() - 3, area.y, 3, 1))
     }
+    fn browser_button(&self, area: Rect) -> Rect {
+        if self.editor.is_some()
+            || !matches!(self.tab, Tab::Files | Tab::Search)
+            || !self
+                .preview_path
+                .as_ref()
+                .is_some_and(|p| herdr_work_code::browser::is_web_page(p))
+        {
+            return Rect::default();
+        }
+        herdr_work_code::preview::web::button(
+            Rect::new(area.x, area.y, area.width, area.height.min(1)),
+            3,
+        )
+    }
+    fn open_browser_preview(&mut self) -> Result<()> {
+        let Some(path) = self.preview_path.clone() else {
+            return Ok(());
+        };
+        self.job(move |_| {
+            herdr_work_code::browser::open(&path)?;
+            Ok(Data::Status("已通过浏览器打开网页".into()))
+        })
+    }
     pub(crate) fn draw_document_header(&self, frame: &mut Frame, area: Rect, title: String) {
         let block = self.content_block(String::new());
         frame.render_widget(block, area);
         let close = self.preview_close_button(area);
-        let width = close.map_or(area.width, |button| button.x.saturating_sub(area.x));
+        let browser = self.browser_button(area);
+        let width = if browser.width > 0 {
+            browser.x.saturating_sub(area.x)
+        } else {
+            close.map_or(area.width, |button| button.x.saturating_sub(area.x))
+        };
         frame.render_widget(
             Paragraph::new(title).style(Style::default().fg(if self.focus == Focus::Content {
                 herdr_work_code::ui::palette().accent_focus
@@ -41,6 +70,7 @@ impl App {
             })),
             Rect::new(area.x, area.y, width, area.height.min(1)),
         );
+        herdr_work_code::preview::web::draw(frame, browser);
         if let Some(button) = close {
             let hovered = self
                 .interaction
@@ -223,6 +253,21 @@ impl App {
         {
             return false;
         }
+        if key.code == KeyCode::Char('B')
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::ALT)
+            && self
+                .preview_path
+                .as_ref()
+                .is_some_and(|p| herdr_work_code::browser::is_web_page(p))
+            && self.tab != Tab::Scm
+        {
+            if let Err(error) = self.open_browser_preview() {
+                self.status = format!("浏览器打开失败：{error}");
+            }
+            return true;
+        }
         let body = self.preview_body(self.panes(area).content);
         let shortcut = key.modifiers.contains(KeyModifiers::CONTROL)
             || key.modifiers.contains(KeyModifiers::SUPER);
@@ -332,6 +377,17 @@ impl App {
         let content = self.panes(area).content;
         if !content.contains((event.column, event.row).into()) {
             return false;
+        }
+        if event.kind == MouseEventKind::Down(crossterm::event::MouseButton::Left)
+            && self
+                .browser_button(content)
+                .contains((event.column, event.row).into())
+        {
+            self.focus = Focus::Content;
+            if let Err(error) = self.open_browser_preview() {
+                self.status = format!("浏览器打开失败：{error}");
+            }
+            return true;
         }
         let body = self.preview_body(content);
         self.focus = Focus::Content;

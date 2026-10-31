@@ -16,6 +16,7 @@ pub(crate) enum Command {
     Collapse,
     External,
     VsCode,
+    Browser,
     Reveal,
     Settings,
     FontHelp,
@@ -143,10 +144,15 @@ impl App {
                         rows.push((Command::Edit, "编辑文本"));
                     }
                     // The original menu model and platform actions remain authoritative.
-                    for entry in actions::menu_entries(Some(file.directory), true) {
+                    for entry in
+                        actions::menu_entries_for_path(Some((&file.path, file.directory)), true)
+                    {
                         if let actions::MenuEntry::Action(action, label) = entry {
                             let mapped = match action {
                                 actions::MenuAction::Preview => None,
+                                actions::MenuAction::OpenBrowser => {
+                                    Some((Command::Browser, "通过浏览器打开"))
+                                }
                                 actions::MenuAction::OpenVsCode => {
                                     Some((Command::VsCode, "通过 VS Code 打开"))
                                 }
@@ -496,6 +502,13 @@ impl App {
                 self.job(move |_| {
                     herdr_work_code::vscode::open(&path, None)?;
                     Ok(Data::Status("已通过 VS Code 打开".into()))
+                })?;
+            }
+            Command::Browser => {
+                let path = self.selected_path()?;
+                self.job(move |_| {
+                    herdr_work_code::browser::open(&path)?;
+                    Ok(Data::Status("已通过浏览器打开网页".into()))
                 })?;
             }
             Command::External => actions::open_external(&self.selected_path()?)?,

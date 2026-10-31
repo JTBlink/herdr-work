@@ -259,7 +259,7 @@ fn extension_kind(ext: &str) -> Kind {
         "jsx" | "tsx" => Kind::React,
         "json" | "jsonc" => Kind::Json,
         "md" | "markdown" => Kind::Markdown,
-        "html" | "htm" => Kind::Html,
+        "html" | "htm" | "xhtml" => Kind::Html,
         "css" | "scss" | "sass" | "less" => Kind::Css,
         "toml" | "yaml" | "yml" | "ini" | "cfg" | "conf" => Kind::Config,
         "xml" => Kind::Xml,
