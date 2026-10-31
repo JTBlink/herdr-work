@@ -146,7 +146,8 @@ class ShellEntry(unittest.TestCase):
                 stub.write_text('#!/bin/sh\nprintf "%s|%s\\n" "$PWD" "$*" >> "$PLUGIN_TEST_LOG"\n')
                 stub.chmod(0o755)
             env = dict(os.environ, PATH=str(root), PLUGIN_TEST_LOG=str(log))
-            for option, mode in (([], '--from-source'), (['--build-only'], '--build-only'),
+            for option, mode in (([], '--from-source'), (['install'], '--from-source'),
+                                 (['--from-source'], '--from-source'), (['--build-only'], '--build-only'),
                                  (['--release'], '--release')):
                 with self.subTest(option=option):
                     log.unlink(missing_ok=True)

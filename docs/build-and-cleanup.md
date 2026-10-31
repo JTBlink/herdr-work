@@ -8,11 +8,11 @@ macOS Apple Silicon / Linux x86_64 在仓库根执行：
 
 ```sh
 sh herdr-work-plugins.sh --build-only  # 自动识别平台，编译并打包到 dist/
-sh herdr-work-plugins.sh               # 编译打包后安装到 bin/，并链接到 Herdr
+sh herdr-work-plugins.sh install       # Release 编译打包后安装到 bin/，并链接到 Herdr
 sh herdr-work-plugins.sh --release     # 通过 Herdr 安装 VERSION 对应的发行版
 ```
 
-源码模式需要 Rust 1.99.0、Python 3.12+、Git 和平台编译工具。`--build-only` 不需要 Herdr，也不修改已安装程序、快捷键或插件注册；默认安装需要 Herdr 0.9.3+。可从任意目录通过脚本绝对路径调用。归档及 `.sha256` 保留到仓库 `dist/`，同平台只保留最新一份；失败不清理上一份可用归档。源码安装链接当前仓库，请保留仓库目录。
+不传参数等同于 `install`；源码模式使用 Cargo `--release --locked`，需要 Rust 1.99.0、Python 3.12+、Git 和平台编译工具。`--build-only` 不需要 Herdr，也不修改已安装程序、快捷键或插件注册；默认安装需要 Herdr 0.9.3+。可从任意目录通过脚本绝对路径调用。归档及 `.sha256` 保留到仓库 `dist/`，同平台只保留最新一份；失败不清理上一份可用归档。源码安装链接当前仓库，请保留仓库目录。
 
 ## 分步构建与验证
 

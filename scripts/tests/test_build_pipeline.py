@@ -202,6 +202,7 @@ class UnifiedBuild(unittest.TestCase):
             build.build(TARGET)
         run.assert_called_once()
         command = run.call_args.args[0]
+        self.assertIn('--release', command)
         self.assertIn('--locked', command)
         self.assertIn('herdr-work', command)
         self.assertIn('herdr-work-projects', command)

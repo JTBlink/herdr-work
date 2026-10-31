@@ -46,7 +46,7 @@ def prepare(from_source=False, *, build_only=False):
         raise ValueError('--build-only requires --from-source')
     if from_source:
         target = host_target()
-        print(f'编译 HerdrWork（{target}）…', flush=True)
+        print(f'编译 HerdrWork Release（{target}）…', flush=True)
         subprocess.run([sys.executable, str(ROOT / 'scripts/build.py'), '--target', target], check=True)
         print('打包并校验，当前平台仅保留最新一份归档…', flush=True)
         archive = package(target, ROOT / 'dist', keep_archives=1)

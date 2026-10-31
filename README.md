@@ -66,12 +66,12 @@ herdr-work reconcile         # 查看未知操作，核对后可记录证据
 Herdr 插件入口使用稳定 ID `jtblink.herdr-work`。在仓库根目录使用快捷入口安装并链接插件（Herdr 0.9.3+、Python 3.12+）：
 
 ```sh
-sh herdr-work-plugins.sh               # 自动编译、打包、安装并链接当前源码
+sh herdr-work-plugins.sh install       # Release 编译、打包、安装并链接当前源码
 sh herdr-work-plugins.sh --build-only  # 仅编译打包，不需要 Herdr
 sh herdr-work-plugins.sh --release     # 官方安装 VERSION 对应的 GitHub 标签
 ```
 
-脚本支持 macOS Apple Silicon 和 Linux x86_64，可从任意目录通过脚本路径调用。源码模式自动识别当前平台，统一编译两个产品程序，打包并校验后将归档和 `.sha256` 保留到仓库 `dist/`；新包验证成功后清理同平台旧包，仅保留最新一份，失败时保留上一份可用归档。默认继续安装到仓库 `bin/` 并执行 `herdr plugin link <仓库目录>`，请保留该目录；`--build-only` 在打包后结束，不安装或修改 Herdr 配置。发行模式执行 `herdr plugin install JTBlink/herdr-work --ref v<VERSION>`，由 Herdr 管理插件副本。插件清单通过 `scripts/plugin_build.py` 准备并校验发行程序；Projects hook 在独立数据目录运行。
+脚本支持 macOS Apple Silicon 和 Linux x86_64，可从任意目录通过脚本路径调用。不传参数等同于 `install`；源码模式自动识别当前平台，以 Cargo Release 模式统一编译两个产品程序，打包并校验后将归档和 `.sha256` 保留到仓库 `dist/`；新包验证成功后清理同平台旧包，仅保留最新一份，失败时保留上一份可用归档。默认继续安装到仓库 `bin/` 并执行 `herdr plugin link <仓库目录>`，请保留该目录；`--build-only` 在打包后结束，不安装或修改 Herdr 配置。发行模式执行 `herdr plugin install JTBlink/herdr-work --ref v<VERSION>`，由 Herdr 管理插件副本。插件清单通过 `scripts/plugin_build.py` 准备并校验发行程序；Projects hook 在独立数据目录运行。
 
 安装时会为文件树添加默认快捷键：先按 `Ctrl+B`，松开后按 `F`，打开或聚焦当前标签页的 HerdrWork。若修改了 Herdr 前缀键，则使用自定义前缀再按 `F`。安装器只在键位空闲时添加；已有绑定或用户改动会保留，重复安装不重复添加。配置前备份宿主配置，不修改独立 Sidebar 的绑定。使用 `herdr plugin install JTBlink/herdr-work` 安装时也会执行相同的快捷键配置步骤。
 

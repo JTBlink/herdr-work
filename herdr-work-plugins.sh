@@ -4,12 +4,14 @@ set -eu
 
 usage() {
     cat <<'EOF'
-用法：sh herdr-work-plugins.sh [--from-source | --build-only | --release]
+用法：sh herdr-work-plugins.sh [install | --from-source | --build-only | --release]
 
-默认自动编译、打包、安装并链接当前源码中的 HerdrWork 插件。
+install 自动以 Release 模式编译、打包、安装并链接当前源码中的 HerdrWork 插件。
+不传参数等同于 install。
 归档与 SHA256 校验和保存在仓库 dist/，当前平台只保留最新一份。
 安装时配置默认打开快捷键 Ctrl+B → F；冲突或已有配置时保留用户设置。
-  --from-source  编译、打包并安装当前源码（默认）
+  install        Release 编译、打包并安装当前源码（默认）
+  --from-source  与 install 相同
   --build-only   仅编译打包，不安装，不需要 Herdr
   --release      通过 Herdr 官方安装 VERSION 对应的 GitHub 标签
   -h, --help     显示帮助
@@ -25,7 +27,7 @@ if [ "$#" -gt 1 ]; then
     exit 2
 fi
 case "${1:-}" in
-    ''|--from-source) ;;
+    ''|install|--from-source) ;;
     --build-only) mode=--build-only ;;
     --release) mode=--release ;;
     -h|--help) usage; exit 0 ;;
