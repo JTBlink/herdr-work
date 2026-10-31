@@ -75,6 +75,8 @@ sh install-plugin.sh --release  # 官方安装 VERSION 对应的 GitHub 标签
 安装时会为文件树添加默认快捷键：先按 `Ctrl+B`，松开后按 `F`，打开或聚焦当前标签页的 HerdrWork。若修改了 Herdr 前缀键，则使用自定义前缀再按 `F`。安装器只在键位空闲时添加；已有绑定或用户改动会保留，重复安装不重复添加。配置前备份宿主配置，不修改独立 Sidebar 的绑定。使用 `herdr plugin install JTBlink/herdr-work` 安装时也会执行相同的快捷键配置步骤。
 
 
+侧栏获得焦点后，按 `1` / `2` / `3` / `4` 打开文件、搜索、Git 或主看板；输入框中的数字仍作为文本。macOS 支持 `Command+P` 快速打开文件、`Command+F` 搜索，保留 `Ctrl+P` / `Ctrl+F`。看板中的 `Option` 就是 Mac 键盘上的 `⌥`（其他平台称为 `Alt`）；例如 `Option+C` 显示或隐藏最近消息。若终端未传递 Option 组合键，可以按 `?`，用方向键选择操作并按 `Enter` 执行。
+
 插件动作提供 Show HerdrWork Explorer、Search、Source Control 和 Quick Open；宿主为自有工作台分配侧边栏终端，已有实例通过身份核验后聚焦。也可在宿主环境执行 `herdr-work activate show-search --root /path/to/repository`，其余动作名为 `show-explorer`、`show-git`、`quick-open`。编辑器或输入弹窗打开时，动作只聚焦并提示保留当前输入；结束输入后可再次选择活动。
 
 ## 开发与验证

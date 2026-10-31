@@ -1136,7 +1136,9 @@ impl App {
             return None;
         }
         if (key.code == KeyCode::Char('p')
-            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER)
             && !key.modifiers.contains(KeyModifiers::ALT))
             || key.code == KeyCode::F(12)
         {
@@ -1145,7 +1147,9 @@ impl App {
             return None;
         }
         if matches!(key.code, KeyCode::Char('f' | 'F'))
-            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER)
             && !key.modifiers.contains(KeyModifiers::ALT)
         {
             if let Some(Overlay::ContentSearch { focus, .. }) = self.overlay.as_mut() {
@@ -1165,7 +1169,9 @@ impl App {
         // box (Ctrl+F / Tab / click); a focused box captures digits as text so
         // "3" is searchable. The tree's own bare 1/2/3 are handled further down.
         if key.code == KeyCode::Char('4')
-            && key.modifiers == KeyModifiers::CONTROL
+            && (key.modifiers == KeyModifiers::CONTROL
+                || (key.modifiers.is_empty()
+                    && (self.overlay.is_none() || self.search_text_unfocused())))
             && matches!(self.overlay, None | Some(Overlay::ContentSearch { .. }))
         {
             self.mouse_pos = None;
@@ -2212,7 +2218,10 @@ impl App {
     /// activity bar passes `false`, so the box is not focused and bare 1/2/3
     /// keep switching views until the user deliberately focuses it.
     pub fn open_content_search(&mut self, focus_query: bool) {
-        if matches!(self.overlay, Some(Overlay::ContentSearch { .. })) {
+        if let Some(Overlay::ContentSearch { focus, .. }) = self.overlay.as_mut() {
+            if focus_query {
+                *focus = SearchFocus::Query;
+            }
             return;
         }
         self.overlay = Some(Overlay::ContentSearch {
@@ -3640,15 +3649,34 @@ impl App {
             ("r", "refresh"),
             (".", "dotfiles"),
             ("c", "folder"),
-            ("ctrl+p", "files"),
-            ("ctrl+f", "text"),
+            (
+                if cfg!(target_os = "macos") {
+                    "⌘P"
+                } else {
+                    "ctrl+p"
+                },
+                "files",
+            ),
+            (
+                if cfg!(target_os = "macos") {
+                    "⌘F"
+                } else {
+                    "ctrl+f"
+                },
+                "text",
+            ),
             ("m", "menu"),
             ("s", "settings"),
             ("b", "hide"),
             ("q", "quit"),
         ];
         if self.merged() {
-            hints.extend([("1", "files"), ("2", "search"), ("3", "git")]);
+            hints.extend([
+                ("1", "files"),
+                ("2", "search"),
+                ("3", "git"),
+                ("4", "tasks"),
+            ]);
         }
         hints
     }

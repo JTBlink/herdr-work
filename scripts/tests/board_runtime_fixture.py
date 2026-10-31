@@ -2,6 +2,7 @@
 import fcntl
 import json
 import os
+import platform
 from pathlib import Path
 import pty
 import re
@@ -76,6 +77,11 @@ def check(binary, cached=False):
             first_ms = round((time.monotonic() - start) * 1000)
             assert '✕'.encode() in output, 'Actual board executable has no close button'
             assert not marker.exists(), 'Board startup synchronously launched a login shell'
+            if platform.system() == 'Darwin':
+                os.write(master, b'?')
+                wait_for(lambda: b'Option+C' in plain(), 1, 'Mac menu did not name the Option key')
+                assert 'Option(⌥):onlyshowsorhides'.encode() in plain(), 'Mac modifier legend missing'
+                os.write(master, b'\x1b[27u')
             # A generous timing guard complements the deterministic shell-call assertion.
             assert first_ms < 1500, f'Board first frame took {first_ms} ms'
             output.clear()

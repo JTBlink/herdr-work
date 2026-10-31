@@ -1184,7 +1184,9 @@ impl App {
         }
         self.flash = Default::default();
         if ((key.code == KeyCode::Char('p')
-            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER)
             && !key.modifiers.contains(KeyModifiers::ALT))
             || key.code == KeyCode::F(12))
             && self.merged()
@@ -1200,7 +1202,8 @@ impl App {
         // from any focus (1 Explorer, 2 Search, 3 Source Control). Bare 1/2/3
         // still switch from the file list.
         if key.code == KeyCode::Char('4')
-            && key.modifiers == KeyModifiers::CONTROL
+            && (key.modifiers == KeyModifiers::CONTROL
+                || (key.modifiers.is_empty() && self.focus == Focus::List))
             && self.overlay.is_none()
         {
             self.mouse_pos = None;
@@ -1234,7 +1237,9 @@ impl App {
             return None;
         }
         if matches!(key.code, KeyCode::Char('f' | 'F'))
-            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER)
             && !key.modifiers.contains(KeyModifiers::ALT)
         {
             return self.open_search(true);
@@ -4369,7 +4374,12 @@ impl App {
             ("q", "quit"),
         ];
         if self.merged() {
-            hints.extend([("1", "files"), ("2", "search"), ("3", "git")]);
+            hints.extend([
+                ("1", "files"),
+                ("2", "search"),
+                ("3", "git"),
+                ("4", "tasks"),
+            ]);
         }
         hints
     }

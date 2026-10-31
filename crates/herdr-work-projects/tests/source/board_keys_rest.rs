@@ -17,6 +17,20 @@ fn tick(b: &mut Board, at: i64) -> Vec<Effect> {
 }
 
 #[test]
+fn option_chords_keep_the_same_board_actions() {
+    let w = world();
+    let mut board = open(&w.root, 40);
+    board.press(&["?"]);
+    assert!(board.text().contains(&key_name("side")));
+    board.press(&["esc"]);
+    let before = board.s.side;
+    board.press(&["Option+P"]);
+    assert_eq!(board.s.side, !before);
+    board.press(&["alt+p"]);
+    assert_eq!(board.s.side, before);
+}
+
+#[test]
 fn the_popup_says_how_to_get_back_before_it_closes_for_an_agent_and_takes_no_key_meanwhile() {
     let w = world_with(Opts {
         repo: true,

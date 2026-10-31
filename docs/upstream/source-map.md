@@ -124,3 +124,9 @@ macOS 本地验证使用临时 Unix socket 运行真实 CLI，覆盖资料锁占
 保留原 Git CLI 查询与 `git --graph` 的拓扑生成，增加全部引用、完整提交 ID、日期、作者与装饰引用字段。新 `git_graph` 模型解析查询结果，渲染分支/标签和自适应信息列；viewer 的 Graph 使用同一只读文档、滚动、查找和提交详情返回流程，列标题固定在正文上方。提交选择使用源行绑定的完整 OID，不从截断文本推测目标；原 drawer 字符串接口继续保留短 SHA 前置格式。见 [Git Graph 验证](../verification/git-graph.md)。
 
 折叠精确列宽改用显式分隔线路径，复用相邻窗格保护，允许恢复计划记录有效的窄分栏比例。附[独立 Herdr 宿主补丁](../patches/herdr/README.md)，不作为产品 Rust 模块构建，不由普通安装自动接管宿主。
+
+## macOS 快捷键适配（2026-10-31）
+
+迁入的 Explorer/SCM 输入路由增加 Command+P/F，复用 Quick Open、搜索和 Projects 请求；列表数字 4 打开主看板，搜索与提交输入保留数字。显式搜索请求可聚焦已打开的查询框，修复从 Git 转入搜索后仍停在结果列表的问题。唯一终端循环协商增强键盘协议，退出时恢复协议栈并独立清理鼠标/粘贴模式。
+
+Projects 键表继续保存和传输规范 ctrl/alt 和弦；HerdrWork 托管看板在 macOS 显示 Option，设置接受 Option/Control 别名。来源参考界面与生成文档保留规范名称，独立插件不参与配置或生命周期操作。检查与限制见 [macOS 快捷键验证](../verification/macos-shortcuts.md)。

@@ -1,7 +1,10 @@
 //! One terminal owner, with background jobs and upstream-backed views.
 use anyhow::Result;
 use crossterm::{
-    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
+    event::{
+        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
     execute,
 };
 use herdr_work_engine::HerdrWork;
@@ -46,8 +49,17 @@ pub use herdr_work_engine::InitialView;
 use state::*;
 
 struct TerminalGuard;
+fn enable_keyboard() {
+    // Keep modified digits and Command chords distinct from legacy control bytes.
+    // Terminals without the protocol ignore this negotiation, as on the board.
+    let _ = execute!(
+        std::io::stdout(),
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    );
+}
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
+        let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
         let _ = execute!(
             std::io::stdout(),
             DisableMouseCapture,
@@ -107,6 +119,7 @@ pub fn run_with_mode(
     let mut terminal = ratatui::init();
     let _guard = TerminalGuard;
     herdr_work_code::preview::initialize_terminal_images();
+    enable_keyboard();
     execute!(std::io::stdout(), EnableMouseCapture, EnableBracketedPaste)?;
     let (tx, rx) = mpsc::channel();
     let stop = Arc::new(AtomicBool::new(false));

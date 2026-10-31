@@ -30,7 +30,14 @@ const NAMED: [&str; 14] = [
 pub fn chord_of(c: &str) -> Option<String> {
     let parts: Vec<&str> = c.trim().split('+').map(str::trim).collect();
     let (key, mods) = parts.split_last()?;
-    let mods: Vec<String> = mods.iter().map(|m| m.to_lowercase()).collect();
+    let mods: Vec<String> = mods
+        .iter()
+        .map(|m| match m.to_lowercase().as_str() {
+            "option" => "alt".to_string(),
+            "control" => "ctrl".to_string(),
+            m => m.to_string(),
+        })
+        .collect();
     if mods
         .iter()
         .enumerate()
@@ -137,6 +144,12 @@ mod tests {
     #[test]
     fn written() {
         assert_eq!(chord_of("Ctrl+O").as_deref(), Some("ctrl+o"));
+        assert_eq!(chord_of("Option+O").as_deref(), Some("alt+o"));
+        assert_eq!(
+            chord_of("Control+Option+Up").as_deref(),
+            Some("ctrl+alt+up")
+        );
+        assert_eq!(chord_of("alt+option+c"), None);
         assert_eq!(chord_of("shift+alt+Up").as_deref(), Some("alt+shift+up"));
         assert_eq!(chord_of("ctrl+Esc").as_deref(), Some("ctrl+escape"));
         assert_eq!(chord_of("Y").as_deref(), Some("shift+y"));

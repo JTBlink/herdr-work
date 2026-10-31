@@ -16,7 +16,7 @@ import threading
 import time
 
 
-def check(binary, fail=False):
+def check(binary, fail=False, keyboard=False):
     with tempfile.TemporaryDirectory(prefix='hw-projects-entry-') as directory:
         base = Path(directory).resolve()
         root, profile, foreign = [base / name for name in ('demo repo', 'profile', 'foreign')]
@@ -92,8 +92,17 @@ def check(binary, fail=False):
 
         try:
             wait_for(lambda: b'visible.txt' in output)
-            # At 38 columns the Projects chip occupies columns 31..35, all three rows.
-            os.write(master, b'\x1b[<0;32;2M' * 3)
+            if keyboard:
+                assert b'\x1b[>1u' in output, 'Sidebar must negotiate modified keys with the terminal'
+                # A real CSI-u Command+F, followed by digits, must remain search input.
+                os.write(master, b'\x1b[102;9uMAC_INPUT_4')
+                wait_for(lambda: b'MAC_INPUT_4' in re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', output).replace('█'.encode(), b''))
+                assert not [r for r in requests if r['method'] == 'plugin.pane.open'], 'Typing digits opened the board'
+                os.write(master, b'\x1b[20~')  # F9 returns to Explorer without submitting the query.
+                os.write(master, b'4')
+            else:
+                # At 38 columns the Projects chip occupies columns 31..35, all three rows.
+                os.write(master, b'\x1b[<0;32;2M' * 3)
             expected = 'Projects 打开失败' if fail else '已打开 HerdrWork Projects'
             wait_for(lambda: expected.replace(' ', '').encode() in re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', output).replace(b' ', b''))
             opens = lambda: [request for request in requests if request['method'] == 'plugin.pane.open']
@@ -113,7 +122,7 @@ def check(binary, fail=False):
             assert sorted(path.name for path in foreign.iterdir()) == ['settings.json']
             if fail:
                 # A failed request leaves the entry available for retry.
-                os.write(master, b'\x1b[<0;32;2M')
+                os.write(master, b'4' if keyboard else b'\x1b[<0;32;2M')
                 wait_for(lambda: len(opens()) == 2)
             os.write(master, b'q')
             wait_for(lambda: process.poll() is not None)
@@ -131,4 +140,5 @@ def check(binary, fail=False):
 if __name__ == '__main__':
     for fail in (False, True):
         check(Path(sys.argv[1]).resolve(), fail)
+        check(Path(sys.argv[1]).resolve(), fail, keyboard=True)
     print('Projects entry: actual PTY, own backend/profile, duplicate clicks and retry passed')

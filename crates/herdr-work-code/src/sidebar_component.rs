@@ -284,6 +284,17 @@ impl Sidebar {
                 return self.chrome_action(action);
             }
         }
+        if self.collapsed
+            && let Event::Key(key) = event
+            && key.kind == KeyEventKind::Press
+            && matches!(key.code, KeyCode::Char('p' | 'f' | 'F'))
+            && key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER)
+            && !key.modifiers.contains(KeyModifiers::ALT)
+        {
+            self.set_collapsed(false);
+        }
         if self.collapsed {
             match event {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
@@ -291,7 +302,10 @@ impl Sidebar {
                         KeyCode::Char('1') | KeyCode::F(9) => Some(Action::Files),
                         KeyCode::Char('2') | KeyCode::F(10) => Some(Action::Search),
                         KeyCode::Char('3') | KeyCode::F(11) => Some(Action::Git),
-                        KeyCode::Char('4') if key.modifiers == KeyModifiers::CONTROL => {
+                        KeyCode::Char('4')
+                            if key.modifiers.is_empty()
+                                || key.modifiers == KeyModifiers::CONTROL =>
+                        {
                             Some(Action::Projects)
                         }
                         KeyCode::Char('s') => Some(Action::Settings),

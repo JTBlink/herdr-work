@@ -680,7 +680,14 @@ impl Press {
 /// One spelling of a chord: "return" is enter, "esc" is escape, modifiers in one order.
 pub fn norm(chord: &str) -> String {
     let low = chord.to_lowercase();
-    let parts: Vec<&str> = low.split('+').collect();
+    let parts: Vec<&str> = low
+        .split('+')
+        .map(|p| match p.trim() {
+            "option" => "alt",
+            "control" => "ctrl",
+            p => p,
+        })
+        .collect();
     let (mods, key) = parts.split_at(parts.len().saturating_sub(1));
     let key = match key.first().copied().unwrap_or("") {
         "return" => "enter",
@@ -729,11 +736,39 @@ fn own(k: &Key) -> String {
         }
     }
     if let Some(mine) = super::remap::chords(k.name) {
-        return mine[0].clone();
+        return if crate::store::files::herdr_work_managed() {
+            display_chord(&mine[0])
+        } else {
+            mine[0].clone()
+        };
     }
-    k.show
+    let chord = k
+        .show
         .unwrap_or(k.keys.first().copied().unwrap_or(""))
-        .to_string()
+        .to_string();
+    if super::remap::canonical_names() || !crate::store::files::herdr_work_managed() {
+        chord
+    } else {
+        display_chord(&chord)
+    }
+}
+/// Use the key printed on Mac keyboards while keeping stored/transport chords canonical.
+pub fn display_chord(chord: &str) -> String {
+    if cfg!(target_os = "macos") && chord.split('+').any(|p| p.eq_ignore_ascii_case("alt")) {
+        chord
+            .split('+')
+            .map(|p| match p {
+                "alt" => "Option".to_string(),
+                "ctrl" => "Control".to_string(),
+                "shift" => "Shift".to_string(),
+                key if key.len() == 1 => key.to_uppercase(),
+                key => key.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("+")
+    } else {
+        chord.to_string()
+    }
 }
 /// The chord a key is pressed with, yours where `board.keys` moves it ("ctrl+l"); "" for a key typed as a character.
 pub fn chord(id: K) -> String {
@@ -820,5 +855,16 @@ mod tests {
         assert!(is(&Press::chord("return"), K::Enter));
         assert_eq!(written("ctrl+a"), "`Ctrl+A`");
         assert_eq!(say("{back} says no"), "esc says no");
+    }
+
+    #[test]
+    fn option_spelling_matches_the_terminal_alt_chord() {
+        assert_eq!(norm("Option+C"), norm("alt+c"));
+        assert_eq!(norm("shift+option+up"), norm("alt+shift+up"));
+        assert!(is(&Press::chord("Option+C"), K::ChatMessage));
+        assert_eq!(chord(K::ChatMessage), "alt+c");
+        if cfg!(target_os = "macos") {
+            assert_eq!(display_chord("alt+c"), "Option+C");
+        }
     }
 }

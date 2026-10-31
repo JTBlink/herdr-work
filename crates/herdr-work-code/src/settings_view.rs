@@ -72,6 +72,7 @@ pub fn text(value: &str) -> &str {
         "quit" => "退出",
         "search" => "搜索",
         "git" => "Git",
+        "tasks" => "主看板",
         "stage" => "暂存",
         "list" => "列表",
         "tree" => "树形",

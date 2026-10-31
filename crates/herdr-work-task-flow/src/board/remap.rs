@@ -153,6 +153,10 @@ pub fn as_built<T>(f: impl FnOnce() -> T) -> T {
     AS_BUILT.with(|b| b.set(was));
     out
 }
+/// Documentation keeps canonical chords, independently of the build platform.
+pub(super) fn canonical_names() -> bool {
+    AS_BUILT.with(|b| b.get())
+}
 /// herdr's config.toml as it is on disk now: where it is and when it last changed.
 fn config_mark() -> String {
     use std::os::unix::fs::MetadataExt;

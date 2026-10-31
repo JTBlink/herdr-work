@@ -33,6 +33,7 @@ pub(crate) fn run(desk: HerdrWork, root: PathBuf, initial: Option<InitialView>) 
     crossterm::style::force_color_output(true);
     let mut terminal = ratatui::init();
     let _guard = crate::TerminalGuard;
+    crate::enable_keyboard();
     herdr_work_code::preview::initialize_terminal_images();
     execute!(std::io::stdout(), EnableMouseCapture)?;
     let saved = herdr_work_code::state::load_state();

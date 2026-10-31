@@ -85,6 +85,14 @@ pub fn menu_lines(s: &mut State, t: &Theme, width: usize, h: usize) -> Vec<Inked
         if !lines.is_empty() {
             lines.push(Inked::new());
         }
+        let gname = if group == "alt"
+            && cfg!(target_os = "macos")
+            && crate::store::files::herdr_work_managed()
+        {
+            "Option (⌥): only shows or hides"
+        } else {
+            gname
+        };
         lines.push(Inked::plain(" ").add(Inked::of(gname, Ink::Soft)));
         if group == "plain" {
             for (k, d) in &plain {
