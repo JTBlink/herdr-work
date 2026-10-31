@@ -242,6 +242,89 @@ mod tests {
     }
 
     #[test]
+    fn fresh_diff_load_selects_first_change_and_refresh_keeps_manual_position() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(root)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        git(&["init", "-q"]);
+        let original: String = (1..=120).map(|i| format!("line_{i}\n")).collect();
+        std::fs::write(root.join("example.txt"), &original).unwrap();
+        git(&["add", "."]);
+        git(&[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=.git/no-hooks",
+            "commit",
+            "-qm",
+            "fixture",
+        ]);
+        let edited = original
+            .replace("line_30\n", "changed_30\n")
+            .replace("line_90\n", "changed_90\n");
+        std::fs::write(root.join("example.txt"), &edited).unwrap();
+        let request = Request::Diff {
+            root: root.into(),
+            rel: "example.txt".into(),
+            kind: "worktree".into(),
+        };
+        let (_, receiver) = start_preview_load(request.clone());
+        let mut doc = receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+        render(&mut doc, 100, 12);
+        assert_eq!(doc.change_count(), Some((1, 2)));
+        assert!(doc.rows[doc.scroll].line.to_string().contains("changed_30"));
+        doc.step_change(false);
+        render(&mut doc, 100, 12);
+        let top = doc.top_src();
+        apply_diff_refresh(&mut doc, load(&request));
+        render(&mut doc, 100, 12);
+        assert_eq!(doc.top_src(), top);
+        assert_eq!(doc.change_count(), Some((2, 2)));
+        std::fs::write(
+            root.join("example.txt"),
+            edited.replace("line_60\n", "changed_60\n"),
+        )
+        .unwrap();
+        apply_diff_refresh(&mut doc, load(&request));
+        render(&mut doc, 100, 12);
+        assert_eq!(
+            doc.top_src(),
+            top,
+            "content refresh preserves the existing source-row anchor"
+        );
+        assert!(
+            doc.rows
+                .iter()
+                .skip(doc.scroll)
+                .take(8)
+                .any(|row| row.line.to_string().contains("changed_90"))
+        );
+        assert_eq!(doc.change_count(), Some((0, 3)));
+        let (_, receiver) = start_preview_load(Request::File {
+            path: root.join("example.txt"),
+            line: None,
+        });
+        let plain = receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(plain.change_count(), None);
+        assert_eq!(plain.top_src(), 0);
+    }
+
+    #[test]
     fn navigation_capture() {
         let mut doc = doc(PATCH);
         doc.step_change(false);

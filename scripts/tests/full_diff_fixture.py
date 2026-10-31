@@ -82,6 +82,8 @@ def check(binary, theme):
         original = ''.join(f'let unchanged_{n} = {n};\n' for n in range(1, 241))
         target = root / 'example.rs'
         target.write_text(original)
+        other = root / 'other.rs'
+        other.write_text(original)
         for args in [['init', '-q'], ['add', '.'],
                      ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                       '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=.git/no-hooks',
@@ -89,12 +91,17 @@ def check(binary, theme):
             subprocess.run(['git', *args], cwd=root, check=True, capture_output=True)
         target.write_text(original.replace('unchanged_30 = 30', 'changed_30 = 300')
                          .replace('unchanged_190 = 190', 'changed_190 = 1900'))
+        other.write_text(original.replace('unchanged_80 = 80', 'other_changed_80 = 800'))
         control = scratch / 'full-diff.ctl'
-        control.write_text(f'diff\t{root}\texample.rs\tworktree')
+        payload = f'diff\t{root}\texample.rs\tworktree'
+        control.write_text(payload)
         control.chmod(0o600)
         command = [str(binary), '--home', str(profile)]
         viewer = Viewer(command + ['sidebar-viewer', str(control)])
         try:
+            grid = viewer.frame('changed_30 = 300;')
+            assert locate(grid, '1/2'), 'initial open must select the first difference'
+            viewer.send(b'\x1b[H')  # Home: full prefix remains available.
             grid = viewer.frame('unchanged_1 = 1;')
             assert locate(grid, '原始') and locate(grid, '修改后')
             assert sum('unchanged_1 = 1;' in ''.join(row) for row in grid) == 1
@@ -105,9 +112,22 @@ def check(binary, theme):
             assert locate(grid, 'unchanged_30 = 30;'), 'old and new side must align'
             viewer.send(b'\x1b[18~')
             viewer.frame('changed_190 = 1900;')
+            control.write_text(payload)  # Re-click the same file at the second change.
+            viewer.drain(.3)
+            grid = viewer.frame('changed_190 = 1900;')
+            assert locate(grid, '2/2'), 'repeat click must preserve active change and scroll'
+            control.write_text(f'diff\t{root}\tother.rs\tworktree')
+            viewer.frame('other_changed_80 = 800;')
+            control.write_text(payload)  # Returning to a different file is a switch.
+            grid = viewer.frame('changed_30 = 300;')
+            assert locate(grid, '1/2'), 'switching back must start at the first change'
             viewer.send(b'\x1b[F')  # End
             grid = viewer.frame('unchanged_240 = 240;')
             assert locate(grid, 'unchanged_220'), 'unchanged suffix must stay reachable'
+            control.write_text(payload)
+            viewer.drain(2.2)  # Repeated click and automatic refresh must retain EOF.
+            grid = viewer.frame('unchanged_240 = 240;')
+            assert locate(grid, 'changed_30 = 300;') is None
             markers = [(viewer.width - 1, y) for y, row in enumerate(grid)
                        if row[-1] in ('~', '+', '−')]
             assert markers, 'missing whole-document change indicators'
@@ -119,7 +139,7 @@ def check(binary, theme):
             grid = viewer.frame('unchanged_240 = 240;')
             assert locate(grid, '原始') is None, 'narrow view uses complete inline text'
             assert viewer.process.poll() is None
-            print(f'full diff PTY: {theme}, unchanged prefix/suffix, split alignment, F7, overview click and narrow resize passed')
+            print(f'full diff PTY: {theme}, unchanged prefix/suffix, split alignment, initial/switch first change, repeat/refresh retention, F7, overview click and narrow resize passed')
         finally:
             viewer.close()
         sidebar = Viewer(command + ['ui', '--sidebar', str(root)], width=40)

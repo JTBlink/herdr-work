@@ -575,7 +575,14 @@ fn start_preview_load(request: Request) -> (Request, std::sync::mpsc::Receiver<D
     let worker_request = request.clone();
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = sender.send(load(&worker_request));
+        let mut doc = load(&worker_request);
+        // Fresh document loads (initial open / switching files) reveal the
+        // first change. Periodic refreshes call `load` directly and preserve
+        // the reader's position; repeated clicks never start a fresh load.
+        if matches!(&worker_request, Request::Diff { .. }) {
+            doc.step_change(false);
+        }
+        let _ = sender.send(doc);
     });
     (request, receiver)
 }
