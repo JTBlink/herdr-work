@@ -602,8 +602,8 @@ pub fn title_actions_visible(last_mouse: Option<std::time::Instant>) -> bool {
 /// otherwise.
 pub fn title_action_icon(theme: IconTheme, action: TitleAction) -> &'static str {
     match (theme, action) {
-        (IconTheme::Material, TitleAction::OpenGraph) => "\u{eac4}",
-        (IconTheme::Emoji, TitleAction::OpenGraph) => "⑂",
+        (IconTheme::Material, TitleAction::OpenGraph) => "\u{ea68}", // cod-source-control
+        (IconTheme::Emoji, TitleAction::OpenGraph) => "⎇",
         (IconTheme::Material, TitleAction::NewFile) => "\u{ea7f}", //  cod-new_file
         (IconTheme::Material, TitleAction::NewFolder) => "\u{ea80}", //  cod-new_folder
         (IconTheme::Material, TitleAction::Refresh) => "\u{eb37}", //  cod-refresh
@@ -626,6 +626,9 @@ pub fn title_action_icon(theme: IconTheme, action: TitleAction) -> &'static str 
 /// non-Mono build the glyph just overflows into its own trailing space, which
 /// is how the tree's file icons already render.
 fn title_action_chip(theme: IconTheme, action: TitleAction) -> String {
+    if action == TitleAction::OpenGraph {
+        return format!(" {} 大图 ", title_action_icon(theme, action));
+    }
     format!(" {} ", title_action_icon(theme, action))
 }
 

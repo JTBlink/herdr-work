@@ -142,10 +142,11 @@ def check(binary, placement, blocked=False, history=False):
                     elif method == 'pane.split':
                         target = params['target_pane_id']
                         tab = panes[target]['tab_id']
-                        panes['viewer'] = {'pane_id': 'viewer', 'tab_id': tab,
-                                           'workspace_id': 'w1', 'terminal_id': 'terminal-viewer', 'tokens': {}}
-                        layouts[tab].replace(target, Layout.split(target, 'viewer', params['ratio']))
-                        result = {'pane': {'pane_id': 'viewer'}}
+                        name = 'viewer' if 'viewer' not in panes else f'viewer-{len(panes)}'
+                        panes[name] = {'pane_id': name, 'tab_id': tab,
+                                       'workspace_id': 'w1', 'terminal_id': 'terminal-' + name, 'tokens': {}}
+                        layouts[tab].replace(target, Layout.split(target, name, params['ratio']))
+                        result = {'pane': {'pane_id': name}}
                     elif method == 'pane.move':
                         name, dest = params['pane_id'], params['destination']
                         layouts[panes[name]['tab_id']].replace(name, None)
@@ -252,16 +253,32 @@ def check(binary, placement, blocked=False, history=False):
                            for key in ['pane_id', 'source_pane_id', 'target_pane_id'])
             assert panes['original']['tokens'] == original_tokens
             if history:
-                previous_tabs = len([r for r in requests if r['method'] == 'tab.create'])
-                os.write(master, b'v')
-                wait_for(lambda: 'graph-viewer' in panes and 'herdr-work-preview-pinned' in panes['graph-viewer']['tokens'])
-                assert panes['graph-viewer']['tab_id'] != 'w1:t1'
-                assert len([r for r in requests if r['method'] == 'tab.create']) == previous_tabs + 1
+                def graph_previews():
+                    payload = f'history\t{root}\tGraph\t'
+                    return [pane for pane in panes.values()
+                            if (name := pane['tokens'].get('herdr-work-preview-control'))
+                            and (path := profile / 'sidebar/scratch' / name).is_file()
+                            and path.read_text() == payload]
+                # The persistent graph button is the rightmost chip in the title row.
+                os.write(master, b'\x1b[<0;27;4M\x1b[<0;27;4m')
+                wait_for(lambda: len(graph_previews()) == 1)
+                target = graph_previews()[0]
+                if blocked:
+                    assert target['tab_id'] != 'w1:t1'
+                    assert layouts['w1:t1'].snapshot() == before
+                else:
+                    assert target['tab_id'] == 'w1:t1', 'Graph must stay beside its sidebar'
+                    current = layouts['w1:t1'].snapshot()
+                    rect = next(p['rect'] for p in current['panes'] if p['pane_id'] == target['pane_id'])
+                    assert rect == {'x': 28, 'y': 0, 'width': 64, 'height': 40}, rect
+                    assert next(p['rect'] for p in current['panes'] if p['pane_id'] == 'owner') == next(p['rect'] for p in before['panes'] if p['pane_id'] == 'owner')
+                    assert next(p['rect'] for p in current['panes'] if p['pane_id'] == 'original') == original_rect
+                previous_creates = len([r for r in requests if r['method'] in ('tab.create', 'pane.split')])
                 os.write(master, b'v')
                 deadline = time.monotonic() + .4
                 while time.monotonic() < deadline:
                     drain()
-                assert len([r for r in requests if r['method'] == 'tab.create']) == previous_tabs + 1, 'Repeated large-graph action created a duplicate tab'
+                assert len([r for r in requests if r['method'] in ('tab.create', 'pane.split')]) == previous_creates, 'Repeated large-graph action created a duplicate viewer'
                 assert json.loads((profile / 'sidebar/state.json').read_text())['preview_placement'] == placement
             print(f'{placement} (blocked={blocked}, history={history}): mouse clicks honor preview placement and reuse; independent plugin geometry untouched')
         finally:

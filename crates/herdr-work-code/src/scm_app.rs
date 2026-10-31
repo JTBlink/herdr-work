@@ -1602,7 +1602,12 @@ impl App {
                     let scope = match row {
                         Row::DrawerLine(Drawer::Graph, source) => {
                             self.history.graph.rows.get(source).is_some_and(|r| {
-                                x as usize == crate::ansi::to_lines(&r.graph)[0].width()
+                                x as usize
+                                    == self
+                                        .history
+                                        .graph
+                                        .compact_gutter(&r.graph, usize::from(self.last_width))
+                                        .width()
                             })
                         }
                         _ => false,
@@ -3601,7 +3606,7 @@ impl App {
                 .iter()
                 .any(|(rect, action)| *action == TitleAction::OpenGraph && hits(*rect, x, y))
         }) {
-            return Some("打开 Git Graph 大图（v）");
+            return Some("在侧栏旁打开完整 Git Graph（v）");
         }
         let index = self.hovered?;
         let x = self.mouse_pos?.0;
@@ -3928,7 +3933,7 @@ impl App {
             Some(repo) if self.repos.len() == 1 => repo.name.clone(),
             _ => "Source Control".to_string(),
         };
-        let left = Span::styled(format!(" ▾ {title}"), Style::default().bold());
+        let mut left = Span::styled(format!(" ▾ {title}"), Style::default().bold());
         // With several repos visible, the header names the one the commit box
         // and sync act on; a single repo shows branch + ahead/behind arrows.
         let right_text = match self.active_repo() {
@@ -3957,38 +3962,45 @@ impl App {
             ))
         };
         let gear_w = gear.as_ref().map(Span::width).unwrap_or(0);
-        // The hover title-action buttons sit just left of the gear.
+        // Keep the graph entry visible; the other actions still appear on hover.
         self.title_zones.clear();
-        let (action_spans, actions_w) = if title_actions_visible(self.last_mouse) {
+        let mut actions = vec![TitleAction::OpenGraph];
+        if title_actions_visible(self.last_mouse) {
             let view_action = if self.tree_view {
                 TitleAction::ViewAsList
             } else {
                 TitleAction::ViewAsTree
             };
-            let actions = [
-                TitleAction::OpenGraph,
-                view_action,
-                TitleAction::Refresh,
-                TitleAction::CollapseAll,
-            ];
-            let w = title_actions_width(self.theme, &actions);
-            let ax = area.x + area.width.saturating_sub(gear_w as u16 + w);
-            let (spans, zones) =
-                title_action_spans(self.theme, &actions, ax, area.y, self.mouse_pos);
-            self.title_zones = zones;
-            (spans, usize::from(w))
-        } else {
-            (Vec::new(), 0)
-        };
+            for action in [view_action, TitleAction::Refresh, TitleAction::CollapseAll] {
+                let next = title_actions_width(self.theme, &[action]);
+                if title_actions_width(self.theme, &actions) + next + gear_w as u16 + 4
+                    <= area.width
+                {
+                    actions.insert(actions.len() - 1, action);
+                }
+            }
+        }
+        if title_actions_width(self.theme, &actions) + gear_w as u16 > area.width {
+            actions.clear();
+        }
+        let actions_w = usize::from(title_actions_width(self.theme, &actions));
+        let ax = area.x + area.width.saturating_sub((gear_w + actions_w) as u16);
+        let (action_spans, zones) =
+            title_action_spans(self.theme, &actions, ax, area.y, self.mouse_pos);
+        self.title_zones = zones;
+        left.content = truncate_to(
+            left.content.into_owned(),
+            usize::from(area.width).saturating_sub(actions_w + gear_w + 1),
+        )
+        .into();
         // The branch text yields to the buttons and gear in narrow panes.
         let avail = (area.width as usize)
             .saturating_sub(left.width() + actions_w + gear_w)
             .saturating_sub(1);
         let branch_text = truncate_to(right_text, avail);
         let branch_width = Span::raw(branch_text.as_str()).width();
-        let pad = (area.width as usize)
-            .saturating_sub(left.width() + branch_width + actions_w + gear_w)
-            .max(1);
+        let pad =
+            (area.width as usize).saturating_sub(left.width() + branch_width + actions_w + gear_w);
         let branch_x = area.x + left.width() as u16 + pad as u16;
         self.zones.header_branch = Rect::new(branch_x, area.y, branch_width as u16, 1);
         let branch_hovered = self
@@ -4209,7 +4221,7 @@ impl App {
                     }
                     Row::DrawerHeader(Drawer::Graph) => {
                         let label = format!(
-                            "{} Graph",
+                            " {} Graph",
                             if self.drawers[Drawer::Graph.index()].expanded {
                                 "▾"
                             } else {

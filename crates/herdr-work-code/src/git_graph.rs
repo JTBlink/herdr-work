@@ -117,21 +117,8 @@ impl Graph {
         self.rows
             .iter()
             .map(|row| {
-                let mut graph = ansi::to_lines(&row.graph)
-                    .into_iter()
-                    .next()
-                    .unwrap_or_default();
-                for span in &mut graph.spans {
-                    span.content = span
-                        .content
-                        .replace('*', "●")
-                        .replace('|', "│")
-                        .replace('/', "╱")
-                        .replace('\\', "╲")
-                        .replace('_', "─")
-                        .into();
-                }
-                let mut spans = clip_spans(graph.spans, cols.graph.saturating_sub(1));
+                let mut spans =
+                    clip_spans(topology_spans(&row.graph), cols.graph.saturating_sub(1));
                 let used: usize = spans.iter().map(Span::width).sum();
                 spans.push(Span::raw(" ".repeat(cols.graph.saturating_sub(used))));
                 if let Some(c) = &row.commit {
@@ -195,6 +182,29 @@ impl Graph {
             .collect()
     }
 
+    /// One inset topology gutter shared by compact commit and file rows.
+    /// Reserve the same lane width on every row so disclosure arrows align.
+    pub fn compact_gutter(&self, source: &str, width: usize) -> Line<'static> {
+        if width == 0 {
+            return Line::default();
+        }
+        let lanes = self
+            .rows
+            .iter()
+            .map(|row| ansi::to_lines(&row.graph)[0].width())
+            .max()
+            .unwrap_or(2)
+            .max(1)
+            .min((width / 3).max(1))
+            .min(width - 1);
+        let mut spans = vec![Span::raw(" ")];
+        let graph = clip_spans(topology_spans(source), lanes);
+        let used: usize = graph.iter().map(Span::width).sum();
+        spans.extend(graph);
+        spans.push(Span::raw(" ".repeat(lanes.saturating_sub(used))));
+        Line::from(spans)
+    }
+
     fn graph_width(&self) -> usize {
         self.rows
             .iter()
@@ -203,6 +213,24 @@ impl Graph {
             .unwrap_or(6)
             .clamp(6, 28)
     }
+}
+
+fn topology_spans(source: &str) -> Vec<Span<'static>> {
+    let mut line = ansi::to_lines(source)
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    for span in &mut line.spans {
+        span.content = span
+            .content
+            .replace('*', "●")
+            .replace('|', "│")
+            .replace('/', "╱")
+            .replace('\\', "╲")
+            .replace('_', "─")
+            .into();
+    }
+    line.spans
 }
 
 fn ref_label(reference: &str) -> (String, Color) {

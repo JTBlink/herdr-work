@@ -86,9 +86,7 @@ impl App {
                 let Some(row) = self.history.graph.rows.get(index) else {
                     return ListItem::new("");
                 };
-                let mut spans = crate::ansi::to_lines(&row.graph.replace('*', "●"))[0]
-                    .spans
-                    .clone();
+                let mut spans = self.history.graph.compact_gutter(&row.graph, width).spans;
                 if let Some(commit) = &row.commit {
                     let expanded = self.history_expanded
                         && self.history.selected.as_ref() == Some(&commit.oid);
@@ -113,18 +111,22 @@ impl App {
                 }
                 return ListItem::new(Line::from(crate::git_graph::clip_spans(spans, width)));
             }
-            Row::HistoryFile(index) => self
-                .history
-                .details()
-                .and_then(|d| d.files.get(index))
-                .map(|file| {
-                    format!(
-                        "{}    {}",
-                        self.history.continuation(),
-                        file.compact_label()
-                    )
-                })
-                .unwrap_or_default(),
+            Row::HistoryFile(index) => {
+                let Some(file) = self.history.details().and_then(|d| d.files.get(index)) else {
+                    return ListItem::new("");
+                };
+                let mut spans = self
+                    .history
+                    .graph
+                    .compact_gutter(&self.history.continuation(), width)
+                    .spans;
+                spans.push(Span::raw("    "));
+                spans.push(Span::styled(
+                    file.compact_label(),
+                    Style::default().fg(crate::ui::status_color(file.status)),
+                ));
+                return ListItem::new(Line::from(crate::git_graph::clip_spans(spans, width)));
+            }
             Row::HistoryMoreFiles => format!(
                 "  │   加载更多文件（共 {} 个）",
                 self.history.details().map_or(0, |d| d.files.len())

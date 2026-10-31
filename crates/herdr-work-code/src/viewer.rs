@@ -1273,7 +1273,7 @@ pub fn run(control: &Path) -> std::io::Result<()> {
         crate::state::load_state().icons,
     );
     let mut current = read_control(control);
-    // A large graph owns its tab even while temporarily inspecting a historical file.
+    // Retain graph navigation while temporarily inspecting a historical file.
     let mut graph_identity = current
         .as_ref()
         .filter(|r| {
@@ -2467,7 +2467,8 @@ pub(crate) fn unresponsive_inline_in<'a>(
 }
 
 /// Open `payload` (identified by `doc_key`) where the `Preview placement`
-/// setting says.
+/// setting says. Full repository graphs explicitly use the working region
+/// beside the sidebar, without changing that saved file-opening preference.
 ///
 /// In `Tab` placement this follows VS Code tab rules: jump to the document's
 /// existing tab, else overwrite the one ephemeral tab, else create a tab.
@@ -2485,15 +2486,15 @@ pub fn open_in_pane(
     payload: &str,
 ) -> Result<PreviewTarget, String> {
     let mut state = crate::state::load_state();
-    let dedicated_graph = matches!(
+    let full_graph = matches!(
         parse_request(payload),
         Some(Request::History {
             kind: Drawer::Graph,
             ..
         })
     );
-    if dedicated_graph {
-        state.preview_placement = crate::state::PreviewPlacement::Tab;
+    if full_graph {
+        state.preview_placement = crate::state::PreviewPlacement::Replace;
     }
     // VS Code is a file-opening preference. Diff/history retain their
     // internal viewer and never silently become a document tab.
@@ -2548,6 +2549,12 @@ pub fn open_in_pane(
             }
         }
     }
+    if full_graph && placement == crate::state::PreviewPlacement::Replace {
+        let active = crate::takeover::active_viewer(&caller_tab_id)?;
+        // A plain split viewer is smaller than the working region. Preserve it
+        // with the parked panes; only reuse a viewer already owning that region.
+        previews.retain(|preview| active.as_deref() == Some(preview.pane_id.as_str()));
+    }
     if let Some(frozen) = unresponsive_inline_in(&previews, inline, &caller_tab_id) {
         // Never wait here and never kill it: queue the document for when it
         // responds (its own unsaved-changes prompt still guards a dirty buffer).
@@ -2578,7 +2585,7 @@ pub fn open_in_pane(
     }
 
     // 2. Overwrite the ephemeral tab (inline: the tab's one viewer pane).
-    if !dedicated_graph && let Some(p) = reusable_preview(&previews, inline) {
+    if let Some(p) = reusable_preview(&previews, inline) {
         write_scratch_file(&p.control, payload).map_err(|e| format!("preview failed: {e}"))?;
         remember_origin(&p.pane_id, &origin_tab_id);
         if !inline {
@@ -2615,7 +2622,7 @@ pub fn open_in_pane(
         )
     } else {
         let target = spawn_preview_tab(my_pane_id, spawn_cwd, doc_key, payload, &origin_tab_id)?;
-        if dedicated_graph {
+        if full_graph {
             // This is a newly created clean tab, so it can be reserved before the viewer starts.
             let _ = ipc::call_text(
                 "pane.report_metadata",

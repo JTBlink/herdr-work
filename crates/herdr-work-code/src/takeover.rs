@@ -668,6 +668,11 @@ pub fn abandon_tab(tab: &str) -> Result<(), String> {
     abandon(&mut env, &plan, &panes)
 }
 
+/// Identify the viewer that currently owns the complete working region.
+pub(crate) fn active_viewer(tab: &str) -> Result<Option<String>, String> {
+    Ok(RealEnv::default().load(tab)?.and_then(|plan| plan.viewer))
+}
+
 /// Explicit recovery (a file click, the sidebar's Esc): restore only when
 /// the viewer is gone.
 pub fn recover(tab: &str) -> Result<(), String> {
