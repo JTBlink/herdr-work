@@ -106,6 +106,18 @@ class CacheCleanup(unittest.TestCase):
 
 
 class ArchiveCleanup(unittest.TestCase):
+    def test_latest_version_is_retained_even_when_older_archive_was_touched(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            versions = ['0.9.0', '0.10.0-rc.2', '0.10.0-rc.10', '0.10.0']
+            archives = [archive_pair(root, version, days=days)
+                        for days, version in enumerate(versions)]
+            cleanup.prune_archives(root, TARGET, keep=2, apply=True)
+            self.assertEqual([p.exists() for p in archives], [False, False, True, True])
+            cleanup.prune_archives(root, TARGET, apply=True)
+            self.assertTrue(archives[-1].exists())
+            self.assertFalse(archives[-2].exists())
+
     def test_verified_windows_package_replaces_only_its_platforms_previous_bundle(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

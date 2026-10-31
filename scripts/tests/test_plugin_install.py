@@ -164,6 +164,10 @@ class ShellEntry(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('herdr', result.stderr)
             (root / 'cargo').unlink()
+            result = subprocess.run(['/bin/sh', str(script), 'clean'], cwd=root,
+                                    env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f'{plugin.ROOT}|scripts/cleanup.py --apply --max-age-days 0', log.read_text())
             (root / 'herdr').write_text('#!/bin/sh\nexit 0\n')
             (root / 'herdr').chmod(0o755)
             result = subprocess.run(['/bin/sh', str(script), '--release'], cwd=root,

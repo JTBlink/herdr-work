@@ -4,13 +4,14 @@ set -eu
 
 usage() {
     cat <<'EOF'
-用法：sh herdr-work-plugins.sh [install | --from-source | --build-only | --release]
+用法：sh herdr-work-plugins.sh [install | clean | --from-source | --build-only | --release]
 
 install 自动以 Release 模式编译、打包、安装并链接当前源码中的 HerdrWork 插件。
 不传参数等同于 install。
 归档与 SHA256 校验和保存在仓库 dist/，当前平台只保留最新一份。
 安装时配置默认打开快捷键 Ctrl+B → F；冲突或已有配置时保留用户设置。
   install        Release 编译、打包并安装当前源码（默认）
+  clean          清空空闲增量缓存与 Python 字节码，每个平台保留最新版本归档
   --from-source  与 install 相同
   --build-only   仅编译打包，不安装，不需要 Herdr
   --release      通过 Herdr 官方安装 VERSION 对应的 GitHub 标签
@@ -28,6 +29,7 @@ if [ "$#" -gt 1 ]; then
 fi
 case "${1:-}" in
     ''|install|--from-source) ;;
+    clean) mode=clean ;;
     --build-only) mode=--build-only ;;
     --release) mode=--release ;;
     -h|--help) usage; exit 0 ;;
@@ -35,10 +37,10 @@ case "${1:-}" in
 esac
 
 required_tools=python3
-if [ "$mode" != --build-only ]; then
+if [ "$mode" != --build-only ] && [ "$mode" != clean ]; then
     required_tools="$required_tools herdr"
 fi
-if [ "$mode" != --release ]; then
+if [ "$mode" != --release ] && [ "$mode" != clean ]; then
     required_tools="$required_tools cargo"
 fi
 for tool in $required_tools; do
@@ -55,6 +57,10 @@ if [ "$script_dir" = "$0" ]; then
 fi
 repo_root=$(CDPATH= cd -- "$script_dir" && pwd)
 cd "$repo_root"
+if [ "$mode" = clean ]; then
+    python3 scripts/cleanup.py --apply --max-age-days 0
+    exit 0
+fi
 python3 scripts/plugin.py "$mode"
 if [ "$mode" = --build-only ]; then
     printf 'HerdrWork 编译打包完成，产物位于 %s/dist/。\n' "$repo_root"

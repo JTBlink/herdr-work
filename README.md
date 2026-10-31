@@ -100,6 +100,8 @@ python3 scripts/smoke.py --archives dist
 
 编译前自动清理超过 7 天的增量缓存，打包验证成功后同平台默认只保留最新一份归档。清理范围、预览命令和保留数量见[构建与产物清理](docs/build-and-cleanup.md)。
 
+执行 `sh herdr-work-plugins.sh clean` 可立即清理空闲的增量缓存和脚本字节码，各平台按版本号只保留最新归档；保留依赖编译结果，方便下次构建复用。
+
 真实双插件共存验证见 [Sidebar 共存验证](docs/verification/sidebar-coexistence.md)。测试复制 Sidebar 程序到临时目录，用独立配置和宿主会话运行双方自动事件，不修改已安装插件或现有窗格。
 
 将 target 替换为 `x86_64-unknown-linux-gnu` 或 `x86_64-pc-windows-msvc` 可在对应原生平台构建。CI 编译、测试、打包并执行隔离安装验证；Release 工作流只在所有平台成功后发布附件。流程采用 draft 创建、附件校验、最后发布。

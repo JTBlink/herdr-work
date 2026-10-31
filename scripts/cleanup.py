@@ -121,7 +121,7 @@ def prune_archives(output, target, *, keep=1, apply=False, protect=None):
         raise ValueError('At least one archive must be retained')
     output = Path(output)
     suffix = r'\.zip' if 'windows' in target else r'\.tar\.gz'
-    pattern = re.compile(r'herdr-work-(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?-'
+    pattern = re.compile(r'herdr-work-(?P<version>(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?)-'
                          + re.escape(target) + suffix)
     candidates = []
     for archive in output.iterdir():
@@ -139,7 +139,16 @@ def prune_archives(output, target, *, keep=1, apply=False, protect=None):
             continue
         if parts == [sha, archive.name]:
             candidates.append(archive)
-    candidates.sort(key=lambda p: (p == protect, p.stat().st_mtime_ns, p.name), reverse=True)
+    def version_key(path):
+        version = pattern.fullmatch(path.name)['version']
+        core, _, prerelease = version.partition('-')
+        identifiers = tuple((0, int(part)) if part.isdigit() else (1, part)
+                            for part in prerelease.split('.') if part)
+        return (*map(int, core.split('.')), not prerelease, identifiers)
+
+    # A copied/touched old bundle must not displace a newer version. During
+    # packaging the caller's verified candidate is always retained, even for a rollback build.
+    candidates.sort(key=lambda p: (p == protect, version_key(p), p.stat().st_mtime_ns, p.name), reverse=True)
     result = []
     for archive in candidates[keep:]:
         # Drop checksum first: interrupted pruning cannot leave a checksum claiming a missing archive.
