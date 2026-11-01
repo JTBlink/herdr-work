@@ -40,17 +40,11 @@ HerdrWork 保持唯一终端和事件循环。生产 `sidebar-ui` 特性直接�
 
 默认 viewer 沿用来源 Replace/takeover：原 pane 移入停车标签页，原进程保留；viewer 在 Sidebar 旁占据实际空间，关闭时按原恢复日志恢复 pane 与分栏。后台定期使用来源恢复函数处理退出和中断后的记录。没有以 overlay 替代 takeover。
 
-## 专属任务 worker
-
-`crates/herdr-work-projects` 为独立产品入口，调用已导入的 Projects 库。入口在启动线程前强制设置自己的 home/data/settings/reports，资料由 HERDR_WORK_HOME 或默认 ~/.herdr-work 决定；不以继承的 HERDR_PROJECTS_* 路径决定资料，不依赖调用方正确设置 managed 标记。继承的第三方插件 ID/context 会清除，原 Agent 回调中的空插件身份保留。主程序、hook 和生成 launcher 显式传递 HerdrWork home，防止回到独立插件目录。
-
-两个发布程序均由根 Cargo.lock 和 target 构建。Projects 的源码随后已迁入根 workspace，见 [Projects 记录](projects-source.md)；最终模块整合仍由 #17 跟踪。
-
 ## 验证边界
 
-- 根 workspace 测试包含 Code 原库测试、编辑器/搜索/面板/菜单/设置交互、文件与 Git 状态保护和专属 worker 的两种资料路径隔离；Code 原库中的 3 项测试沿用原有 ignored 标记。
+- 根 workspace 测试包含 Code 原库测试、编辑器/搜索/面板/菜单/设置交互、文件与 Git 状态保护；Code 原库中的 3 项测试沿用原有 ignored 标记。
 - 保留来源界面通过 `cargo test -p herdr-work-code --features reference-ui --bin herdr-work-code-browser --locked` 单独验证；不能把仅核心库通过等同于原界面测试通过。
-- macOS 私有 PTY 实际验证实时搜索第80行、Quick Open、预览自动刷新、菜单/设置、120行编辑滚轮/保存、clean 重载和 dirty 保存冲突、真实 stage/unstage/Diff、创建任务、80列和终端恢复；自有活动另以私有 socket/PTY 验证。Windows 运行 Rust 渲染和业务检查，不声称验证过原生 Unix PTY 或 Unix 任务执行。
+- macOS 私有 PTY 实际验证实时搜索第80行、Quick Open、预览自动刷新、菜单/设置、120行编辑滚轮/保存、clean 重载和 dirty 保存冲突、真实 stage/unstage/Diff、80列和终端恢复；自有活动另以私有 socket/PTY 验证。Windows 运行 Rust 渲染和业务检查，不声称验证过原生 Unix PTY 。
 - 安装可选 glow/ffmpeg 后，来源 glow 测试和 Engine 的 Markdown/真实临时视频封面 opt-in 测试已实际通过；普通 CI 无需这些可选工具，不把涉及用户实际 Herdr 窗格的 takeover ignored 测试当作已执行。
 - 另外运行过原 Projects 的独立 fixture 基线：828 通过、6 失败。失败涉及两项旧目录迁移时序、旧共享 Cargo 配置链接、原生只读规划沙箱前提、旧插件进程接管和旧 warm-start 构建路径。这不是本次新增生产功能的通过证据，不修改或忽略后冒充通过；保留给 #20 的来源测试迁移分析。原始日志仅存本地，未提交。
 

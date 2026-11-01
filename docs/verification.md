@@ -10,15 +10,13 @@
 
 | Issue | 实现入口 | 可复现验收 |
 | --- | --- | --- |
-| #2 | 根 workspace、来源库、scripts/build.py | 锁定工具链和 Cargo.lock，编译 HerdrWork 与 Unix Projects 后端；doctor 报告固定来源 |
-| #3 | engine/tasks.rs、host.rs、tui/state.rs | 原 tasks::list 快照，保留 attempt、terminal/socket、worktree 实例；唯一匹配才绑定；过期 epoch 不更新当前视图 |
+| #2 | 根 workspace、来源库、scripts/build.py | 锁定工具链和 Cargo.lock，编译 HerdrWork 主程序；doctor 报告固定来源 |
 | #5 | engine/review.rs | 评论锚定显示时的 fingerprint，原子落盘；重启、编辑、文件改变和工作目录实例替换测试 |
 | #6 | engine/review.rs、herdr-work/tests/host.rs | 原格式化和发送传输；固定评论版本和目标，Unknown 禁重发；聚焦失败不撤销送达 |
 | #7 | engine/code.rs、tui/state.rs | 原 Sidebar Tree、Git::discover_all/status，显式 repository root；文件预览、SCM 与 Diff 联动 |
 | #8 | engine/code.rs | 原 Sidebar stage/unstage，写锁和工作区实例、index、文件内容预期校验；真实 Git 测试 |
 | #9 | engine/code.rs | 原 Sidebar commit，提交前 HEAD/index 再校验，持久化操作结果与显式核对 |
-| #10 | engine/tasks.rs、Projects CLI/keeper 补丁 | 原 add/delegate/stop/reopen；实际 launcher 在全新子进程中保持 managed/home/data/config/reports 隔离及原 Agent caller/report 语义；独立 keeper；UI 退出、暂停自动调度和停止 Agent 为不同操作 |
-| #11 | engine/lib.rs、review.rs、tasks.rs | 恢复执行选择/草稿，Sending 转 Unknown，不自动重试；reconcile 保存显式核对证据 |
+| #11 | engine/lib.rs、review.rs、operations.rs | 恢复执行选择/草稿，Sending 转 Unknown，不自动重试；reconcile 保存显式核对证据 |
 | #12 | 首版历史能力，后续已按新项目策略移除 | 不再提供旧插件资料导入，历史实现和验收见已关闭 Issue；新要求见内部模块任务 M01 |
 | #13 | scripts/package.py、install.py、smoke.py | macOS 真实归档、许可、manifest、SHA、安装运行、当前名称的重装/回滚与卸载后保留数据；只认当前收据，不接管无主程序 |
 | #14 | .github/workflows/ci.yml、build.yml、release.yml | 三平台原生编译/测试/打包/安装；全部成功后 draft 上传附件，最后发布 |
@@ -38,20 +36,20 @@ python3 scripts/smoke.py --archives dist
 
 ## 范围与尚需实际会话验证的事项
 
-- Windows 不包含 Unix Projects 后端，支持原生文件、Git、Diff 与草稿；原生任务执行不在本次 Windows 包能力内。
+- 各平台只包含主程序，提供文件、Git、Diff 与审查；跨平台原生验收以同 SHA 的 Actions 为准。
 - 私有宿主 fixture 验证真实 CLI 与原 socket/readiness 链路，不等同于真人 Agent 已阅读或执行反馈。宿主缺少原子 send-if-ready，因此最终检查与宿主写入仍存在宿主侧竞态。
 - 本机无 Apple 公证凭据，安装时 ad hoc 签名。未声明 Developer ID 签名或 SmartScreen 信任。
 - 实际 Herdr 会话中的 pane 移动、Agents 长时间运行和性能演练仍作为建议验证场景。
 
 ## UI 启动与中文帮助回归
 
-`cargo test --workspace --locked` 包含中文主帮助、嵌套帮助、help/-h 入口，以及真实异步代码加载后的界面渲染检查。默认须展示 Explorer 与文件预览，Tasks 通过导航进入且有创建引导，任务列表只能出现一次；任务后端失败须显示错误且文件可用；失败重试和过期错误不得覆盖新结果。
+`cargo test --workspace --locked` 包含中文主帮助、嵌套帮助、help/-h 入口，以及真实异步代码加载后的界面渲染检查。默认须展示 Explorer 与文件预览；失败重试和过期错误不得覆盖新结果。
 
-macOS/Linux 的归档安装 smoke 调用 `scripts/ui_smoke.py`，在私有 PTY 与临时 Git 仓库中等待真实加载完成，检查默认 Explorer、鼠标导航、文件预览、实际暂存/取消暂存和 Git 差异，通过键盘创建任务并确认列表更新，再缩窄至 80 列、退出并检查终端标志恢复。Windows 通过 Rust 状态/渲染测试；尚未声明 Windows 原生 PTY 交互验收。
+macOS/Linux 的归档安装 smoke 调用 `scripts/ui_smoke.py`，在私有 PTY 与临时 Git 仓库中等待真实加载完成，检查默认 Explorer、鼠标导航、文件预览、实际暂存/取消暂存和 Git 差异，再缩窄至 80 列、退出并检查终端标志恢复。Windows 通过 Rust 状态/渲染测试；尚未声明 Windows 原生 PTY 交互验收。
 
 ## HerdrWork 名称验收
 
-`doctor` 必须报告 `product: HerdrWork`、默认 `~/.herdr-work` 和 `herdr-work-projects` 后端。只读取 --home / HERDR_WORK_HOME / 默认目录；负向检查旧环境、旧目录、旧托管/暂停标记和旧命令没有行为，旧数据不自动复制。hook 在 UI 持锁时仍可解析当前目录。安装器只认当前产品、文件名和收据，保留安装失败恢复和当前名称回滚；旧文件不被接管或自动删除。历史 CHANGELOG 保留真实发布事实。
+`doctor` 报告产品、版本、资料根与当前来源。只读取 --home / HERDR_WORK_HOME / 默认目录；不自动复制旧数据。安装器保留失败恢复和当前产品回滚，不接管无主程序。历史 CHANGELOG 保留真实发布事实。
 
 ## 后续模块迁移
 
@@ -60,7 +58,7 @@ macOS/Linux 的归档安装 smoke 调用 `scripts/ui_smoke.py`，在私有 PTY �
 
 - `cargo test --workspace --locked`：373 通过、3 项来源测试沿用 ignored；包含原 Code 库 336 项、TUI 12 项及 worker 实际启动隔离测试。
 - `cargo test -p herdr-work-code --features reference-ui --bin herdr-work-code-browser --locked`：保留来源界面 54 项通过。
-- 原生 macOS PTY 已实际检查菜单、设置、内置编辑器选择/粘贴/保存、预览、暂存/取消暂存、Diff、创建任务、80 列和终端恢复。
-- HerdrWork 不读取独立 Sidebar 的配置，不启用其接管/更新/窗格生命周期模块；专属任务入口忽略继承的第三方 Projects 资料路径。第三方命令、配置和注册表在隔离测试前后字节一致。
+- 原生 macOS PTY 已实际检查菜单、设置、内置编辑器选择/粘贴/保存、预览、暂存/取消暂存、Diff、80 列和终端恢复。
+- HerdrWork 不读取独立 Sidebar 的配置，不启用其接管/更新/窗格生命周期模块。第三方命令、配置和注册表在隔离测试前后字节一致。
 
-格式检查使用 `cargo fmt --check`，避免 `--all` 连带格式化尚未迁移的来源 Projects 独立工程。上列结果属于本机当前源码验证，三平台结果以同一提交的 Actions 为准。
+格式检查使用 `cargo fmt --check`。上列结果属于本机当前源码验证，三平台结果以同一提交的 Actions 为准。

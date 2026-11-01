@@ -28,8 +28,7 @@ def release_notes(changelog, tag, sha, repo):
     return (f'## 本版更新\n\n{entry}\n\n'
             f'[完整更新记录](https://github.com/{repo}/blob/{tag}/CHANGELOG.md)\n\n'
             '<details>\n<summary>平台与校验信息</summary>\n\n'
-            'macOS / Linux 包含 Projects 执行后端；Windows 提供文件、Git 与审查功能，'
-            '不包含 Projects 执行后端。\n\n'
+            'macOS、Linux 和 Windows 提供文件、Git 与审查功能。\n\n'
             '归档包含许可证、`MANIFEST.json` 和用户目录安装器；'
             '`SHA256SUMS` 提供附件校验和。\n\n'
             f'构建源码：`{sha}`\n\n</details>\n')

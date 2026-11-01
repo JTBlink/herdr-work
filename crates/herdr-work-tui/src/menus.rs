@@ -296,10 +296,6 @@ impl App {
                 }
                 "Git 菜单"
             }
-            Tab::Tasks => {
-                rows.push((Command::Key(KeyCode::Char('n')), "创建任务"));
-                "任务菜单"
-            }
             Tab::Search => {
                 rows.push((Command::Search(false), "搜索文本"));
                 rows.push((Command::Search(true), "快速打开文件"));

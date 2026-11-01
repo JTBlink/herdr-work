@@ -271,11 +271,7 @@ mod replacement_tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("repo");
         std::fs::create_dir(&root).unwrap();
-        let desk = HerdrWork::open(
-            &temp.path().join("profile"),
-            Some(temp.path().join("missing-backend")),
-        )
-        .unwrap();
+        let desk = HerdrWork::open(&temp.path().join("profile")).unwrap();
         (temp, desk, root)
     }
     fn request(root: PathBuf) -> ReplaceRequest {

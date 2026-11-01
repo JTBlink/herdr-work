@@ -1,6 +1,6 @@
 //! Activity and sidebar pointer actions share the geometry used by the renderer.
 use crate::{
-    layout::{ACTIVITIES, activity_button, offset, settings_button, task_offset},
+    layout::{ACTIVITIES, activity_button, offset, settings_button},
     state::*,
 };
 use anyhow::Result;
@@ -249,24 +249,12 @@ impl App {
                 }
                 let count = match self.tab {
                     Tab::Files => self.code.as_ref().map(|c| c.files.len()).unwrap_or(0),
-                    Tab::Tasks => self.tasks.len(),
                     Tab::Search => self.search_rows.len(),
                     _ => self.code.as_ref().map(|c| c.changes.len()).unwrap_or(0),
                 };
-                let selected = if self.tab == Tab::Tasks {
-                    if row >= (body.height / 2) as usize * 2 {
-                        return Ok(());
-                    }
-                    row / 2 + task_offset(self.task, body.height)
-                } else {
-                    row + offset(self.selection, body.height)
-                };
+                let selected = row + offset(self.selection, body.height);
                 if selected < count && row < body.height as usize {
-                    if self.tab == Tab::Tasks {
-                        self.task = selected;
-                    } else {
-                        self.selection = selected;
-                    }
+                    self.selection = selected;
                     if right {
                         self.open_menu(true);
                     } else {

@@ -377,7 +377,7 @@ impl HerdrWork {
     /// Same explicit resolution records as the CLI, enriched with a fresh observation.
     pub fn git_reconciliation(&self) -> Result<serde_json::Value> {
         bounded_git(|| {
-            let mut value = self.reconcile_tasks()?;
+            let mut value = self.reconcile_operations()?;
             if let Some(operations) = value["operations"].as_array_mut() {
                 for operation in operations {
                     let root = operation["record"]["plan"]["root"]

@@ -5,6 +5,7 @@ mod editing;
 mod files;
 mod git_state;
 mod host;
+mod operations;
 mod preferences;
 pub mod process;
 mod profile;
@@ -12,7 +13,6 @@ mod review;
 mod scm;
 mod search;
 mod storage;
-mod tasks;
 mod transport;
 mod ui_state;
 mod work_git;
@@ -41,7 +41,6 @@ use std::{
 pub struct HerdrWork(Arc<Profile>);
 struct Profile {
     root: PathBuf,
-    backend: PathBuf,
     _lock: File,
 }
 impl Drop for Profile {
@@ -93,14 +92,14 @@ impl HerdrWork {
         Ok(context)
     }
 
-    pub fn open(root: &Path, backend: Option<PathBuf>) -> Result<Self> {
-        Self::open_mode(root, backend, false)
+    pub fn open(root: &Path) -> Result<Self> {
+        Self::open_mode(root, false)
     }
     /// Source Sidebar state uses its own per-file locks, one UI per host pane.
-    pub fn open_sidebar(root: &Path, backend: Option<PathBuf>) -> Result<Self> {
-        Self::open_mode(root, backend, true)
+    pub fn open_sidebar(root: &Path) -> Result<Self> {
+        Self::open_mode(root, true)
     }
-    fn open_mode(root: &Path, backend: Option<PathBuf>, sidebar: bool) -> Result<Self> {
+    fn open_mode(root: &Path, sidebar: bool) -> Result<Self> {
         let absolute = std::path::absolute(root)?;
         std::fs::create_dir_all(&absolute)?;
         let root = absolute.canonicalize()?;
@@ -109,20 +108,7 @@ impl HerdrWork {
         } else {
             profile::profile_lock(&root)?
         };
-        let backend = backend.unwrap_or_else(|| {
-            std::env::current_exe()
-                .unwrap_or_default()
-                .with_file_name(if cfg!(windows) {
-                    "herdr-work-projects.exe"
-                } else {
-                    "herdr-work-projects"
-                })
-        });
-        let desk = Self(Arc::new(Profile {
-            root,
-            backend,
-            _lock: lock,
-        }));
+        let desk = Self(Arc::new(Profile { root, _lock: lock }));
         if !sidebar {
             desk.recover_reviews()?;
         }
@@ -130,12 +116,6 @@ impl HerdrWork {
     }
     pub fn root(&self) -> &Path {
         &self.0.root
-    }
-    pub fn backend(&self) -> &Path {
-        &self.0.backend
-    }
-    pub fn projects_home(&self) -> PathBuf {
-        self.root().join("projects")
     }
     pub fn default_root() -> PathBuf {
         profile::default_root()

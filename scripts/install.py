@@ -11,7 +11,9 @@ import tempfile
 
 RECEIPT = 'herdr-work-install.json'
 BACKUP = '.herdr-work-previous'
-ALLOWED = {'herdr-work', 'herdr-work.exe', 'herdr-work-projects'}
+ALLOWED = {'herdr-work', 'herdr-work.exe'}
+# Previous current-product receipts remain valid for owned cleanup and rollback.
+RECEIPT_ALLOWED = ALLOWED | {'herdr-work-projects'}
 
 
 def digest(file):
@@ -40,7 +42,7 @@ def receipt_file(prefix):
 def validate_receipt(prefix, data):
     for file in data['files']:
         path = Path(file)
-        if path.parent != prefix / 'bin' or path.name not in ALLOWED:
+        if path.parent != prefix / 'bin' or path.name not in RECEIPT_ALLOWED:
             raise ValueError('Invalid install receipt')
     return data
 

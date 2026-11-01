@@ -43,7 +43,6 @@ mod search;
 mod sidebar_view;
 mod source_sidebar;
 mod state;
-mod task_view;
 mod timers;
 mod view;
 pub use herdr_work_engine::InitialView;
@@ -152,7 +151,6 @@ pub fn run_with_mode(
     });
     let result = (|| -> Result<()> {
         app.refresh()?;
-        app.load_tasks()?;
         let mut last_tick = Instant::now();
         let mut last_editor_poll = Instant::now();
         let mut redraw = true;

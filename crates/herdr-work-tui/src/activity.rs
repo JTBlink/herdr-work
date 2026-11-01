@@ -23,7 +23,6 @@ impl App {
                 Tab::Files => ActivityIcon::Files,
                 Tab::Search => ActivityIcon::Search,
                 Tab::Scm => ActivityIcon::SourceControl,
-                Tab::Tasks => ActivityIcon::Tasks,
                 Tab::Review => ActivityIcon::Review,
             };
             self.draw_rail_button(frame, rect, icon, self.tab == *tab);

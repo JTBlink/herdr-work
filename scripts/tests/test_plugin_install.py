@@ -54,10 +54,10 @@ class SourcePackaging(unittest.TestCase):
         self.root = Path(temp.name).resolve()
         self.target = 'x86_64-unknown-linux-gnu'
         self.plan = {'product': 'HerdrWork', 'version': '0.1.0', 'sha': 'a' * 40,
-                     'target': self.target, 'projects_backend': True}
-        for relative in ('scripts/install.py', 'scripts/hook.py', 'README.md',
+                     'target': self.target}
+        for relative in ('scripts/install.py', 'README.md',
                          'herdr-plugin.toml', 'LICENSE', 'CHANGELOG.md',
-                         'crates/herdr-work-projects/LICENSE', 'crates/herdr-work-code/LICENSE',
+                         'crates/herdr-work-code/LICENSE',
                          'crates/herdr-work-engine/LICENSE-process-runtime'):
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -76,7 +76,7 @@ class SourcePackaging(unittest.TestCase):
 
     def compile(self, command, **kwargs):
         self.assertIn('build.py', command[1])
-        for name in ('herdr-work', 'herdr-work-projects'):
+        for name in ('herdr-work',):
             binary = self.root / 'target' / self.target / 'release' / name
             binary.parent.mkdir(parents=True, exist_ok=True)
             binary.write_text(self.plan['version'])
@@ -101,7 +101,7 @@ class SourcePackaging(unittest.TestCase):
         self.assertEqual(package.verify(archives[0])['version'], '0.2.0')
         self.assertFalse(old.exists())
         self.assertFalse(old.with_name(old.name + '.sha256').exists())
-        for name in ('herdr-work', 'herdr-work-projects'):
+        for name in ('herdr-work',):
             self.assertEqual((self.root / 'bin' / name).read_text(), '0.2.0')
         self.assertTrue((self.root / 'herdr-work-install.json').is_file())
         self.keys.assert_called_once()

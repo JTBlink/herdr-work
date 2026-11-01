@@ -99,7 +99,6 @@ impl App {
                 Tab::Files => "files",
                 Tab::Search => "search",
                 Tab::Scm => "git",
-                Tab::Tasks => "tasks",
                 Tab::Review => "review",
             }
             .into(),
@@ -456,7 +455,6 @@ impl App {
                         self.tab = match state.activity.as_str() {
                             "git" => Tab::Scm,
                             "search" => Tab::Search,
-                            "tasks" => Tab::Tasks,
                             "review" => Tab::Review,
                             _ => Tab::Files,
                         };

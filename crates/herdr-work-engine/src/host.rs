@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn opening_worktrees_focuses_new_or_existing_workspaces_and_reports_refusal() {
         let fixture = tempfile::tempdir().unwrap();
-        let desk = HerdrWork::open(&fixture.path().join("profile"), None).unwrap();
+        let desk = HerdrWork::open(&fixture.path().join("profile")).unwrap();
         let socket = fixture.path().join("host.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         let root = fixture.path().join("repository");

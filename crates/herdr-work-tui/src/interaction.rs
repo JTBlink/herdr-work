@@ -150,19 +150,11 @@ impl App {
         let count = match self.tab {
             Tab::Files => self.code.as_ref().map_or(0, |code| code.files.len()),
             Tab::Search => self.search_rows.len(),
-            Tab::Tasks => self.tasks.len(),
             Tab::Scm => self.scm_rows().len(),
             Tab::Review => return Ok(false),
         };
-        let page = usize::from(if self.tab == Tab::Tasks {
-            height / 2
-        } else {
-            height
-        })
-        .max(1);
-        let selected = if self.tab == Tab::Tasks {
-            &mut self.task
-        } else if self.tab == Tab::Scm {
+        let page = usize::from(height).max(1);
+        let selected = if self.tab == Tab::Scm {
             &mut self.scm_cursor
         } else {
             &mut self.selection

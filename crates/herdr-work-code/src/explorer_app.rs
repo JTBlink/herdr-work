@@ -416,7 +416,6 @@ struct ActivityZones {
     explorer: (u16, u16),
     search: (u16, u16),
     source_control: (u16, u16),
-    projects: Rect,
 }
 
 impl Default for ActivityZones {
@@ -427,7 +426,6 @@ impl Default for ActivityZones {
             explorer: (0, 0),
             search: (0, 0),
             source_control: (0, 0),
-            projects: Rect::default(),
         }
     }
 }
@@ -1203,15 +1201,6 @@ impl App {
         // Search — so the keys stay a switcher until you deliberately focus the
         // box (Ctrl+F / Tab / click); a focused box captures digits as text so
         // "3" is searchable. The tree's own bare 1/2/3 are handled further down.
-        if key.code == KeyCode::Char('4')
-            && (key.modifiers == KeyModifiers::CONTROL
-                || (key.modifiers.is_empty()
-                    && (self.overlay.is_none() || self.search_text_unfocused())))
-            && matches!(self.overlay, None | Some(Overlay::ContentSearch { .. }))
-        {
-            self.mouse_pos = None;
-            return Some(Exit::Projects);
-        }
         let injected_view = match key.code {
             KeyCode::F(9) => Some('1'),
             KeyCode::F(10) => Some('2'),
@@ -1316,9 +1305,6 @@ impl App {
         if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
             let zones = self.activity;
             if self.merged() {
-                if hits(zones.projects, mouse.column, mouse.row) {
-                    return Some(Exit::Projects);
-                }
                 if hits_activity_button(zones.explorer, zones.row, mouse.column, mouse.row) {
                     self.overlay = None;
                     self.sidebar_state = sidebar::update_state(|state| state.search_active = false);
@@ -3785,7 +3771,6 @@ impl App {
             explorer: bounds[1],
             search: bounds[3],
             source_control: bounds[5],
-            projects: Rect::default(),
         };
         let hovered = |bounds| {
             self.mouse_pos
@@ -3842,14 +3827,6 @@ impl App {
         line.push(Span::raw(" ".repeat(pad)));
         line.push(gear);
         frame.render_widget(Paragraph::new(Line::from(line)), area);
-        self.activity.projects = herdr_work_code::ui::draw_projects_button(
-            frame,
-            area,
-            x,
-            gear_x,
-            self.mouse_pos,
-            self.theme,
-        );
         herdr_work_code::ui::draw_activity_badge(
             frame,
             bounds[5],

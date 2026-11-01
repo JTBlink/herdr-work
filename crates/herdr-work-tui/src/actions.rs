@@ -180,7 +180,7 @@ impl App {
                 self.start_editor()?
             }
             KeyCode::Char('/') => self.query_prompt(false),
-            KeyCode::Char('5') => self.switch_tab(Tab::Search),
+            KeyCode::Char('2') => self.switch_tab(Tab::Search),
             KeyCode::Char('c' | 'w' | '*')
                 if self.tab == Tab::Search && self.focus == Focus::Sidebar =>
             {
@@ -210,8 +210,7 @@ impl App {
                     self.search_exclude.clone()
                 };
             }
-            KeyCode::Char('1') => self.switch_tab(Tab::Tasks),
-            KeyCode::Char('2') => self.switch_tab(Tab::Files),
+            KeyCode::Char('1') => self.switch_tab(Tab::Files),
             KeyCode::Char('3') => self.switch_tab(Tab::Scm),
             KeyCode::Char('4') => self.switch_tab(Tab::Review),
             KeyCode::Char('g') if matches!(self.tab, Tab::Scm | Tab::Review) => {
@@ -279,33 +278,23 @@ impl App {
                 self.preview_scroll = self.preview_scroll.saturating_sub(1);
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if self.tab == Tab::Tasks {
-                    self.task = (self.task + 1).min(self.tasks.len().saturating_sub(1));
-                } else {
-                    let count = match self.tab {
-                        Tab::Files => self.code.as_ref().map(|c| c.files.len()).unwrap_or(0),
-                        Tab::Scm => self.code.as_ref().map(|c| c.changes.len()).unwrap_or(0),
-                        Tab::Review => self.diff.as_ref().map(|d| d.rows.len()).unwrap_or(0),
-                        Tab::Search => self.search_rows.len(),
-                        _ => 0,
-                    };
-                    self.selection = self
-                        .selection
-                        .saturating_add(1)
-                        .min(count.saturating_sub(1));
-                }
+                let count = match self.tab {
+                    Tab::Files => self.code.as_ref().map(|c| c.files.len()).unwrap_or(0),
+                    Tab::Scm => self.code.as_ref().map(|c| c.changes.len()).unwrap_or(0),
+                    Tab::Review => self.diff.as_ref().map(|d| d.rows.len()).unwrap_or(0),
+                    Tab::Search => self.search_rows.len(),
+                };
+                self.selection = self
+                    .selection
+                    .saturating_add(1)
+                    .min(count.saturating_sub(1));
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                if self.tab == Tab::Tasks {
-                    self.task = self.task.saturating_sub(1);
-                } else {
-                    self.selection = self.selection.saturating_sub(1);
-                }
+                self.selection = self.selection.saturating_sub(1);
             }
             KeyCode::Char('r') => {
                 self.invalidate_quick_index();
                 self.refresh()?;
-                self.load_tasks()?;
                 if let Some(kind) = self.active_drawer {
                     self.load_drawer(kind)?;
                 }
@@ -314,7 +303,6 @@ impl App {
                 self.tick_refresh(now)?;
             }
             KeyCode::Enter => match self.tab {
-                Tab::Tasks => self.choose_execution()?,
                 Tab::Files => {
                     self.edit_request = None;
                     let row = self
@@ -443,32 +431,6 @@ impl App {
                         ),
                     ))
                 })?;
-            }
-            KeyCode::Char('n') => {
-                self.prompt = Some(Prompt::NewTask);
-                self.input.clear();
-            }
-            KeyCode::Char('d') => {
-                let id = self
-                    .tasks
-                    .get(self.task)
-                    .context("No task selected")?
-                    .id
-                    .clone();
-                self.job(move |d| {
-                    d.task_action(&id, "delegate")?;
-                    Ok(Data::Business("任务已委派".into()))
-                })?;
-            }
-            KeyCode::Char('x') => {
-                self.prompt = Some(Prompt::Stop(
-                    self.tasks
-                        .get(self.task)
-                        .context("No task selected")?
-                        .id
-                        .clone(),
-                ));
-                self.input.clear();
             }
             _ => {}
         }
@@ -615,23 +577,6 @@ impl App {
             Prompt::SearchExclude => {
                 self.search_exclude = input;
                 self.search()?;
-            }
-            Prompt::NewTask => {
-                let root = self.root.clone();
-                self.job(move |d| {
-                    d.create_task(&root, &input)?;
-                    Ok(Data::Business("任务已创建".into()))
-                })?;
-            }
-            Prompt::Stop(id) => {
-                anyhow::ensure!(
-                    input == "STOP",
-                    "Type STOP to confirm stopping the selected execution"
-                );
-                self.job(move |d| {
-                    d.task_action(&id, "stop")?;
-                    Ok(Data::Business("任务已停止".into()))
-                })?;
             }
             Prompt::Commit(plan) => {
                 let root = plan.root.clone();

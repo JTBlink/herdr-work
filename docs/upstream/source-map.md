@@ -1,6 +1,6 @@
 # 固定源码与导入映射
 
-用户已确定[产品内部模块整合方向](../architecture/herdr-work-internal-modules.md)：本页记录当前来源位置与实际调用，后续迁至根 workspace 和 `crates/`，来源记录最终进入 `docs/provenance/`。Sidebar 已迁入 `crates/herdr-work-code`，Projects 已迁入根 workspace，见 [Sidebar 记录](../provenance/sidebar-source.md)与 [Projects 记录](../provenance/projects-source.md)。
+用户已确定[产品内部模块整合方向](../architecture/herdr-work-internal-modules.md)：本页记录当前来源位置与实际调用，后续迁至根 workspace 和 `crates/`，来源记录最终进入 `docs/provenance/`。Sidebar 位于 `crates/herdr-work-code`，见 [Sidebar 记录](../provenance/sidebar-source.md)。任务后端已移除，见 [ADR-0003](../adr/0003-remove-task-backend.md)。
 
 ## 当前获取状态
 
@@ -8,7 +8,6 @@
 
 | 来源 | 固定 commit | 已下载目录 | 核对版本 |
 | --- | --- | --- | --- |
-| Projects | `92a2813be9a7c2f8cda737f6b78ed21e8413c3ce` | `reference-plugins/herdr-projects/` | 1.2.2 |
 | Sidebar | `081ed133f3faa377438b51ce435fe8a87c439593` | `reference-plugins/herdr-sidebar/` | 0.15.1 |
 
 版本与下载方式见[参考源码](../reference-plugins.md)。归档不包含 `.git`，固定 commit 来自下载 URL 与归档根目录，不冒充已检查 Git HEAD 的 checkout。
@@ -19,10 +18,9 @@
 
 | 来源根目录 | 目标目录 | 保留内容 |
 | --- | --- | --- |
-| Projects | `crates/herdr-work-projects`、`crates/herdr-work-task-{data,flow,board,web}` | 原 CLI 库、core/flow/board/web、资源及测试；旧脚本仅作测试夹具，原说明和清单归档至 docs/provenance/projects |
 | Sidebar package | `crates/herdr-work-code/` | 原算法、资源及测试；独立插件入口移为显式测试特性，原说明/清单归档到 docs/provenance |
 
-Code 与 Projects 已作为产品内部 crate 命名和维护。根 workspace 现有十个成员：core、engine、tui、主 CLI、Code、Projects worker 与 task-data/flow/board/web。Projects 原 CLI 库合入现有 worker，原五个 package 已迁入，使用根 Cargo.lock 和 target；旧目录已删除。最终九模块职责整理尚未完成。
+根 workspace 包含 Core、Engine、TUI、CLI 和 Code 五个成员，统一锁文件与 target。
 
 ## 复用与升级约束
 
@@ -40,7 +38,6 @@ Code 与 Projects 已作为产品内部 crate 命名和维护。根 workspace �
 
 2026-10-30 Diff 导航：复用 Sidebar 的 `diffview` 事件解析、高亮和 `viewer` 输入循环，派生连续增删块的源行起点；新增共享文档导航状态和标题栏按钮，保留原滚动、换行、选择复制及自动刷新。改动不重写 Diff 算法，不接管独立插件；验证见 [Diff 导航](../verification/diff-navigation.md)。
 
-2026-10-22 顶部 Projects 入口：复用 Code 的活动栏与 Projects 的 `board::place::show`，将原 VS Code 按钮改为后台宿主请求。托管看板通过自有插件 `board` 入口分配终端，传递当前仓库与 HerdrWork 资料；跳过独立插件配置同步、安装提示和旧目录提示。已运行看板沿用原聚焦逻辑，设置与文件菜单中的 VS Code 功能保留。验证见 [Projects 入口](../verification/projects-entry.md)。
 
 VS Code 直接设置入口：Explorer 与 SCM 在文件打开方式后增加当前目录打开动作，共用 `vscode::Launcher` 的有界后台任务和过期结果处理；保留原设置数据与内置预览行为。
 
@@ -50,17 +47,12 @@ VS Code 文件打开扩展：继续使用原 Explorer 的文件、Quick Open 和
 
 | 来源文件 | 补丁与实际复用 |
 | --- | --- |
-| Projects `src/cli/mod.rs` | 增加启动迁移前的只读 `herdr-work-snapshot`，调用原 tasks::list；增加调度暂停/恢复控制。managed 模式跳过旧安装接管及旧数据自动导入，禁止原更新入口。其他 add/delegate/stop/reopen 仍执行原命令逻辑。 |
-| Projects `crates/core/src/store/files.rs` | managed 模式的 board_env 为 Agent workspace、重启及实际 launcher 传递托管标记、home、data/config/reports；原模式保持原两项环境。Agent 回调不注入插件 UI 身份。 |
-| Projects `crates/flow/src/flow/send.rs` | managed 模式的原 launcher 清除插件 UI 身份及其上下文，保留原 Agent caller / 无 ID report 语义。 |
-| Projects `crates/flow/src/keeper.rs` | managed 模式识别独立暂停标记，keeper 和 ticker 自行退出；保留原后台锁、heartbeat、runner 与更新交接逻辑。 |
-| Projects `crates/flow/src/flow/sidebar.rs` | managed 模式关闭旧 Sidebar 元数据同步，避免驱动另一插件界面。 |
 | Code `crates/herdr-work-code/src/editor.rs` | 原 `poll_external` 抽为后台观察与纯状态应用，原入口也调用共享实现；保留原 reload/save、UTF-8/BOM/CRLF、选择及缓冲算法。工作台每次最多排队一个观察，按编辑会话/路径/工作目录和基线拒绝旧结果；保存确认只合并已落盘字节，保留等待期间的新输入。滚轮视口不再在绘制时被光标位置重置。 |
 
 
 ## 当前名称与兼容清理
 
-当前根 workspace 已增加 `herdr-work-code` 与 `herdr-work-projects`。适配接口使用 `herdr_work_*`，托管环境只读取 `HERDR_WORK_MANAGED`。旧命令别名、旧托管变量、旧暂停标记均已移除；profile、Git 写锁、收据和归档只使用 HerdrWork 当前名称，不再支持旧目录或旧插件数据导入。来源 Git 哈希是导入基线，实际改动由本项目提交追踪。
+当前根 workspace 的生产源码均位于 `crates/`；profile、Git 写锁、收据和归档只使用 HerdrWork 当前名称，不支持旧目录或旧插件数据导入。来源哈希表示导入基线，实际改动由本项目提交追踪。
 
 默认 TUI 已改为 Explorer。文件树/SCM 继续执行原 Tree/Git；活动栏选中样式、Git 状态颜色直接复用 Sidebar 的 `ui` 模块。主程序自行维护一个终端和 scoped 布局，不运行原插件 App 或 pane 自动补建。视口几何与鼠标命中使用同一个 layout 模块，预览有独立焦点与滚动，过期文件预览不覆盖当前选择。
 
@@ -95,7 +87,7 @@ macOS 本地验证使用临时 Unix socket 运行真实 CLI，覆盖资料锁占
 
 将 `scm_app` 的仓库标题、带边框提交框、三行提交按钮和变高行视口机械移动到 `scm_widgets`，来源 App 改为适配调用。HerdrWork 的 `scm_layout` 只适配快照、草稿和可见矩形，侧栏直接使用同一组 widgets，消息框不再简化成单行文字。中文/换行的列宽修正在共享 `wrap_message` 中，两端共用；鼠标按可见行高命中，提交按钮上下装饰行也指向对应仓库。
 
-活动栏的文件、搜索、Git 与设置图标直接调用原 `activity_icons`/`gear_icon` 表；任务、审查沿用同族扩展。未显式选择图标主题时默认 auto，复用原 Nerd Font 探测；明确保存的 Emoji/Material 不会被覆盖，不读取独立 Sidebar 设置或修改终端字体。
+活动栏的文件、搜索、Git 与设置图标直接调用原 `activity_icons`/`gear_icon` 表；审查沿用同族扩展。未显式选择图标主题时默认 auto，复用原 Nerd Font 探测；明确保存的 Emoji/Material 不会被覆盖，不读取独立 Sidebar 设置或修改终端字体。
 
 ## 默认 Sidebar 与自有生命周期补齐（2026-10-20）
 
@@ -127,6 +119,6 @@ macOS 本地验证使用临时 Unix socket 运行真实 CLI，覆盖资料锁占
 
 ## macOS 快捷键适配（2026-10-31）
 
-迁入的 Explorer/SCM 输入路由增加 Command+P/F，复用 Quick Open、搜索和 Projects 请求；列表数字 4 打开主看板，搜索与提交输入保留数字。显式搜索请求可聚焦已打开的查询框，修复从 Git 转入搜索后仍停在结果列表的问题。唯一终端循环协商增强键盘协议，退出时恢复协议栈并独立清理鼠标/粘贴模式。
+迁入的 Explorer/SCM 输入路由增加 Command+P/F，复用 Quick Open 和搜索，输入框保留数字。显式搜索请求可聚焦已打开的查询框，修复从 Git 转入搜索后仍停在结果列表的问题。唯一终端循环协商增强键盘协议，退出时恢复协议栈并独立清理鼠标/粘贴模式。
 
-Projects 键表继续保存和传输规范 ctrl/alt 和弦；HerdrWork 托管看板在 macOS 显示 Option，设置接受 Option/Control 别名。来源参考界面与生成文档保留规范名称，独立插件不参与配置或生命周期操作。检查与限制见 [macOS 快捷键验证](../verification/macos-shortcuts.md)。
+快捷键检查与限制见 [macOS 快捷键验证](../verification/macos-shortcuts.md)。

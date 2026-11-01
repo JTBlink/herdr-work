@@ -156,8 +156,6 @@ fn ui_process(value: &Value, pane: &str, binary: &Path, profile: &Path) -> bool 
                             }
                             i += 1;
                         }
-                        "--projects-backend" => i += 2,
-                        arg if arg.starts_with("--projects-backend=") => i += 1,
                         command => return command == "ui",
                     }
                 }

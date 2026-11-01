@@ -30,7 +30,7 @@ fn fixture() -> (tempfile::TempDir, tempfile::TempDir, HerdrWork) {
     git(repo.path(), &["add", "file.txt"]);
     git(repo.path(), &["commit", "-qm", "initial"]);
     std::fs::write(repo.path().join("file.txt"), "after\n").unwrap();
-    let desk = HerdrWork::open(home.path(), None).unwrap();
+    let desk = HerdrWork::open(home.path()).unwrap();
     (repo, home, desk)
 }
 
@@ -217,7 +217,7 @@ fn interrupted_send_recovers_unknown_and_cannot_automatically_repeat() {
     desk.record_delivery(&review.id, &batch.id, Delivery::Sending)
         .unwrap();
     drop(desk);
-    let desk = HerdrWork::open(home.path(), None).unwrap();
+    let desk = HerdrWork::open(home.path()).unwrap();
     let review = desk.review(&review.id).unwrap();
     assert_eq!(review.batches[0].state, Delivery::Unknown);
     assert!(desk.prepare_send(&review.id).is_err());
@@ -243,9 +243,9 @@ fn changed_content_invalidates_review_even_when_head_has_not_changed() {
 #[test]
 fn profile_is_exclusive_and_can_be_reopened_after_release() {
     let (_repo, home, desk) = fixture();
-    assert!(HerdrWork::open(home.path(), None).is_err());
+    assert!(HerdrWork::open(home.path()).is_err());
     drop(desk);
-    assert!(HerdrWork::open(home.path(), None).is_ok());
+    assert!(HerdrWork::open(home.path()).is_ok());
 }
 
 #[test]

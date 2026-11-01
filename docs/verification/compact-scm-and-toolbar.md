@@ -2,7 +2,7 @@
 
 日期：2026-10-21。平台：macOS Apple Silicon。
 
-2026-10-22 补充：输入框的后续修正见[提交输入框布局](scm-input-layout.md)，顶部按钮已改为 [Projects 入口](projects-entry.md)。以下保留 2026-10-21 的实现与验证记录。
+2026-10-22 补充：输入框的后续修正见[提交输入框布局](scm-input-layout.md)，顶部任务按钮已移除，见[移除决策](../adr/0003-remove-task-backend.md)。以下保留 2026-10-21 的实现与验证记录。
 
 ## 可见变化
 

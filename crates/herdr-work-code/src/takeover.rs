@@ -1059,7 +1059,6 @@ mod tests {
         }
         for name in [
             "herdr-work",
-            "herdr-work-projects",
             "herdr-work-preview-inline",
             "python3",
             "codex",

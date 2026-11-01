@@ -17,7 +17,7 @@ fn main_help_explains_commands_and_global_options_in_chinese() {
         "用法",
         "子命令",
         "数据目录",
-        "后端",
+        "源码来源",
         "启动终端界面",
         "显示帮助",
         "显示版本",
@@ -30,9 +30,8 @@ fn main_help_explains_commands_and_global_options_in_chinese() {
 #[test]
 fn nested_help_explains_parameters_in_chinese() {
     for (args, expected) in [
-        (vec!["task", "create"], "任务标题"),
         (vec!["diff"], "差异范围"),
-        (vec!["review", "open"], "执行实例"),
+        (vec!["review", "open"], "Git 工作目录"),
         (vec!["review", "add"], "起始行"),
         (vec!["review", "resolve"], "已送达"),
         (vec!["reconcile"], "核对依据"),
@@ -46,7 +45,7 @@ fn nested_help_explains_parameters_in_chinese() {
 
 #[test]
 fn help_subcommand_and_short_flag_remain_available() {
-    for args in [vec!["help", "task", "create"], vec!["diff", "-h"]] {
+    for args in [vec!["help", "review", "open"], vec!["diff", "-h"]] {
         let output = Command::new(env!("CARGO_BIN_EXE_herdr-work"))
             .args(&args)
             .output()
@@ -63,7 +62,7 @@ fn obsolete_import_commands_and_configuration_are_not_exposed() {
     let text = help(&[]);
     assert!(!text.contains("WORKDESK_HOME"));
     assert!(!text.contains("rollback-import"));
-    for command in ["import", "rollback-import"] {
+    for command in ["import", "rollback-import", "tasks", "task", "scheduler"] {
         let output = Command::new(env!("CARGO_BIN_EXE_herdr-work"))
             .arg(command)
             .arg("--help")
@@ -72,6 +71,24 @@ fn obsolete_import_commands_and_configuration_are_not_exposed() {
         assert!(
             !output.status.success(),
             "Removed command is still accepted: {command}"
+        );
+    }
+}
+
+#[test]
+fn removed_backend_options_are_rejected_before_opening_a_profile() {
+    for args in [
+        vec!["--projects-backend", "unused", "doctor"],
+        vec!["review", "open", "--task", "unused"],
+        vec!["review", "open", "--execution", "unused"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_herdr-work"))
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "Removed options accepted: {args:?}"
         );
     }
 }

@@ -10,6 +10,8 @@ tags:
 
 # Herdr Agent 工作台技术方案
 
+2026-11-01 范围调整：本文保留历史规划或调研证据。任务管理与后台编排已退出当前产品，见 [移除决策](../adr/0003-remove-task-backend.md)。
+
 > 本篇保留前期候选架构与固定版本源码证据。用户随后明确要求复用业务源码逻辑、统一目录并拆分 GitHub 任务；当前具体提案见[复用优先架构](../architecture/herdr-work-architecture.md)，规格与拆分见[任务计划](../plans/herdr-work/README.md)。下文的 A/B 候选及四个平铺 crate 是早期提案，不作为最新实施目录；未表示已批准或实现。
 
 ## 方案定位与结论

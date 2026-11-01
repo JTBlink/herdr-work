@@ -32,7 +32,6 @@ pub struct Sidebar {
     follower: Rc<RefCell<CwdFollower>>,
     roots: crate::root_memory::RootMemory,
     last_title: Option<&'static str>,
-    projects_requested: bool,
     collapsed: bool,
     initial_rail_size_pending: bool,
     expanded_width: u16,
@@ -70,7 +69,6 @@ impl Sidebar {
             follower,
             roots,
             last_title: None,
-            projects_requested: false,
             collapsed: false,
             initial_rail_size_pending: false,
             expanded_width: saved.sidebar_width,
@@ -205,7 +203,6 @@ impl Sidebar {
                 }
                 return quit;
             }
-            Action::Projects => self.projects_requested = true,
             Action::Settings => {
                 self.set_collapsed(false);
                 match &mut self.app {
@@ -258,9 +255,6 @@ impl Sidebar {
         self.refresh_title();
         true
     }
-    pub fn take_projects_request(&mut self) -> bool {
-        std::mem::take(&mut self.projects_requested)
-    }
     pub fn take_worktree_request(&mut self) -> Option<(PathBuf, PathBuf)> {
         match &mut self.app {
             ViewApp::Git(app) => app.take_worktree_request(),
@@ -300,12 +294,6 @@ impl Sidebar {
                         KeyCode::Char('1') | KeyCode::F(9) => Some(Action::Files),
                         KeyCode::Char('2') | KeyCode::F(10) => Some(Action::Search),
                         KeyCode::Char('3') | KeyCode::F(11) => Some(Action::Git),
-                        KeyCode::Char('4')
-                            if key.modifiers.is_empty()
-                                || key.modifiers == KeyModifiers::CONTROL =>
-                        {
-                            Some(Action::Projects)
-                        }
                         KeyCode::Char('s') => Some(Action::Settings),
                         KeyCode::Enter | KeyCode::Right => Some(Action::Expand),
                         KeyCode::Char('b' | 'q') => Some(Action::Close),
@@ -352,10 +340,6 @@ impl Sidebar {
         {
             return false;
         }
-        if exit == Exit::Projects {
-            self.projects_requested = true;
-            return false;
-        }
         if exit == Exit::Quit {
             match &self.app {
                 ViewApp::Explorer(app) => app.clear_identity(),
@@ -373,7 +357,7 @@ impl Sidebar {
             }
             Exit::Search { .. } => InitialView::Search,
             Exit::QuickOpen => InitialView::QuickOpen,
-            Exit::Quit | Exit::Projects => unreachable!(),
+            Exit::Quit => unreachable!(),
         };
         let focus_query = matches!(exit, Exit::Search { focus_query: true });
         self.app = Self::build(self.root(), target, Rc::clone(&self.follower));

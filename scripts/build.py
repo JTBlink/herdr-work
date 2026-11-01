@@ -1,4 +1,4 @@
-"""Build both HerdrWork product binaries from the root workspace with locked inputs."""
+"""Build the HerdrWork product binary from the root workspace with locked inputs."""
 import argparse
 import json
 import os
@@ -10,9 +10,9 @@ from cleanup import clean_caches
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = {
-    'aarch64-apple-darwin': {'runner': 'macos-14', 'backend': True},
-    'x86_64-unknown-linux-gnu': {'runner': 'ubuntu-24.04', 'backend': True},
-    'x86_64-pc-windows-msvc': {'runner': 'windows-2022', 'backend': False},
+    'aarch64-apple-darwin': {'runner': 'macos-14'},
+    'x86_64-unknown-linux-gnu': {'runner': 'ubuntu-24.04'},
+    'x86_64-pc-windows-msvc': {'runner': 'windows-2022'},
 }
 
 def metadata(target, tag=None):
@@ -30,9 +30,7 @@ def metadata(target, tag=None):
     if tag and tag != f'v{version}':
         raise ValueError('Tag and VERSION differ')
     sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
-    return {'product': 'HerdrWork', 'version': version, 'target': target, 'sha': sha,
-            'projects_backend': TARGETS[target]['backend'],
-            'windows_limitation': None if TARGETS[target]['backend'] else 'Native files/Git/review UI; Projects execution backend is Unix-only'}
+    return {'product': 'HerdrWork', 'version': version, 'target': target, 'sha': sha}
 
 def target_dir(root=None):
     root = ROOT if root is None else root
@@ -47,8 +45,6 @@ def build(target, tag=None):
         print('Build cache cleanup: ' + json.dumps(cleanup), file=sys.stderr)
     command = ['cargo', 'build', '--release', '--locked', '--target', target,
                '--target-dir', str(target_dir()), '-p', 'herdr-work', '--bin', 'herdr-work']
-    if info['projects_backend']:
-        command += ['-p', 'herdr-work-projects', '--bin', 'herdr-work-projects']
     subprocess.run(command, cwd=ROOT, check=True)
     return info
 

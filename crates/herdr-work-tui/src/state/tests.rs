@@ -19,11 +19,7 @@ fn app() -> (tempfile::TempDir, App) {
             .success()
     );
     std::fs::write(root.join("visible.txt"), "fixture\n").unwrap();
-    let desk = HerdrWork::open(
-        &temp.path().join("profile"),
-        Some(temp.path().join("missing-backend")),
-    )
-    .unwrap();
+    let desk = HerdrWork::open(&temp.path().join("profile")).unwrap();
     let app = App::new(desk, root, Context::default()).unwrap();
     (temp, app)
 }
@@ -94,7 +90,6 @@ fn sidebar_source_commit_box_and_button_are_visible_in_the_workdesk() {
         herdr_work_code::icons::IconTheme::Material,
         "Default preferences must allow the original Sidebar font probe to take effect"
     );
-    app.apply(app.context.epoch, Ok(Data::Tasks(Ok(vec![]))));
     capture_fixture(&mut app, "sidebar-shared-components");
     app.preferences.icon_theme = "emoji".into();
     assert_eq!(
@@ -230,7 +225,7 @@ fn polished_rail_keeps_icons_badges_hover_and_clicks_in_their_visible_slots() {
                 .map(|cell| cell.symbol())
                 .collect::<String>()
                 .replace(' ', "");
-            assert!(text.contains("搜索·5"));
+            assert!(text.contains("搜索·2"));
             app.mouse(event(MouseEventKind::Down(MouseButton::Left)), area)
                 .unwrap();
             assert!(app.tab == Tab::Search);
@@ -247,7 +242,6 @@ fn preview_header_close_handles_long_titles_loading_and_pinned_documents() {
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     let (_temp, mut app) = loaded_app();
     app.preferences.icon_theme = "material".into();
-    app.apply(app.context.epoch, Ok(Data::Tasks(Ok(vec![]))));
     let selected = app.selection;
     let file = app.root.join(format!("{}.txt", "长文件名".repeat(15)));
     std::fs::write(&file, "preview body\n").unwrap();
@@ -366,58 +360,6 @@ fn editor_header_save_and_close_waits_for_success_and_keeps_conflict_recoverable
 }
 
 #[test]
-fn completed_empty_startup_has_guidance_and_one_task_list() {
-    let (_temp, mut app) = app();
-    app.switch_tab(Tab::Tasks);
-    app.apply(0, Ok(Data::Tasks(Ok(vec![]))));
-    app.refresh().unwrap();
-    let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
-    app.apply(epoch, data);
-    assert!(matches!(app.tasks_state, LoadState::Ready));
-    assert!(matches!(app.code_state, LoadState::Ready));
-    let rendered = screen(&mut app);
-    assert!(
-        !rendered.contains("Loading"),
-        "Completed startup still looks stuck"
-    );
-    assert!(
-        rendered.contains("暂无任务"),
-        "Empty task view offers no explanation"
-    );
-    assert!(
-        rendered.contains("创建任务"),
-        "New projects need task creation guidance"
-    );
-    assert_eq!(
-        rendered.matches("Tasks").count(),
-        1,
-        "One task list expected"
-    );
-}
-
-#[test]
-fn backend_failure_does_not_hide_loaded_files_or_look_pending() {
-    let (_temp, mut app) = app();
-    app.load_tasks().unwrap();
-    app.refresh().unwrap();
-    for _ in 0..2 {
-        let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
-        app.apply(epoch, data);
-    }
-    assert!(
-        app.code
-            .as_ref()
-            .unwrap()
-            .files
-            .iter()
-            .any(|f| f.name == "visible.txt")
-    );
-    let rendered = screen(&mut app);
-    assert!(!rendered.contains("Loading"));
-    assert!(rendered.contains("任务后端不可用"));
-}
-
-#[test]
 fn failed_code_load_can_retry_and_stale_errors_cannot_replace_ready_data() {
     let (_temp, mut app) = app();
     let root = app.root.clone();
@@ -446,7 +388,6 @@ fn default_activity_exposes_explorer_files_and_preview() {
         app.tab == Tab::Files,
         "Default activity hides Explorer behind Tasks"
     );
-    app.apply(0, Ok(Data::Tasks(Ok(vec![]))));
     app.refresh().unwrap();
     let (epoch, data) = app.jobs.results.recv_timeout(TEST_JOB_TIMEOUT).unwrap();
     app.apply(epoch, data);
@@ -773,7 +714,6 @@ fn search_and_seven_git_drawers_use_original_queries() {
     }
     app.refresh().unwrap();
     receive(&mut app);
-    app.apply(app.context.epoch, Ok(Data::Tasks(Ok(vec![]))));
     app.search_query = "fixture".into();
     app.search_quick = false;
     app.switch_tab(Tab::Search);
@@ -1416,60 +1356,6 @@ fn compact_quick_open_uses_only_its_query_row_and_clicks_the_first_result() {
         .unwrap();
         receive(&mut app);
         assert_eq!(app.text, "fixture\n");
-    }
-}
-
-#[test]
-fn compact_task_rows_keep_two_line_items_and_ignore_unused_last_row() {
-    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-    let (_temp, mut app) = loaded_app();
-    app.tasks = (0..20)
-        .map(|n| Task {
-            id: TaskId(format!("task-{n}")),
-            title: format!("Task {n}"),
-            stage: "planned".into(),
-            executions: vec![],
-        })
-        .collect();
-    app.tasks_state = LoadState::Ready;
-    app.switch_tab(Tab::Tasks);
-    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
-    for dock_right in [false, true] {
-        app.preferences.dock_right = dock_right;
-        app.task = 19;
-        let body = app
-            .sidebar_block(String::new())
-            .inner(app.panes(area).sidebar);
-        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        terminal.draw(|f| app.draw(f)).unwrap();
-        let row = (body.x..body.right())
-            .map(|x| terminal.backend().buffer()[(x, body.y)].symbol())
-            .collect::<String>();
-        assert!(row.contains("Task 10"));
-        app.mouse(
-            MouseEvent {
-                kind: MouseEventKind::Down(MouseButton::Right),
-                column: body.x + 2,
-                row: body.y,
-                modifiers: KeyModifiers::NONE,
-            },
-            area,
-        )
-        .unwrap();
-        assert_eq!(app.task, 10);
-        app.overlay = None;
-        app.mouse(
-            MouseEvent {
-                kind: MouseEventKind::Down(MouseButton::Right),
-                column: body.x + 2,
-                row: body.bottom() - 1,
-                modifiers: KeyModifiers::NONE,
-            },
-            area,
-        )
-        .unwrap();
-        assert_eq!(app.task, 10);
-        assert!(app.overlay.is_none(), "Blank row opened a task menu");
     }
 }
 
@@ -2527,10 +2413,10 @@ fn own_host_activity_requests_preserve_editor_and_modal_input() {
     assert!(app.prompt.is_none());
     assert!(screen(&mut app).contains("unsaved"));
     app.editor = None;
-    app.prompt = Some(Prompt::NewTask);
+    app.prompt = Some(Prompt::Folder);
     app.input = "保留草稿".into();
     app.apply_activation(request(app.root.clone()));
-    assert!(matches!(app.prompt, Some(Prompt::NewTask)));
+    assert!(matches!(app.prompt, Some(Prompt::Folder)));
     assert_eq!(app.input, "保留草稿");
     app.prompt = None;
     app.apply_activation(request(app.root.clone()));
@@ -2795,7 +2681,7 @@ fn preview_enqueue_backpressure_preserves_the_pending_file_until_retry() {
 }
 
 #[test]
-fn late_unmerged_branch_result_keeps_new_task_comment_and_path_input() {
+fn late_unmerged_branch_result_keeps_search_comment_and_path_input() {
     use herdr_work_engine::WorkGitAction;
     for kind in 0..3 {
         let (_temp, mut app) = loaded_app();
@@ -2838,7 +2724,7 @@ fn late_unmerged_branch_result_keeps_new_task_comment_and_path_input() {
             .unwrap();
         let result = app.desk.execute_work_git(&plan);
         app.prompt = Some(match kind {
-            0 => Prompt::NewTask,
+            0 => Prompt::SearchInclude,
             1 => Prompt::Folder,
             _ => Prompt::Comment {
                 review: herdr_work_core::ReviewId("review".into()),
@@ -2855,7 +2741,7 @@ fn late_unmerged_branch_result_keeps_new_task_comment_and_path_input() {
         app.apply(app.context.epoch, Ok(Data::WorkGitDone(result)));
         assert_eq!(app.input, "new text / 工作目录");
         assert!(match kind {
-            0 => matches!(app.prompt, Some(Prompt::NewTask)),
+            0 => matches!(app.prompt, Some(Prompt::SearchInclude)),
             1 => matches!(app.prompt, Some(Prompt::Folder)),
             _ => matches!(app.prompt, Some(Prompt::Comment { .. })),
         });
@@ -3074,7 +2960,16 @@ fn modal_submission_backpressure_keeps_text_and_never_marks_an_unqueued_commit_p
             );
             Prompt::Commit(app.desk.prepare_commit(&app.root).unwrap())
         } else {
-            Prompt::NewTask
+            Prompt::Comment {
+                review: herdr_work_core::ReviewId("fixture-review".into()),
+                anchor: herdr_work_core::CommentAnchor {
+                    file: "visible.txt".into(),
+                    side: herdr_work_core::Side::New,
+                    start: 1,
+                    end: 1,
+                    fingerprint: "fixture".into(),
+                },
+            }
         });
         app.input = "unsent 工作内容".into();
         let (started, ready) = std::sync::mpsc::channel();
@@ -3094,7 +2989,7 @@ fn modal_submission_backpressure_keeps_text_and_never_marks_an_unqueued_commit_p
         assert!(if commit {
             matches!(app.prompt, Some(Prompt::Commit(_)))
         } else {
-            matches!(app.prompt, Some(Prompt::NewTask))
+            matches!(app.prompt, Some(Prompt::Comment { .. }))
         });
         assert!(app.git.committing.is_empty());
         release.send(()).unwrap();
@@ -3308,10 +3203,10 @@ fn replacement_preview_cannot_replace_a_new_prompt_or_changed_input() {
     app.search_state = LoadState::Ready;
     app.search_replacement = "changed".into();
     app.prepare_search_replacement(true).unwrap();
-    app.prompt = Some(Prompt::NewTask);
+    app.prompt = Some(Prompt::Folder);
     app.input = "new task draft".into();
     receive(&mut app);
-    assert!(matches!(app.prompt, Some(Prompt::NewTask)));
+    assert!(matches!(app.prompt, Some(Prompt::Folder)));
     assert_eq!(app.input, "new task draft");
     assert!(!app.search_replace_pending);
     app.prompt = Some(Prompt::SearchReplace);
@@ -3690,7 +3585,7 @@ fn sidebar_mode_keeps_fixed_top_icons_and_one_narrow_pane() {
         )
         .unwrap();
         assert!(app.tab == Tab::Search);
-        app.key(KeyCode::Char('2')).unwrap();
+        app.key(KeyCode::Char('1')).unwrap();
     }
     for (directory, file) in [("src", "main.rs"), ("docs", "guide.md")] {
         std::fs::create_dir(app.root.join(directory)).unwrap();

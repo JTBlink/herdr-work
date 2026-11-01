@@ -2,15 +2,15 @@
 
 ## 结构与边界
 
-HerdrWork 是 Rust 终端工作台。当前发布基线的根 workspace 包含 `crates/herdr-work-core`（契约）、`crates/herdr-work-engine`（编排与持久化）、`crates/herdr-work-tui`（唯一终端与输入）、`crates/herdr-work`（CLI），以及 `crates/herdr-work-code`（迁移的文件/Git/搜索/编辑实现）和 `crates/herdr-work-projects`（独立产品后端入口）。
+HerdrWork 是 Rust 文件、Git 与代码审查工作台。根 workspace 包含 `crates/herdr-work-core`（契约）、`crates/herdr-work-engine`（编排与持久化）、`crates/herdr-work-tui`（唯一终端与输入）、`crates/herdr-work`（CLI），以及 `crates/herdr-work-code`（迁移的文件/Git/搜索/编辑实现）。
 
-Sidebar 已迁入 `crates/herdr-work-code`，生产默认库排除独立插件生命周期；Projects 的 CLI 库已合入 `crates/herdr-work-projects`，底层实现位于 `crates/herdr-work-task-{data,flow,board,web}`；进程与宿主基础能力由产品内部模块提供。两个产品二进制统一从根构建及 target 输出，任务 worker 通过本地 Rust 依赖复用 Projects，避免原后端直接启动时使用第三方默认资料。用户已确认后续作为产品内部模块长期维护，全部生产 Rust package 迁入 `crates/`，统一 workspace、锁文件和构建；实施规范见 `docs/architecture/herdr-work-internal-modules.md`、`docs/adr/0001-first-party-workspace.md`。这替代必须保留原工程布局及仅四个 crate 的长期约束，完整九模块迁移尚未完成，不能把目标结构写成当前实现。
+生产源码统一放在 `crates/`，使用唯一 workspace、锁文件与主程序。Sidebar 作为产品内部模块长期维护；进程与宿主基础能力由内部模块提供。任务管理、看板和调度后台已从产品范围移除，当前结构见 `docs/architecture/herdr-work-internal-modules.md`、`docs/adr/0003-remove-task-backend.md`。
 
 必须实际复用和迁移来源业务逻辑、测试与资源，保留许可证、版权和来源记录，不能用重写同名功能替代复用。采用先机械迁移、后整理模块接口的步骤，移除不再使用的原插件安装、更新及重复界面。当前补丁记录仍在 `docs/upstream/source-map.md`，任务完成后转入 `docs/provenance/`。参考副本 `reference-plugins/` 不参与构建或 Git。
 
 新项目只支持当前 HerdrWork 名称、配置和资料目录，不读取旧环境变量，不迁移旧目录，不保留旧命令/收据/锁/标记或旧插件数据导入。普通安装所有权、失败恢复、当前名称的安装回滚及审查状态恢复仍需保留；不自动删除用户旧文件。
 
-GitHub 仓库仍为 `JTBlink/herdr-work`，产品、自有类型与 crate 统一为 HerdrWork/herdr-work，主命令为 `herdr-work`；原项目名称保留在来源记录与许可证。Sidebar、Projects 等独立插件不得被本产品读取配置、接管、关闭、更新或卸载；复用限于项目内部代码。
+GitHub 仓库仍为 `JTBlink/herdr-work`，产品、自有类型与 crate 统一为 HerdrWork/herdr-work，主命令为 `herdr-work`；原项目名称保留在来源记录与许可证。独立插件不得被本产品读取配置、接管、关闭、更新或卸载；复用限于项目内部代码。
 
 ## 构建与检查
 
@@ -23,7 +23,7 @@ GitHub 仓库仍为 `JTBlink/herdr-work`，产品、自有类型与 crate 统一
 - `python3 scripts/package.py create --target aarch64-apple-darwin`
 - `python3 scripts/smoke.py --archives dist`
 
-Linux/Windows 编译、归档和隔离安装测试走 GitHub Actions。Windows 不包含 Unix Projects 后端，文档及产物清单必须明确能力限制。原生 UI/Agent 手动场景为建议，不冒充已经验证。
+Linux/Windows 编译、归档和隔离安装测试走 GitHub Actions。各平台均只发行主程序。原生 UI/Agent 手动场景为建议，不冒充已经验证。
 
 ## 编写风格与命名约定
 
@@ -39,7 +39,7 @@ Linux/Windows 编译、归档和隔离安装测试走 GitHub Actions。Windows �
 
 工作台使用 Cargo 集成测试与 Python unittest 验证业务和归档边界。来源测试保留，不把未执行的测试记为通过。文档修改需核对链接、路径、事实依据及其与 README 的一致性。
 
-后续重构需提供可复现的检查，覆盖工作上下文、任务与 Agent 关联、异步结果失效、审查发送目标、状态隔离、生命周期、升级和并发事件。分别验证 macOS 与 Linux 后再声明支持。
+后续重构需提供可复现的检查，覆盖工作上下文、Agent 绑定、异步结果失效、审查发送目标、状态隔离、生命周期、升级和并发事件。分别验证 macOS 与 Linux 后再声明支持。
 
 ## 提交与合并请求
 

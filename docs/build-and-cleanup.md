@@ -1,6 +1,6 @@
 # 构建与产物清理
 
-编译和打包沿用根 workspace、锁文件和固定工具链。两个 Unix 产品程序由一次 Cargo 调用构建，共享依赖编译；Windows 只构建主程序，Projects 执行后端仍仅支持 Unix。
+编译和打包沿用根 workspace、锁文件和固定工具链。各平台仅构建主程序，共享根 workspace 与锁文件。
 
 ## 一键编译打包
 

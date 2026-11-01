@@ -44,15 +44,6 @@ pub struct Execution {
     pub target: Option<AgentTarget>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Task {
-    pub id: TaskId,
-    pub title: String,
-    /// The original Projects stage, not a second task state machine.
-    pub stage: String,
-    pub executions: Vec<Execution>,
-}
-
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Context {
     pub epoch: u64,

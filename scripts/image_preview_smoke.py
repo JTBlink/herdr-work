@@ -41,8 +41,7 @@ def check(binary):
             env = {k: v for k, v in os.environ.items() if not k.startswith('HERDR_')}
             # Herdr's own replies must win over inherited outer-terminal hints.
             env.update(TERM='xterm-256color', TERM_PROGRAM='herdr', HERDR_ENV='1',
-                       WEZTERM_EXECUTABLE='/fixture/wezterm', HERDR_PROJECTS_NO_KEEPER='1',
-                       HERDR_PROJECTS_INLINE='1')
+                       WEZTERM_EXECUTABLE='/fixture/wezterm')
             if capability == 'outside-timeout':
                 env.pop('HERDR_ENV')
                 env['TERM_PROGRAM'] = 'fixture'

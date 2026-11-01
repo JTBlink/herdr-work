@@ -1,5 +1,7 @@
 # HerdrWork：GitHub 任务索引
 
+2026-11-01 范围调整：本文保留历史规划或调研证据。任务管理与后台编排已退出当前产品，见 [移除决策](../../adr/0003-remove-task-backend.md)。
+
 后续规划转向[产品内部模块整合](../internal-modules/README.md)。本文保留首版 13 项任务及历史依赖，不将其状态改写为新一轮实施状态；旧目录规范与兼容条款以[新架构](../../architecture/herdr-work-internal-modules.md)为准。
 
 父规格：[[Spec] HerdrWork：复用优先工作台首版](https://github.com/JTBlink/herdr-work/issues/1)。保留 13 个实施子任务、默认标签与原生依赖。

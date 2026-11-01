@@ -77,14 +77,14 @@ mod tests {
     #[test]
     fn final_profile_owner_releases_lock_with_inherited_descriptor() {
         let root = tempfile::tempdir().unwrap();
-        let desk = crate::HerdrWork::open(root.path(), None).unwrap();
+        let desk = crate::HerdrWork::open(root.path()).unwrap();
         // A dup shares the open file description, as a concurrent fork does
         // before exec. Closing only the parent's fd leaves its flock alive.
         let _inherited = desk.0._lock.try_clone().unwrap();
         let last_owner = desk.clone();
         drop(desk);
-        assert!(crate::HerdrWork::open(root.path(), None).is_err());
+        assert!(crate::HerdrWork::open(root.path()).is_err());
         drop(last_owner);
-        assert!(crate::HerdrWork::open(root.path(), None).is_ok());
+        assert!(crate::HerdrWork::open(root.path()).is_ok());
     }
 }

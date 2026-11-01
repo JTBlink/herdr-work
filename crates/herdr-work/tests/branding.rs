@@ -33,12 +33,7 @@ fn doctor_reports_new_product_profile_and_backend_names() {
             .to_str()
             .unwrap()
     );
-    assert!(
-        data["projects_backend"]
-            .as_str()
-            .unwrap()
-            .contains("herdr-work-projects")
-    );
+    assert!(data.get("projects_backend").is_none());
 }
 #[test]
 fn obsolete_environment_and_directory_are_ignored() {
@@ -95,7 +90,7 @@ fn explicit_profile_overrides_environment_and_environment_overrides_default() {
 fn hooks_can_resolve_the_profile_while_the_ui_holds_its_lock() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("profile");
-    let _active = herdr_work_engine::HerdrWork::open(&root, None).unwrap();
+    let _active = herdr_work_engine::HerdrWork::open(&root).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_herdr-work"))
         .args(["--home", root.to_str().unwrap(), "profile-path"])
         .output()
@@ -103,4 +98,23 @@ fn hooks_can_resolve_the_profile_while_the_ui_holds_its_lock() {
     assert!(output.status.success());
     let data: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(Path::new(data["profile"].as_str().unwrap()), root);
+}
+
+#[test]
+fn git_reconciliation_reads_the_journal_without_a_task_backend() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_herdr-work"))
+        .arg("--home")
+        .arg(temp.path())
+        .arg("reconcile")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let data: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(data["operations"], serde_json::json!([]));
+    assert!(!temp.path().join("projects").exists());
 }

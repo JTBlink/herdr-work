@@ -13,45 +13,6 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use crate::appearance::ColorTheme;
 use crate::icons::IconTheme;
 
-/// Open the product Projects board from the space before Settings.
-/// Keep the task glyph visible on narrow panes without overlapping view icons.
-pub fn draw_projects_button(
-    frame: &mut Frame,
-    row: Rect,
-    left: u16,
-    right: u16,
-    mouse: Option<(u16, u16)>,
-    theme: IconTheme,
-) -> Rect {
-    let available = right.saturating_sub(left);
-    let icon = activity_icon(theme, ActivityIcon::Tasks);
-    let chip = format!(" {icon}  ");
-    let label = if available >= Span::raw(chip.as_str()).width() as u16 {
-        chip.as_str()
-    } else {
-        icon
-    };
-    let width = Span::raw(label).width() as u16;
-    if available < width {
-        return Rect::default();
-    }
-    let rect = Rect::new(right - width, row.y.saturating_sub(1), width, 3);
-    let hovered = mouse.is_some_and(|(x, y)| hits(rect, x, y));
-    if hovered {
-        draw_activity_caps(
-            frame,
-            (rect.x, right),
-            rect.y,
-            rect.y + 2,
-            palette().activity_hover_bg,
-        );
-    }
-    frame.render_widget(
-        Paragraph::new(label).style(activity_button_style(false, hovered)),
-        Rect::new(rect.x, row.y, width, 1),
-    );
-    rect
-}
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 use crate::state::View;
 
@@ -509,26 +470,18 @@ pub enum ActivityIcon {
     Files,
     Search,
     SourceControl,
-    Tasks,
     Review,
     Settings,
 }
 
 pub fn activity_icon(theme: IconTheme, icon: ActivityIcon) -> &'static str {
     // Explorer, search, Git and settings use the original Sidebar tables.
-    // Product-only tasks/review keep the matching Font Awesome family.
+    // Product-only review keep the matching Font Awesome family.
     match icon {
         ActivityIcon::Files => activity_icons(theme).0,
         ActivityIcon::Search => activity_icons(theme).1,
         ActivityIcon::SourceControl => activity_icons(theme).2,
         ActivityIcon::Settings => gear_icon(theme),
-        ActivityIcon::Tasks => {
-            if theme == IconTheme::Material {
-                "\u{f0ae}"
-            } else {
-                "☷"
-            }
-        }
         ActivityIcon::Review => {
             if theme == IconTheme::Material {
                 "\u{f06e}"

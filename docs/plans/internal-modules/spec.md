@@ -10,7 +10,7 @@
 
 ## 规格起草时的事实
 
-以下保留规格起草时的基线；当前 Sidebar 与 Projects 已迁入根 workspace，见 [Projects 迁移记录](../../provenance/projects-source.md)；实时任务状态仍以 GitHub Issues 为准。
+以下保留规格起草时的基线；当前范围已调整，任务模块与后台入口撤销，见 [ADR-0003](../../adr/0003-remove-task-backend.md)；实时任务状态仍以 GitHub Issues 为准。
 
 
 ## 目标模块

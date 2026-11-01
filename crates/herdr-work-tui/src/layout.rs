@@ -29,11 +29,10 @@ pub(crate) fn activity_badge(rect: Rect, width: u16, dock_right: bool) -> Rect {
     )
 }
 
-pub(crate) const ACTIVITIES: [(Tab, &str, char); 5] = [
-    (Tab::Files, "文件", '2'),
-    (Tab::Search, "搜索", '5'),
+pub(crate) const ACTIVITIES: [(Tab, &str, char); 4] = [
+    (Tab::Files, "文件", '1'),
+    (Tab::Search, "搜索", '2'),
     (Tab::Scm, "Git", '3'),
-    (Tab::Tasks, "任务", '1'),
     (Tab::Review, "审查", '4'),
 ];
 pub(crate) struct Panes {
@@ -180,10 +179,6 @@ pub(crate) fn horizontal_activity(activity: Rect) -> bool {
 pub(crate) fn offset(selected: usize, height: u16) -> usize {
     selected.saturating_sub(height.saturating_sub(1) as usize)
 }
-pub(crate) fn task_offset(selected: usize, height: u16) -> usize {
-    offset(selected, height / 2)
-}
-
 /// Content tabs occupy the existing title row, so document geometry stays shared.
 pub(crate) fn scm_content_tabs(area: Rect) -> [Rect; 3] {
     Layout::horizontal([

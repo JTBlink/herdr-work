@@ -64,7 +64,7 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                 assert!(startup.contains('»') && !startup.contains("demo"));
                 automatic.event(Event::Resize(4, 24));
                 let rail = render(&mut automatic, 4, 24);
-                for row in [2, 5, 8, 11, 14] {
+                for row in [2, 5, 8, 11] {
                     assert_ne!(rail[(1, row)].symbol(), " ");
                 }
                 if theme == IconTheme::Emoji
@@ -131,8 +131,7 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                     (2, herdr_work_code::ui::ActivityIcon::Files),
                     (5, herdr_work_code::ui::ActivityIcon::Search),
                     (8, herdr_work_code::ui::ActivityIcon::SourceControl),
-                    (11, herdr_work_code::ui::ActivityIcon::Tasks),
-                    (14, herdr_work_code::ui::ActivityIcon::Settings),
+                    (11, herdr_work_code::ui::ActivityIcon::Settings),
                 ] {
                     let row_text = (0..4).map(|x| rail[(x, row)].symbol()).collect::<String>();
                     assert!(row_text.contains(herdr_work_code::ui::activity_icon(theme, icon)));
@@ -143,11 +142,6 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                         herdr_work_code::ui::activity_icon(theme, icon)
                     );
                 }
-                // Projects opens independently; the sidebar stays collapsed.
-                click(&mut sidebar, 2, 11);
-                assert!(sidebar.take_projects_request());
-                assert!(!sidebar.take_projects_request());
-                assert_eq!(render(&mut sidebar, 4, 24)[(1, 0)].symbol(), "»");
                 click(&mut sidebar, 2, 0);
                 let after = render(&mut sidebar, 38, 24);
                 assert_eq!(before, after, "expand must preserve the current app");
@@ -163,7 +157,7 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                 render(&mut sidebar, 38, 24);
                 click(&mut sidebar, 36, 0);
                 render(&mut sidebar, 4, 24);
-                click(&mut sidebar, 2, 14);
+                click(&mut sidebar, 2, 11);
                 assert!(sidebar.busy());
                 let settings = render(&mut sidebar, 38, 24);
                 assert_eq!(settings[(0, 0)].symbol(), "┌");

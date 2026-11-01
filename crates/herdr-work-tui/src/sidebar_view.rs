@@ -38,10 +38,6 @@ impl App {
             self.draw_search_sidebar(f, area);
             return;
         }
-        if self.tab == Tab::Tasks {
-            self.draw_tasks(f, area);
-            return;
-        }
         let scm = matches!(self.tab, Tab::Scm | Tab::Review);
         let title = if scm {
             Line::from("SOURCE CONTROL")

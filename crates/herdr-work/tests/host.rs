@@ -139,26 +139,6 @@ fn ambiguous_post_send_receipt_is_unknown_and_cannot_resend() {
     assert_eq!(receipt["state"], "Unknown");
     assert!(!run(&["review", "send", id]).status.success());
     assert_eq!(sends.load(Ordering::SeqCst), 1);
-    // A task's older terminal cannot be silently rebound to the current same-cwd agent.
-    let backend = temp.path().join("backend");
-    script(
-        &backend,
-        format!(
-            "#!/bin/sh\ncat <<'JSON'\n{}\nJSON\n",
-            json!({"tasks":[{"id":"task/1","title":"old execution","worktree":root,"link":{"terminal":"terminal-old","socket":socket}}]})
-        ),
-    );
-    let refused = run(&[
-        "--projects-backend",
-        backend.to_str().unwrap(),
-        "review",
-        "open",
-        "--task",
-        "task/1",
-        "--pane",
-        "p1",
-    ]);
-    assert!(!refused.status.success());
     stop.store(true, Ordering::SeqCst);
     host.join().unwrap();
 }
@@ -170,7 +150,7 @@ fn activate_reuses_only_verified_own_pane_even_while_profile_is_locked() {
     let root = temp.path().join("workspace");
     std::fs::create_dir(&root).unwrap();
     let profile = temp.path().join("profile");
-    let desk = herdr_work_engine::HerdrWork::open(&profile, None).unwrap();
+    let desk = herdr_work_engine::HerdrWork::open(&profile).unwrap();
     let profile = profile.canonicalize().unwrap();
     let token = herdr_work_engine::fingerprint(profile.to_string_lossy().as_bytes());
     let socket = temp.path().join("activate.sock");
@@ -464,7 +444,7 @@ fn explicit_initial_activity_and_root_win_over_an_unrelated_saved_binding_in_pri
     std::fs::create_dir(&root).unwrap();
     std::fs::write(root.join("explicit-file.txt"), "fixture").unwrap();
     let profile = temp.path().join("profile");
-    let desk = herdr_work_engine::HerdrWork::open(&profile, None).unwrap();
+    let desk = herdr_work_engine::HerdrWork::open(&profile).unwrap();
     desk.save_context(&Context {
         epoch: 7,
         execution: Some(Execution {
@@ -491,7 +471,7 @@ foreign_bytes=b'{"sidebar_width":72,"active":"source-control","colors":"light"}'
 foreign_state.write_bytes(foreign_bytes)
 env={k:v for k,v in os.environ.items() if not k.startswith('HERDR_')}
 env['HERDR_PLUGIN_STATE_DIR']=str(foreign)
-env.update(TERM='xterm-256color',HERDR_PROJECTS_NO_KEEPER='1',HERDR_PROJECTS_INLINE='1',HERDR_WORK_CODE_FONT_PROMPT='off')
+env.update(TERM='xterm-256color',HERDR_WORK_CODE_FONT_PROMPT='off')
 for view,title in [('explorer','NEW-WORKSPACE'),('search','Search'),('source-control','Notagitrepository.'),('quick-open','QuickOpen')]:
     master,slave=pty.openpty(); fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',32,120,0,0))
     def seat():

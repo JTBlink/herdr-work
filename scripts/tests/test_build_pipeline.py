@@ -122,16 +122,15 @@ class ArchiveCleanup(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             target = 'x86_64-pc-windows-msvc'
-            for relative in ('scripts/install.py', 'scripts/hook.py', 'README.md',
+            for relative in ('scripts/install.py', 'README.md',
                              'herdr-plugin.toml', 'LICENSE', 'CHANGELOG.md',
-                             'crates/herdr-work-projects/LICENSE',
                              'crates/herdr-work-code/LICENSE', 'crates/herdr-work-engine/LICENSE-process-runtime',
                              f'target/{target}/release/herdr-work.exe'):
                 file = root / relative
                 file.parent.mkdir(parents=True, exist_ok=True)
                 file.write_bytes(b'fixture')
             plan = {'product': 'HerdrWork', 'version': '0.1.0', 'target': target,
-                    'sha': 'a' * 40, 'projects_backend': False}
+                    'sha': 'a' * 40}
             with patch.object(package, 'ROOT', root), \
                  patch.object(package, 'metadata', side_effect=lambda *a: dict(plan)), \
                  patch.dict(os.environ, {'CARGO_TARGET_DIR': str(root / 'target')}):
@@ -142,8 +141,7 @@ class ArchiveCleanup(unittest.TestCase):
             self.assertFalse(old.exists())
             self.assertTrue(other.exists())
             manifest = package.verify(current)
-            self.assertFalse(manifest['projects_backend'])
-            self.assertNotIn('bin/herdr-work-projects', manifest['files'])
+            self.assertEqual({p for p in manifest['files'] if p.startswith('bin/')}, {'bin/herdr-work.exe'})
 
     def test_retains_new_archive_other_platform_and_unowned_files(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -207,8 +205,8 @@ class ArchiveCleanup(unittest.TestCase):
 
 
 class UnifiedBuild(unittest.TestCase):
-    def test_both_unix_binaries_share_one_cargo_invocation(self):
-        with patch.object(build, 'metadata', return_value={'projects_backend': True}), \
+    def test_product_binary_uses_one_locked_cargo_invocation(self):
+        with patch.object(build, 'metadata', return_value={}), \
              patch.object(build, 'clean_caches', return_value={'items': [], 'busy': []}), \
              patch.object(build.subprocess, 'run') as run:
             build.build(TARGET)
@@ -217,14 +215,14 @@ class UnifiedBuild(unittest.TestCase):
         self.assertIn('--release', command)
         self.assertIn('--locked', command)
         self.assertIn('herdr-work', command)
-        self.assertIn('herdr-work-projects', command)
+        self.assertEqual(command.count('--bin'), 1)
 
     def test_windows_build_omits_unix_backend(self):
-        with patch.object(build, 'metadata', return_value={'projects_backend': False}), \
+        with patch.object(build, 'metadata', return_value={}), \
              patch.object(build, 'clean_caches', return_value={'items': [], 'busy': []}), \
              patch.object(build.subprocess, 'run') as run:
             build.build('x86_64-pc-windows-msvc')
-        self.assertNotIn('herdr-work-projects', run.call_args.args[0])
+        self.assertEqual(run.call_args.args[0].count('--bin'), 1)
 
     def test_target_dir_uses_same_custom_location_for_build_and_package(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -6,16 +6,13 @@ use std::path::PathBuf;
 #[command(
     name = "herdr-work",
     version,
-    about = "HerdrWork：在一个 Herdr 终端中管理任务、文件、Git 和代码审查",
-    after_help = "示例：\n  herdr-work ui .                 打开当前目录\n  herdr-work doctor               检查安装状态\n  herdr-work task create \"修复问题\"   创建任务\n\n运行 herdr-work <子命令> --help 查看详细参数。"
+    about = "HerdrWork：在一个 Herdr 终端中浏览文件、管理 Git 和代码审查",
+    after_help = "示例：\n  herdr-work ui .                 打开当前目录\n  herdr-work doctor               检查安装状态\n\n运行 herdr-work <子命令> --help 查看详细参数。"
 )]
 pub(crate) struct Cli {
     #[arg(long, global = true)]
     /// 数据目录，默认 HERDR_WORK_HOME 或 ~/.herdr-work
     pub(crate) home: Option<PathBuf>,
-    #[arg(long, global = true)]
-    /// Projects 后端程序路径，默认使用主程序旁的 herdr-work-projects
-    pub(crate) projects_backend: Option<PathBuf>,
     #[command(subcommand)]
     pub(crate) command: Option<Command>,
 }
@@ -51,17 +48,10 @@ pub(crate) enum Command {
         /// 显式工作目录，默认宿主当前目录
         root: Option<PathBuf>,
     },
-    /// 查看版本、数据目录、后端和源码来源
+    /// 查看版本、数据目录和源码来源
     Doctor,
     #[command(hide = true)]
     ProfilePath,
-    /// 列出独立数据目录中的任务
-    Tasks,
-    /// 创建、委派、停止或重新打开任务
-    Task {
-        #[command(subcommand)]
-        command: TaskCommand,
-    },
     /// 查看文件树与 Git 状态
     Files {
         #[arg(default_value = ".")]
@@ -117,12 +107,6 @@ pub(crate) enum Command {
         /// 人工核对依据，必须同时提供 --operation
         evidence: Option<String>,
     },
-    /// 查看、暂停或恢复自动调度，不停止 Agent
-    Scheduler {
-        #[arg(value_parser = ["pause", "resume", "status"])]
-        /// status 查看状态，pause 暂停调度，resume 恢复调度
-        action: String,
-    },
 }
 #[derive(Args)]
 pub(crate) struct FileArgs {
@@ -136,43 +120,11 @@ pub(crate) struct FileArgs {
 #[derive(Args)]
 pub(crate) struct ExecutionArgs {
     #[arg(long)]
-    /// 任务 ID
-    pub(crate) task: Option<String>,
-    #[arg(long)]
-    /// 执行实例 ID；配合 --task 消除多次执行的歧义
-    pub(crate) execution: Option<String>,
-    #[arg(long)]
-    /// 未指定任务时使用的 Git 工作目录
+    /// Git 工作目录
     pub(crate) worktree: Option<PathBuf>,
     #[arg(long)]
     /// 需要验证并绑定的 Herdr 窗格 ID
     pub(crate) pane: Option<String>,
-}
-#[derive(Subcommand)]
-pub(crate) enum TaskCommand {
-    /// 在指定仓库创建任务
-    Create {
-        #[arg(long, default_value = ".")]
-        /// 仓库或浏览目录，默认当前目录
-        root: PathBuf,
-        /// 任务标题
-        title: String,
-    },
-    /// 委派任务给 Agent
-    Delegate {
-        /// 任务 ID
-        id: String,
-    },
-    /// 停止任务执行
-    Stop {
-        /// 任务 ID
-        id: String,
-    },
-    /// 重新打开任务
-    Reopen {
-        /// 任务 ID
-        id: String,
-    },
 }
 #[derive(Subcommand)]
 pub(crate) enum ReviewCommand {

@@ -1,8 +1,8 @@
 //! One terminal owner, with background jobs and upstream-backed views.
 use crate::loading::LoadState;
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use crossterm::event::Event;
-use herdr_work_core::{Context, Execution, ExecutionId, Review, Task, TaskId};
+use herdr_work_core::{Context, Execution, ExecutionId, Review, TaskId};
 use herdr_work_engine::{CodeSnapshot, DiffView, HerdrWork, JobQueue};
 use std::path::PathBuf;
 
@@ -11,7 +11,6 @@ pub(crate) enum Data {
     Preferences(crate::preferences::Update),
     Persistence(Box<crate::persistence::Update>),
     Background(Box<crate::refresh::BackgroundRefresh>),
-    Tasks(Result<Vec<Task>>),
     ActivationReported(Result<()>),
     ActivationRead(u64, Result<Option<herdr_work_engine::ActivationRequest>>),
     Code(u64, Result<CodeSnapshot>),
@@ -61,7 +60,6 @@ pub(crate) enum Message {
 }
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Tab {
-    Tasks,
     Files,
     Scm,
     Review,
@@ -79,8 +77,6 @@ pub(crate) enum Prompt {
         anchor: herdr_work_core::CommentAnchor,
     },
     Commit(herdr_work_engine::CommitPlan),
-    NewTask,
-    Stop(TaskId),
     Search(bool),
     SearchReplace,
     ReplaceConfirm(std::sync::Arc<herdr_work_engine::ReplacePlan>),
@@ -100,8 +96,6 @@ pub(crate) struct App {
     pub(crate) desk: HerdrWork,
     pub(crate) interaction: crate::interaction::Interaction,
     pub(crate) context: Context,
-    pub(crate) tasks: Vec<Task>,
-    pub(crate) task: usize,
     pub(crate) tab: Tab,
     pub(crate) selection: usize,
     pub(crate) scm_selection: usize,
@@ -123,7 +117,6 @@ pub(crate) struct App {
     pub(crate) review: Option<Review>,
     pub(crate) text: String,
     pub(crate) status: String,
-    pub(crate) tasks_state: LoadState,
     pub(crate) code_state: LoadState,
     pub(crate) expanded: Vec<PathBuf>,
     pub(crate) generation: u64,
@@ -194,7 +187,6 @@ impl App {
         let tab = match workspace.activity.as_str() {
             "git" => Tab::Scm,
             "search" => Tab::Search,
-            "tasks" => Tab::Tasks,
             "review" => Tab::Review,
             _ => Tab::Files,
         };
@@ -213,8 +205,6 @@ impl App {
             activation: None,
 
             context,
-            tasks: vec![],
-            task: 0,
             tab,
             selection: 0,
             scm_selection: 0,
@@ -236,7 +226,6 @@ impl App {
             review: None,
             text: String::new(),
             status: String::new(),
-            tasks_state: LoadState::Loading,
             code_state: LoadState::Loading,
             expanded,
             generation: 0,
@@ -299,11 +288,6 @@ impl App {
         let desk = self.desk.clone();
         self.jobs.submit(self.context.epoch, move || job(desk))
     }
-    pub(crate) fn load_tasks(&mut self) -> Result<()> {
-        self.job(|d| Ok(Data::Tasks(d.tasks())))?;
-        self.tasks_state = LoadState::Loading;
-        Ok(())
-    }
     pub(crate) fn refresh(&mut self) -> Result<()> {
         self.generation += 1;
         let generation = self.generation;
@@ -342,8 +326,7 @@ impl App {
         if epoch != self.context.epoch
             && !matches!(
                 &data,
-                Ok(Data::Tasks(_)
-                    | Data::Preferences(..)
+                Ok(Data::Preferences(..)
                     | Data::Persistence(..)
                     | Data::ActivationRead(..)
                     | Data::CommitDone(..)
@@ -371,21 +354,9 @@ impl App {
             Ok(Data::Business(text)) => {
                 self.status = text;
                 let _ = self.refresh();
-                let _ = self.load_tasks();
                 if let Some(kind) = self.active_drawer {
                     let _ = self.load_drawer(kind);
                 }
-            }
-            Ok(Data::Tasks(Err(error))) => {
-                self.tasks_state = LoadState::Failed(format!("{error:#}"));
-            }
-            Ok(Data::Tasks(Ok(tasks))) => {
-                self.tasks_state = LoadState::Ready;
-                let selected = self.tasks.get(self.task).map(|t| t.id.clone());
-                self.task = selected
-                    .and_then(|id| tasks.iter().position(|t| t.id == id))
-                    .unwrap_or(self.task.min(tasks.len().saturating_sub(1)));
-                self.tasks = tasks;
             }
             Ok(Data::EditorObserved(session, request, result)) => {
                 self.editor_observed(session, request, result)
@@ -774,45 +745,6 @@ impl App {
                 }
             }
         }
-    }
-    pub(crate) fn choose_execution(&mut self) -> Result<()> {
-        let task = self.tasks.get(self.task).context("No task selected")?;
-        let e = task
-            .executions
-            .first()
-            .cloned()
-            .context("Task has no execution; delegate it first")?;
-        self.queue_workspace_save()?;
-        self.root = e.worktree.clone();
-        self.context.select(e);
-        self.desk.save_context(&self.context)?;
-        self.diff = None;
-        self.clear_previews();
-        self.search_runtime = Default::default();
-        self.search_replace_request += 1;
-        self.search_replace_pending = false;
-        self.file_root_collapsed = false;
-        self.search_collapsed_files.clear();
-        self.search_results_collapsed = false;
-        self.preview_target = None;
-        self.search_request += 1;
-        self.search_rows.clear();
-        self.active_drawer = None;
-        self.drawers.clear();
-        self.drawer_open = [false; herdr_work_code::scm::Drawer::ALL.len()];
-        self.history = Default::default();
-        self.drawer_request += 1;
-        self.review = None;
-        self.code = None;
-        self.text.clear();
-        self.preview_path = None;
-        self.preview_scroll = 0;
-        self.expanded.clear();
-        self.selection = 0;
-        self.tab = Tab::Files;
-        self.focus = Focus::Sidebar;
-        self.load_workspace_after_change()?;
-        self.refresh()
     }
     pub(crate) fn change_folder(&mut self, root: PathBuf) -> Result<()> {
         let root = root.canonicalize()?;

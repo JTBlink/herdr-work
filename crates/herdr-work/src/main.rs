@@ -1,6 +1,6 @@
 mod cli;
 mod help;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use cli::*;
 use herdr_work_core::{BatchId, Execution, ExecutionId, ReviewId, Side, TaskId};
 use herdr_work_engine::HerdrWork;
@@ -10,20 +10,7 @@ fn print(value: &impl serde::Serialize) -> Result<()> {
     Ok(())
 }
 fn choose(desk: &HerdrWork, args: ExecutionArgs) -> Result<Execution> {
-    let execution = if let Some(task) = args.task {
-        let tasks = desk.tasks()?;
-        let candidates: Vec<_> = tasks
-            .into_iter()
-            .filter(|t| t.id.0 == task || t.executions.iter().any(|e| e.task.0 == task))
-            .flat_map(|t| t.executions)
-            .filter(|e| args.execution.as_ref().is_none_or(|id| &e.id.0 == id))
-            .collect();
-        ensure!(
-            candidates.len() == 1,
-            "Task has zero or multiple executions; choose --execution explicitly"
-        );
-        candidates.into_iter().next().unwrap()
-    } else {
+    let execution = {
         let root = args
             .worktree
             .unwrap_or(std::env::current_dir()?)
@@ -123,9 +110,9 @@ fn run() -> Result<()> {
         } | Command::Ui { sidebar: true, .. }
     );
     let desk = if source_sidebar {
-        HerdrWork::open_sidebar(&root, cli.projects_backend)?
+        HerdrWork::open_sidebar(&root)?
     } else {
-        HerdrWork::open(&root, cli.projects_backend)?
+        HerdrWork::open(&root)?
     };
     match command {
         Command::Ui {
@@ -158,19 +145,9 @@ fn run() -> Result<()> {
             unreachable!("host activity is dispatched before the profile lock")
         }
         Command::Doctor => print(
-            &serde_json::json!({"product":"HerdrWork","version":env!("CARGO_PKG_VERSION"),"profile":desk.root(),"projects_backend":desk.backend(),"projects_backend_installed":desk.backend().is_file(),"projects_backend_platform":if cfg!(unix){"bundled"}else{"Unix backend required; native Windows task execution unavailable"},"sources":{"projects":"92a2813be9a7c2f8cda737f6b78ed21e8413c3ce","sidebar":"081ed133f3faa377438b51ce435fe8a87c439593"}}),
+            &serde_json::json!({"product":"HerdrWork","version":env!("CARGO_PKG_VERSION"),"profile":desk.root(),"sources":{"sidebar":"081ed133f3faa377438b51ce435fe8a87c439593"}}),
         ),
         Command::ProfilePath => unreachable!("profile path is resolved before opening the profile"),
-        Command::Tasks => print(&desk.tasks()?),
-        Command::Task { command } => {
-            let value = match command {
-                TaskCommand::Create { root, title } => desk.create_task(&root, &title)?,
-                TaskCommand::Delegate { id } => desk.task_action(&TaskId(id), "delegate")?,
-                TaskCommand::Stop { id } => desk.task_action(&TaskId(id), "stop")?,
-                TaskCommand::Reopen { id } => desk.task_action(&TaskId(id), "reopen")?,
-            };
-            print(&value)
-        }
         Command::Files { root } => print(&desk.code_snapshot(&root, &[], 0)?),
         Command::Diff { file, scope, base } => {
             print(&desk.diff(&file.worktree, &file.file, &scope, base.as_deref())?)
@@ -224,10 +201,9 @@ fn run() -> Result<()> {
             if let (Some(name), Some(evidence)) = (operation, evidence) {
                 print(&desk.resolve_operation(&name, &evidence)?)
             } else {
-                print(&desk.reconcile_tasks()?)
+                print(&desk.git_reconciliation()?)
             }
         }
-        Command::Scheduler { action } => print(&desk.scheduler(&action)?),
     }
 }
 

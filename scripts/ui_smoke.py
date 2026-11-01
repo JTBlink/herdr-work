@@ -1,4 +1,4 @@
-"""Exercise loaded UI data and task creation in a private Unix PTY."""
+"""Exercise loaded UI files, Git and review data in a private Unix PTY."""
 import argparse
 import os
 from pathlib import Path
@@ -40,7 +40,7 @@ def ui_smoke(binary):
         size(36, 120)
         original = termios.tcgetattr(slave)
         env = {k: v for k, v in os.environ.items() if not k.startswith(('HERDR_',))}
-        env.update(TERM='xterm-256color', HERDR_PROJECTS_NO_KEEPER='1', HERDR_PROJECTS_INLINE='1')
+        env.update(TERM='xterm-256color')
         def seat():
             os.setsid()
             fcntl.ioctl(0, termios.TIOCSCTTY, 0)
@@ -81,10 +81,9 @@ def ui_smoke(binary):
             return text
         try:
             wait_for('Git修改：1')
-            text = wait_for('任务：0')
+            text = wait_for('Git修改：1')
             assert '加载中' not in text and 'Loading' not in text, 'Startup remained pending'
             assert '▾repo' in text and 'visible.txt' in text and 'Preview' in text, 'Default Explorer is missing'
-            assert '暂无任务' not in text and text.count('Tasks') == 0, 'Tasks displaced the default sidebar'
             wait_for('changedpreviewfixture', b'\r')
             # Close at the rendered header's right edge, then reopen the same
             # tree selection. The fixture alternates 120/121-column frames.
@@ -141,9 +140,6 @@ def ui_smoke(binary):
             wait_for('Staged(0)', b'u')
             assert not git('diff', '--cached', '--name-only').strip()
 
-            wait_for('Newtask', b'1n')
-            wait_for('UIsmoketask', b'UI smoke task\r')
-
             target = repo / 'search-target.txt'
             target.write_text(''.join('needle80\n' if i == 80 else f'line-{i:03d}\n'
                                       for i in range(1, 121)))
@@ -164,7 +160,7 @@ def ui_smoke(binary):
 
             wait_for('QUICKOPEN', b'\x10visible')
             wait_for('changedpreviewfixture', b'\r')
-            wait_for('▾repo', b'2')
+            wait_for('▾repo', b'1')
             size(24, 80)
             os.killpg(process.pid, signal.SIGWINCH)
             text = drain(.3)
@@ -181,7 +177,7 @@ def ui_smoke(binary):
                 process.wait(timeout=5)
             os.close(master)
             os.close(slave)
-    print('UI loaded: compact Explorer, original Sidebar commit widgets, header close and unsaved guard, passive preview refresh, settings/menu, editor wheel/save/reload/conflict, mouse navigation, stage/unstage, real Diff, tasks, live search at line 80, live Quick Open, 80-column split and clean exit')
+    print('UI loaded: compact Explorer, original Sidebar commit widgets, header close and unsaved guard, passive preview refresh, settings/menu, editor wheel/save/reload/conflict, mouse navigation, stage/unstage, real Diff, live search at line 80, live Quick Open, 80-column split and clean exit')
 
 
 if __name__ == '__main__':

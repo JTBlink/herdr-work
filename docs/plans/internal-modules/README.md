@@ -1,5 +1,7 @@
 # HerdrWork 内部模块整合：规格与实施索引
 
+2026-11-01 范围调整：本文保留历史规划或调研证据。任务管理与后台编排已退出当前产品，见 [移除决策](../../adr/0003-remove-task-backend.md)。
+
 
 父规格：[17：产品内部模块整合与长期维护](https://github.com/JTBlink/herdr-work/issues/17)。
 

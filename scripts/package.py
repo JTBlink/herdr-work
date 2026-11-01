@@ -64,8 +64,6 @@ def create_archive(target, output, tag=None):
     info = metadata(target, tag)
     suffix = '.exe' if 'windows' in target else ''
     binaries = {'herdr-work': target_dir(ROOT) / target / 'release' / f'herdr-work{suffix}'}
-    if info['projects_backend']:
-        binaries['herdr-work-projects'] = target_dir(ROOT) / target / 'release' / 'herdr-work-projects'
     for path in binaries.values():
         if not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f'Compiled binary missing: {path}')
@@ -79,13 +77,10 @@ def create_archive(target, output, tag=None):
         shutil.copy2(ROOT / 'scripts/install.py', stage / 'install.py')
         shutil.copy2(ROOT / 'README.md', stage / 'README.md')
         shutil.copy2(ROOT / 'herdr-plugin.toml', stage / 'herdr-plugin.toml')
-        (stage / 'scripts').mkdir()
-        shutil.copy2(ROOT / 'scripts/hook.py', stage / 'scripts/hook.py')
         shutil.copy2(ROOT / 'LICENSE', stage / 'LICENSE')
         shutil.copy2(ROOT / 'CHANGELOG.md', stage / 'CHANGELOG.md')
         (stage / 'licenses').mkdir()
         for label, source in {
-            'herdr-projects': 'crates/herdr-work-projects/LICENSE',
             'herdr-sidebar': 'crates/herdr-work-code/LICENSE',
             'process-runtime': 'crates/herdr-work-engine/LICENSE-process-runtime',
         }.items():
@@ -126,7 +121,6 @@ def verify(archive):
         manifest = json.loads((root / 'MANIFEST.json').read_text())
         if manifest.get('product') != 'HerdrWork': raise ValueError('Unsupported product identity')
         if manifest['target'] not in TARGETS: raise ValueError('Unexpected platform')
-        if manifest['projects_backend'] != TARGETS[manifest['target']]['backend']: raise ValueError('Platform backend capability differs')
         expected_files = set(manifest['files']) | {'MANIFEST.json'}
         actual_files = {p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file()}
         if expected_files != actual_files: raise ValueError('Archive file set differs from manifest')
@@ -135,9 +129,9 @@ def verify(archive):
             if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()) or digest(path) != sha:
                 raise ValueError(f'Manifest checksum mismatch: {rel}')
         suffix = '.exe' if 'windows' in manifest['target'] else ''
-        required = {'bin/herdr-work' + suffix, 'install.py', 'LICENSE'} | {f'licenses/{name}.txt' for name in ['herdr-projects','herdr-sidebar','process-runtime']}
-        if manifest['projects_backend']:
-            required.add('bin/herdr-work-projects')
+        required = {'bin/herdr-work' + suffix, 'install.py', 'LICENSE'} | {f'licenses/{name}.txt' for name in ['herdr-sidebar','process-runtime']}
+        if {p for p in actual_files if p.startswith('bin/')} != {'bin/herdr-work' + suffix}:
+            raise ValueError('Unexpected archive executable')
         if not required <= actual_files: raise ValueError('Required executable or license missing')
         return manifest
 

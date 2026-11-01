@@ -11,11 +11,11 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from package import verify
 
 class Archives(unittest.TestCase):
-    def archive(self, root, *, backend=True, corrupt=False, product='HerdrWork'):
+    def archive(self, root, *, extra_binary=False, corrupt=False, product='HerdrWork'):
         files={'bin/herdr-work':b'compiled-herdr-work-fixture','install.py':b'# installer','LICENSE':b'MIT'}
-        for name in ['herdr-projects','herdr-sidebar','process-runtime']:files[f'licenses/{name}.txt']=b'MIT'
-        if backend:files['bin/herdr-work-projects']=b'compiled-backend-fixture'
-        manifest={'product':product,'version':'0.1.0','sha':'a'*40,'target':'x86_64-unknown-linux-gnu','projects_backend':True,
+        for name in ['herdr-sidebar','process-runtime']:files[f'licenses/{name}.txt']=b'MIT'
+        if extra_binary:files['bin/unexpected']=b'unknown fixture'
+        manifest={'product':product,'version':'0.1.0','sha':'a'*40,'target':'x86_64-unknown-linux-gnu',
                   'files':{name:hashlib.sha256(data).hexdigest() for name,data in files.items()}}
         files['MANIFEST.json']=json.dumps(manifest).encode()
         if corrupt:files['bin/herdr-work']=b'tampered'
@@ -25,13 +25,13 @@ class Archives(unittest.TestCase):
                 info=tarfile.TarInfo('fixture/'+name);info.size=len(data);tar.addfile(info,io.BytesIO(data))
         sha=hashlib.sha256(path.read_bytes()).hexdigest();path.with_name(path.name+'.sha256').write_text(f'{sha}  {path.name}\n')
         return path
-    def test_valid_archive_has_original_licenses_and_backend(self):
+    def test_valid_archive_has_original_licenses_and_product(self):
         with tempfile.TemporaryDirectory() as temp:
             info=verify(self.archive(Path(temp)))
             self.assertEqual(info['version'],'0.1.0')
-    def test_missing_backend_cannot_be_packaged_as_unix_distribution(self):
+    def test_additional_binary_cannot_be_packaged(self):
         with tempfile.TemporaryDirectory() as temp:
-            with self.assertRaisesRegex(ValueError,'Required executable'):verify(self.archive(Path(temp),backend=False))
+            with self.assertRaisesRegex(ValueError,'Unexpected archive executable'):verify(self.archive(Path(temp),extra_binary=True))
     def test_inner_binary_tampering_is_detected_even_with_new_outer_checksum(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaisesRegex(ValueError,'Manifest checksum'):verify(self.archive(Path(temp),corrupt=True))
@@ -51,11 +51,11 @@ class InstallerOwnership(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp).resolve();stage=root/'archive';prefix=root/'prefix'
             (stage/'bin').mkdir(parents=True);(prefix/'bin').mkdir(parents=True)
-            files={'bin/herdr-work':b'new app','bin/herdr-work-projects':b'new backend'}
+            files={'bin/herdr-work':b'new app','bin/herdr-work.exe':b'new backend'}
             for name,data in files.items():(stage/name).write_bytes(data)
             (stage/'MANIFEST.json').write_text(json.dumps({'product':'HerdrWork','version':'0.1.0','sha':'a'*40,'files':{name:hashlib.sha256(data).hexdigest() for name,data in files.items()}}))
             owned=prefix/'bin/herdr-work';owned.write_bytes(b'previous app')
-            unowned=prefix/'bin/herdr-work-projects';unowned.write_bytes(b'unrelated existing command')
+            unowned=prefix/'bin/herdr-work.exe';unowned.write_bytes(b'unrelated existing command')
             (prefix/'herdr-work-install.json').write_text(json.dumps({'version':'0.0.1','sha':'b'*40,'files':[str(owned)]}))
             with self.assertRaisesRegex(ValueError,'Unowned executable'):install(stage,prefix)
             self.assertEqual(owned.read_bytes(),b'previous app')
@@ -68,8 +68,6 @@ class InstallerLifecycle(unittest.TestCase):
         (prefix / 'bin').mkdir(parents=True)
         name = 'herdr-work' + suffix
         files = {'bin/' + name: b'new app'}
-        if not suffix:
-            files['bin/herdr-work-projects'] = b'new backend'
         for rel, data in files.items():
             (stage / rel).write_bytes(data)
             (prefix / rel).write_bytes(b'previous ' + data)
@@ -137,7 +135,7 @@ class InstallerLifecycle(unittest.TestCase):
             def fail_once(source, dest):
                 nonlocal calls
                 calls += 1
-                if calls == 2:
+                if calls == 1:
                     raise OSError('simulated replacement failure')
                 shutil.copy2(source, dest)
             with patch('install.replace', side_effect=fail_once):
@@ -176,6 +174,28 @@ class InstallerLifecycle(unittest.TestCase):
             self.assertEqual((prefix / 'bin/herdr-work').read_bytes(), b'previous new app')
             self.assertTrue((prefix / 'workdesk-install.json').is_file())
             self.assertFalse((prefix / 'herdr-work-install.json').exists())
+
+    def test_removing_owned_backend_supports_upgrade_and_rollback_without_removing_data(self):
+        import install as installer
+        from unittest.mock import patch
+        import shutil
+        with tempfile.TemporaryDirectory() as temp:
+            stage, prefix, previous = self.fixture(Path(temp).resolve())
+            retired = prefix / 'bin/herdr-work-projects'
+            retired.write_bytes(b'previous owned backend')
+            previous['files'].append(str(retired))
+            (prefix / 'herdr-work-install.json').write_text(json.dumps(previous))
+            user_data = prefix / 'projects/data/task.json'
+            user_data.parent.mkdir(parents=True)
+            user_data.write_text('preserve user data')
+            with patch('install.replace', side_effect=shutil.copy2):
+                installer.install(stage, prefix)
+                self.assertFalse(retired.exists())
+                self.assertEqual(user_data.read_text(), 'preserve user data')
+                installer.rollback(prefix)
+                self.assertEqual(retired.read_bytes(), b'previous owned backend')
+                self.assertEqual(installer.read_receipt(prefix), previous)
+            self.assertEqual(user_data.read_text(), 'preserve user data')
 
     def test_current_receipt_rejects_obsolete_command_names(self):
         import install as installer

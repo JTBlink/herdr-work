@@ -322,7 +322,6 @@ struct ClickZones {
     explorer: (u16, u16),
     search: (u16, u16),
     source_control: (u16, u16),
-    projects: Rect,
     /// The ⚙ button (activity bar in unified mode, header otherwise).
     gear: Rect,
     message: Rect,
@@ -1197,14 +1196,6 @@ impl App {
         // 1/2/3 type into the draft — Ctrl+1/2/3 mirror VS Code's activity bar
         // from any focus (1 Explorer, 2 Search, 3 Source Control). Bare 1/2/3
         // still switch from the file list.
-        if key.code == KeyCode::Char('4')
-            && (key.modifiers == KeyModifiers::CONTROL
-                || (key.modifiers.is_empty() && self.focus == Focus::List))
-            && self.overlay.is_none()
-        {
-            self.mouse_pos = None;
-            return Some(Exit::Projects);
-        }
         let injected_view = match key.code {
             KeyCode::F(9) => Some('1'),
             KeyCode::F(10) => Some('2'),
@@ -1352,9 +1343,6 @@ impl App {
         let (x, y) = (mouse.column, mouse.row);
         let z = self.zones;
         if self.merged() {
-            if hits(z.projects, x, y) {
-                return Some(Exit::Projects);
-            }
             if hits_activity_button(z.explorer, z.activity_row, x, y) {
                 return self.switch_to(View::Explorer);
             }
@@ -3899,14 +3887,6 @@ impl App {
         line.push(Span::raw(" ".repeat(pad)));
         line.push(gear);
         frame.render_widget(Paragraph::new(Line::from(line)), area);
-        self.zones.projects = herdr_work_code::ui::draw_projects_button(
-            frame,
-            area,
-            x,
-            gear_x,
-            self.mouse_pos,
-            self.theme,
-        );
         herdr_work_code::ui::draw_activity_badge(
             frame,
             bounds[5],

@@ -18,7 +18,6 @@ pub(crate) enum Action {
     Files,
     Search,
     Git,
-    Projects,
     Settings,
     Expand,
     Collapse,
@@ -36,13 +35,7 @@ pub(crate) fn controls(area: Rect, collapsed: bool) -> Vec<(Rect, Action)> {
     let mut buttons = vec![(Rect::new(area.x, area.y, area.width, 1), Action::Expand)];
     // Reserve the final two rows even in a short terminal.
     let body_height = area.height.saturating_sub(2);
-    let actions = [
-        Action::Files,
-        Action::Search,
-        Action::Git,
-        Action::Projects,
-        Action::Settings,
-    ];
+    let actions = [Action::Files, Action::Search, Action::Git, Action::Settings];
     let slot = if body_height >= 15 { 3 } else { 1 };
     for (index, action) in actions.into_iter().enumerate() {
         let row = index as u16 * slot;
@@ -92,7 +85,6 @@ pub(crate) fn draw(
             Action::Files => ui::activity_icon(theme, ActivityIcon::Files),
             Action::Search => ui::activity_icon(theme, ActivityIcon::Search),
             Action::Git => ui::activity_icon(theme, ActivityIcon::SourceControl),
-            Action::Projects => ui::activity_icon(theme, ActivityIcon::Tasks),
             Action::Settings => ui::activity_icon(theme, ActivityIcon::Settings),
             Action::Expand => "»",
             Action::Close => "×",

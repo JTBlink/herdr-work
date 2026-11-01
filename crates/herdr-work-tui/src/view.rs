@@ -18,7 +18,6 @@ impl App {
         self.draw_sidebar(f, layout.sidebar);
         if layout.content.width > 0 {
             match self.tab {
-                Tab::Tasks => self.draw_task_detail(f, layout.content),
                 Tab::Files | Tab::Search => self.draw_preview(f, layout.content),
                 Tab::Scm if self.active_drawer.is_some() => self.draw_drawer(f, layout.content),
                 Tab::Scm | Tab::Review => self.draw_diff(f, layout.content),
@@ -33,7 +32,6 @@ impl App {
             (Tab::Files, _) => "Enter 展开/预览 · e 编辑 · m 菜单 · , 设置 · Tab 聚焦预览",
             (Tab::Scm, _) => "Enter 查看差异 · g 图谱/差异 · s 暂存 · u 取消暂存 · C 提交",
             (Tab::Review, _) => "c 评论 · s 发送 · b 绑定 · g 图谱 · f 聚焦 Agent · Tab 返回 Git",
-            (Tab::Tasks, _) => "Enter 选择执行 · n 创建 · d 委派 · x 停止",
         };
         self.draw_footer(f, layout.footer, hints);
         self.draw_editor(f, &layout);
@@ -43,8 +41,6 @@ impl App {
             let label = match prompt {
                 Prompt::Comment { .. } => "Comment",
                 Prompt::Commit(_) => "Commit staged changes",
-                Prompt::NewTask => "New task",
-                Prompt::Stop(_) => "Type STOP to stop execution",
                 Prompt::Search(true) => "快速打开文件",
                 Prompt::Search(false) => "搜索文本",
                 Prompt::SearchReplace => "替换",
