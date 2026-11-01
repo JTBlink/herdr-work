@@ -4,6 +4,12 @@
 #[test]
 fn delete_confirmation_supports_mouse_and_keyboard_without_background_input() {
     let output = std::process::Command::new("python3")
+        .args([
+            "-c",
+            "import subprocess,sys; subprocess.run(sys.argv[1:], check=True, timeout=90)",
+            "python3",
+            "-u",
+        ])
         .arg(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../scripts/tests/delete_confirmation_fixture.py"
