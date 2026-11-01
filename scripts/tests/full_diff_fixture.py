@@ -141,6 +141,11 @@ def check(binary, theme):
             viewer.frame('changed_30 = 300;')
             viewer.base_width = 60
             viewer.resize(60)
+            # Wait for SIGWINCH/layout before sending a separate keyboard action.
+            # Keep resize and keyboard checks separate instead of depending on
+            # how the PTY schedules input against the resize notification.
+            grid = viewer.frame('changed_30 = 300;')
+            assert locate(grid, '原始') is None, 'resize must finish before navigation'
             viewer.send(b'\x1b[F')
             grid = viewer.frame('unchanged_240 = 240;')
             assert locate(grid, '原始') is None, 'narrow view uses complete inline text'
