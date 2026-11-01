@@ -7,6 +7,10 @@
 - 重启恢复草稿与选择，对结果未知的操作显式核对。
 - 独立数据目录 `~/.herdr-work`，可通过 `--home` 或 `HERDR_WORK_HOME` 指定。
 
+![HerdrWork 文件与 Git 侧栏](docs/verification/assets/workbench.png)
+
+文件与 Git 侧栏示例，使用隔离的演示仓库。
+
 ## 安装与启动
 
 从 [Releases](https://github.com/JTBlink/herdr-work/releases) 下载对应平台归档及 `.sha256` 文件，校验后解压，在解压目录执行（Python 3.12+）：

@@ -10,7 +10,7 @@ from cleanup import clean_caches
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = {
-    'aarch64-apple-darwin': {'runner': 'macos-14'},
+    'aarch64-apple-darwin': {'runner': 'macos-15'},
     'x86_64-unknown-linux-gnu': {'runner': 'ubuntu-24.04'},
     'x86_64-pc-windows-msvc': {'runner': 'windows-2022'},
 }

@@ -9,7 +9,7 @@
 
 下面为真实 `Sidebar` 组件经 Ratatui TestBackend 绘制并导出的终端帧，使用临时仓库与测试数据；不是用户宿主会话的人工截图。
 
-![移除后的 Explorer 和 Git 终端帧](assets/task-backend-removal.svg)
+![移除后的 Explorer 和 Git 终端帧](assets/workbench.png)
 
 复现：
 
@@ -22,5 +22,7 @@ python3 scripts/build.py --target aarch64-apple-darwin
 python3 scripts/package.py create --target aarch64-apple-darwin
 python3 scripts/smoke.py --archives dist
 ```
+
+截图由隔离示例数据生成，已检查不含本机绝对路径、账号、凭据或 Agent 会话；PNG 不带个人元数据。README 使用同一张截图。
 
 本机覆盖 macOS；Linux/Windows 构建、原生测试与安装由同一发布 SHA 的 Actions 验证。人工 Agent 会话不计为已验收。发布结果集中记录在 [#49](https://github.com/JTBlink/herdr-work/issues/49)。
