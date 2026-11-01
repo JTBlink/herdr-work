@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import pty
 import select
+import signal
 import struct
 import subprocess
 import sys
@@ -51,11 +52,16 @@ class Viewer:
         self.send(f'\x1b[<0;{x+1};{y+1}M'.encode())
 
     def frame(self, label):
-        for _ in range(24):
+        captured = bytearray()
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
             self.resize(self.base_width + int(self.width == self.base_width))
-            grid = cells(self.drain(.2), self.width, self.height)
+            output = self.drain(.2)
+            captured.extend(output)
+            grid = cells(output, self.width, self.height)
             if locate(grid, label) is not None: return grid
-        raise AssertionError(f'did not render {label!r}, exit={self.process.poll()}, tail={grid[-4:]}')
+        raise AssertionError(f'did not render {label!r}, exit={self.process.poll()}, '
+                             f'frame={["".join(row) for row in grid]}, output={bytes(captured[-2000:])!r}')
 
     def close(self):
         self.process.terminate()
@@ -164,5 +170,10 @@ def check(binary, theme):
 
 
 if __name__ == '__main__':
+    def timed_out(signum, frame):
+        raise TimeoutError('full diff PTY fixture exceeded 180 seconds')
+    signal.signal(signal.SIGALRM, timed_out)
+    signal.alarm(180)
     for color in ['vscode', 'light', 'terminal']:
         check(Path(sys.argv[1]).resolve(), color)
+    signal.alarm(0)

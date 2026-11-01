@@ -201,7 +201,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::history::tests::Repo as Fixture;
+    use crate::test_support::Repo as Fixture;
 
     fn settle(app: &mut App) {
         let deadline = Instant::now() + Duration::from_secs(5);

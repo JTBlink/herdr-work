@@ -1,5 +1,5 @@
 use super::*;
-use crate::history::tests::Repo as Fixture;
+use crate::test_support::Repo as Fixture;
 use ratatui::{Terminal, backend::TestBackend};
 
 #[test]
@@ -11,7 +11,10 @@ fn compact_graph_header_aligns_with_other_drawers() {
     for width in [20, 28, 45] {
         for expanded in [false, true] {
             app.drawers[Drawer::Graph.index()].expanded = expanded;
-            for scope in [crate::history::Scope::All, crate::history::Scope::Current] {
+            for scope in [
+                herdr_work_code::history::Scope::All,
+                herdr_work_code::history::Scope::Current,
+            ] {
                 app.history.scope = scope;
                 let mut terminal = Terminal::new(TestBackend::new(width, 10)).unwrap();
                 terminal
@@ -41,10 +44,11 @@ fn compact_history_files_keep_status_colors_when_selected_or_hovered() {
     fixture.run(&["add", "."]);
     fixture.run(&["commit", "-qm", "initial"]);
     let statuses = ['A', 'M', 'D', 'R', 'C'];
-    let mut details = crate::history::CommitDetails::load(&fixture.git(), "HEAD", 0).unwrap();
+    let mut details =
+        herdr_work_code::history::CommitDetails::load(&fixture.git(), "HEAD", 0).unwrap();
     details.files = statuses
         .into_iter()
-        .map(|status| crate::history::ChangedFile {
+        .map(|status| herdr_work_code::history::ChangedFile {
             path: "src/file.rs".into(),
             old_path: matches!(status, 'R' | 'C').then(|| "src/old.rs".into()),
             status,
@@ -66,7 +70,7 @@ fn compact_history_files_keep_status_colors_when_selected_or_hovered() {
                 .unwrap();
             let buffer = terminal.backend().buffer();
             for (row, status) in statuses.iter().enumerate() {
-                let color = crate::ui::status_color(*status);
+                let color = herdr_work_code::ui::status_color(*status);
                 let marker = &buffer[(7, row as u16)];
                 assert_eq!(marker.symbol(), status.to_string());
                 assert_eq!(marker.fg, color, "status {status}, selected {selected:?}");
@@ -86,9 +90,9 @@ fn compact_graph_gutter_preserves_lanes_and_aligns_disclosure_and_subjects() {
     app.history.graph.rows = ["* ", "\x1b[31m|\\  \x1b[0m", "| * "]
         .into_iter()
         .enumerate()
-        .map(|(index, graph)| crate::git_graph::Row {
+        .map(|(index, graph)| herdr_work_code::git_graph::Row {
             graph: graph.into(),
-            commit: (index != 1).then(|| crate::git_graph::Commit {
+            commit: (index != 1).then(|| herdr_work_code::git_graph::Commit {
                 oid: format!("{index:040x}"),
                 short: format!("{index:08x}"),
                 refs: vec![],
@@ -165,7 +169,7 @@ fn compact_graph_expands_commit_files_and_keeps_full_oid_when_subject_looks_like
     let mut app = App::new(fixture.0.path().into(), Default::default());
     app.drawers[Drawer::Graph.index()].expanded = true;
     app.reload_expanded_drawers();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while app.history.loading() {
         app.poll_history();
         assert!(std::time::Instant::now() < deadline);
@@ -179,6 +183,9 @@ fn compact_graph_expands_commit_files_and_keeps_full_oid_when_subject_looks_like
         .unwrap();
     app.selected = Some(row);
     app.activate();
+    // Commit details are a separate asynchronous query, not part of the
+    // graph load's timeout budget (especially on shared CI runners).
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while app.history.busy() {
         app.poll_history();
         assert!(std::time::Instant::now() < deadline);

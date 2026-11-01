@@ -80,3 +80,6 @@ pub mod sidebar_component;
 pub mod root_memory;
 #[cfg(any(feature = "sidebar-ui", feature = "reference-ui", test))]
 pub use root_memory::flush_pending_root;
+
+#[cfg(test)]
+mod test_support;

@@ -61,6 +61,17 @@ fn right_click_targets_clicked_file_and_scrolled_menu_renames_that_file() {
     });
     assert!(matches!(&app.overlay,
         Some(Overlay::Prompt { kind: PromptKind::Rename(path), .. }) if *path == root.join("b.txt")));
+    // The initial background Git discovery can still hold this directory as
+    // its cwd on Windows. Finish that read before deleting the fixture.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while app.deco_rx.is_some() {
+        app.collect_decorations();
+        assert!(
+            std::time::Instant::now() < deadline,
+            "Git discovery stalled"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
 }

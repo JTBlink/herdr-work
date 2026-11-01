@@ -1,6 +1,6 @@
 //! Compact history interaction; rendering and async queries stay out of the SCM shell.
 use super::*;
-use crate::history::{Browser, display};
+use herdr_work_code::history::{Browser, display};
 
 impl App {
     pub(super) fn refresh_history(&mut self) {
@@ -109,7 +109,9 @@ impl App {
                         ));
                     }
                 }
-                return ListItem::new(Line::from(crate::git_graph::clip_spans(spans, width)));
+                return ListItem::new(Line::from(herdr_work_code::git_graph::clip_spans(
+                    spans, width,
+                )));
             }
             Row::HistoryFile(index) => {
                 let Some(file) = self.history.details().and_then(|d| d.files.get(index)) else {
@@ -123,9 +125,11 @@ impl App {
                 spans.push(Span::raw("    "));
                 spans.push(Span::styled(
                     file.compact_label(),
-                    Style::default().fg(crate::ui::status_color(file.status)),
+                    Style::default().fg(herdr_work_code::ui::status_color(file.status)),
                 ));
-                return ListItem::new(Line::from(crate::git_graph::clip_spans(spans, width)));
+                return ListItem::new(Line::from(herdr_work_code::git_graph::clip_spans(
+                    spans, width,
+                )));
             }
             Row::HistoryMoreFiles => format!(
                 "  │   加载更多文件（共 {} 个）",
@@ -191,9 +195,9 @@ impl App {
             return;
         };
         let root = &self.history.root;
-        let key = crate::viewer::doc_key_for_commit(root, oid, parent, path);
-        let payload = crate::viewer::commit_request(root, oid, parent, path);
-        match crate::viewer::open_in_pane(&pane_id, root, &key, &payload) {
+        let key = herdr_work_code::viewer::doc_key_for_commit(root, oid, parent, path);
+        let payload = herdr_work_code::viewer::commit_request(root, oid, parent, path);
+        match herdr_work_code::viewer::open_in_pane(&pane_id, root, &key, &payload) {
             Ok(target) => self.last_preview = Some((key, target)),
             Err(error) => self.flash = Notice::new((error, true)),
         }
@@ -213,7 +217,7 @@ impl App {
             }
             _ => return None,
         };
-        Some(crate::viewer::doc_key_for_commit(
+        Some(herdr_work_code::viewer::doc_key_for_commit(
             &self.history.root,
             oid,
             parent,

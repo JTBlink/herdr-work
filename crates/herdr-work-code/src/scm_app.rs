@@ -453,7 +453,7 @@ pub struct App {
     drawers: [DrawerPanel; Drawer::ALL.len()],
     /// The file the FILE HISTORY drawer follows: the last selected file row.
     history_target: Option<String>,
-    history: crate::history::Browser,
+    history: herdr_work_code::history::Browser,
     history_expanded: bool,
     /// Footer notice: (text, is_error). Cleared on input or after three seconds.
     flash: Notice<(String, bool)>,
@@ -606,7 +606,7 @@ impl App {
             theme,
             drawers,
             history_target,
-            history: crate::history::Browser::default(),
+            history: herdr_work_code::history::Browser::default(),
             history_expanded: false,
             flash: Default::default(),
             vscode_open: Default::default(),
@@ -759,7 +759,7 @@ impl App {
     fn close(&mut self, snooze: bool) {
         // Closing our own pane kills this process: save a pending remembered
         // root first (the outer loop's flush never runs on this path).
-        crate::flush_pending_root();
+        herdr_work_code::flush_pending_root();
         // A direct pane close kills the process without a Drop/signal hook.
         // Persist drafts first; failure keeps the live pane open with the
         // existing error notice from persist_scm().
@@ -1175,7 +1175,7 @@ impl App {
             && key.modifiers.contains(KeyModifiers::CONTROL)
             && !key.modifiers.contains(KeyModifiers::ALT)
         {
-            self.close(crate::state::product_profile().is_some());
+            self.close(herdr_work_code::state::product_profile().is_some());
             return None;
         }
         self.flash = Default::default();
@@ -1891,7 +1891,7 @@ impl App {
                 };
                 match mouse.kind {
                     MouseEventKind::Down(MouseButton::Left)
-                        if crate::settings_view::close_button(*rect)
+                        if herdr_work_code::settings_view::close_button(*rect)
                             .contains((mouse.column, mouse.row).into()) =>
                     {
                         Cmd::Close
@@ -2218,7 +2218,7 @@ impl App {
             Setting::Version | Setting::Scope => {}
             Setting::ClosePane => {
                 self.overlay = None;
-                self.close(crate::state::product_profile().is_some());
+                self.close(herdr_work_code::state::product_profile().is_some());
             }
             #[cfg(feature = "reference-ui")]
             Setting::Update => {
@@ -2378,7 +2378,7 @@ impl App {
             .settings_rows()
             .into_iter()
             .map(|(id, label, value, enabled)| {
-                let (label, value) = crate::settings_view::row(label, &value);
+                let (label, value) = herdr_work_code::settings_view::row(label, &value);
                 (id, label, value, enabled)
             })
             .collect::<Vec<_>>();
@@ -2388,7 +2388,7 @@ impl App {
         let hints = self.hints();
         let hints = hints
             .iter()
-            .map(|(key, label)| (*key, crate::settings_view::text(label)))
+            .map(|(key, label)| (*key, herdr_work_code::settings_view::text(label)))
             .collect::<Vec<_>>();
         let hint_lines = wrap_hints(&hints, width.saturating_sub(2), 0);
         let Some(Overlay::Settings {
@@ -2409,7 +2409,7 @@ impl App {
         let inner_w = usize::from(width.saturating_sub(2));
         let mut lines: Vec<Line> = Vec::new();
         for (i, (_, label, value, enabled)) in rows.iter().enumerate() {
-            let text = crate::settings_view::row_text(label, value, inner_w);
+            let text = herdr_work_code::settings_view::row_text(label, value, inner_w);
             let style = if !enabled {
                 Style::default().dim()
             } else if i == *selected {
@@ -2437,7 +2437,7 @@ impl App {
             ),
             popup,
         );
-        crate::settings_view::draw_close(frame, popup);
+        herdr_work_code::settings_view::draw_close(frame, popup);
     }
 
     fn activate_menu_entry(&mut self) {
