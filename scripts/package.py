@@ -76,6 +76,9 @@ def create_archive(target, output, tag=None):
             shutil.copy2(source, dest)
         shutil.copy2(ROOT / 'scripts/install.py', stage / 'install.py')
         shutil.copy2(ROOT / 'README.md', stage / 'README.md')
+        screenshot = Path('docs/verification/assets/workbench.png')
+        (stage / screenshot).parent.mkdir(parents=True)
+        shutil.copy2(ROOT / screenshot, stage / screenshot)
         shutil.copy2(ROOT / 'herdr-plugin.toml', stage / 'herdr-plugin.toml')
         shutil.copy2(ROOT / 'LICENSE', stage / 'LICENSE')
         shutil.copy2(ROOT / 'CHANGELOG.md', stage / 'CHANGELOG.md')
@@ -129,7 +132,7 @@ def verify(archive):
             if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()) or digest(path) != sha:
                 raise ValueError(f'Manifest checksum mismatch: {rel}')
         suffix = '.exe' if 'windows' in manifest['target'] else ''
-        required = {'bin/herdr-work' + suffix, 'install.py', 'LICENSE'} | {f'licenses/{name}.txt' for name in ['herdr-sidebar','process-runtime']}
+        required = {'bin/herdr-work' + suffix, 'install.py', 'LICENSE', 'docs/verification/assets/workbench.png'} | {f'licenses/{name}.txt' for name in ['herdr-sidebar','process-runtime']}
         if {p for p in actual_files if p.startswith('bin/')} != {'bin/herdr-work' + suffix}:
             raise ValueError('Unexpected archive executable')
         if not required <= actual_files: raise ValueError('Required executable or license missing')

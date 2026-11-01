@@ -41,6 +41,7 @@ class ProductWorkspace(unittest.TestCase):
                 path.write_text('compiled fixture')
             for name in ['scripts/install.py', 'README.md',
                          'herdr-plugin.toml', 'LICENSE', 'CHANGELOG.md',
+                         'docs/verification/assets/workbench.png',
                          'crates/herdr-work-code/LICENSE',
                          'crates/herdr-work-engine/LICENSE-process-runtime']:
                 path = root / name

@@ -12,7 +12,7 @@ from package import verify
 
 class Archives(unittest.TestCase):
     def archive(self, root, *, extra_binary=False, corrupt=False, product='HerdrWork'):
-        files={'bin/herdr-work':b'compiled-herdr-work-fixture','install.py':b'# installer','LICENSE':b'MIT'}
+        files={'bin/herdr-work':b'compiled-herdr-work-fixture','install.py':b'# installer','LICENSE':b'MIT','docs/verification/assets/workbench.png':b'PNG fixture'}
         for name in ['herdr-sidebar','process-runtime']:files[f'licenses/{name}.txt']=b'MIT'
         if extra_binary:files['bin/unexpected']=b'unknown fixture'
         manifest={'product':product,'version':'0.1.0','sha':'a'*40,'target':'x86_64-unknown-linux-gnu',

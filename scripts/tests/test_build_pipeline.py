@@ -124,6 +124,7 @@ class ArchiveCleanup(unittest.TestCase):
             target = 'x86_64-pc-windows-msvc'
             for relative in ('scripts/install.py', 'README.md',
                              'herdr-plugin.toml', 'LICENSE', 'CHANGELOG.md',
+                         'docs/verification/assets/workbench.png',
                              'crates/herdr-work-code/LICENSE', 'crates/herdr-work-engine/LICENSE-process-runtime',
                              f'target/{target}/release/herdr-work.exe'):
                 file = root / relative

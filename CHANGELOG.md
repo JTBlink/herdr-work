@@ -4,7 +4,7 @@
 
 ## 0.1.17 — 2026-11-01
 
-- README 更新移除任务后端后的文件/Git 截图，示例资料已脱敏；macOS CI 改用 macOS 15，避免旧 Runner 退役导致发布取消。
+- README 更新移除任务后端后的文件/Git 截图，示例资料已脱敏并随归档提供；macOS CI 改用 macOS 15，避免旧 Runner 退役导致发布取消。
 
 - 移除 Projects 任务后端及其 data/flow/board/web 实现、任务 CLI、调度、看板入口与插件 hooks，工作台集中于文件、搜索、Git、Diff 和代码审查。
 - 根 workspace 精简为五个包，各平台仅编译、打包和安装主程序；清理专属资源、许可证清单、测试夹具及当前文档引用。

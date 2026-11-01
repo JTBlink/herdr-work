@@ -86,7 +86,6 @@ def check(binary, theme, directory, width):
             target.write_text('fixture')
         neighbor = root / 'z-keep.txt'
         neighbor.write_text('keep')
-        print(f'[DEBUG-hw-pty] start theme={theme} directory={directory} width={width}', flush=True)
         master, slave = pty.openpty()
         height = 24
         current_width = width
@@ -103,7 +102,6 @@ def check(binary, theme, directory, width):
         process = subprocess.Popen([str(binary), '--home', str(profile), 'ui', '--sidebar', str(root)],
                                    stdin=slave, stdout=slave, stderr=slave, env=env, preexec_fn=seat)
         os.close(slave)
-        print('[DEBUG-hw-pty] child spawned', flush=True)
 
         def drain(seconds=.15):
             data = b''
@@ -128,7 +126,6 @@ def check(binary, theme, directory, width):
             raise AssertionError(f'{theme}: did not render {label!r}; exit={process.poll()}; frame={grid!r}')
 
         def open_modal():
-            print('[DEBUG-hw-pty] opening delete modal', flush=True)
             # Locate the painted Delete item: file and folder menus have different entries.
             send(b'gm')
             menu = frame('删除…')
@@ -141,7 +138,6 @@ def check(binary, theme, directory, width):
 
         try:
             frame('z-keep.txt')
-            print('[DEBUG-hw-pty] first frame ready', flush=True)
             grid = open_modal()
             click(locate(grid, '取消'))
             assert target.exists() and neighbor.read_text() == 'keep'
@@ -166,18 +162,16 @@ def check(binary, theme, directory, width):
             assert neighbor.read_text() == 'keep', 'deleted a different tree row'
             print(f'delete modal: {theme}, directory={directory}, mouse cancel/close/confirm, safe Enter, shortcut capture passed')
         finally:
-            print('[DEBUG-hw-pty] terminating child', flush=True)
             process.terminate()
             try: process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
             os.close(master)
-            print('[DEBUG-hw-pty] child reaped', flush=True)
 
 
 if __name__ == '__main__':
-    faulthandler.dump_traceback_later(30, repeat=True)
+    faulthandler.dump_traceback_later(75)
     executable = Path(sys.argv[1]).resolve()
     for case in [('vscode', True, 28), ('light', False, 28), ('terminal', False, 40)]:
         check(executable, *case)
