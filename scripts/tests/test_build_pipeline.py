@@ -63,14 +63,39 @@ class CacheCleanup(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / 'repo'
             file = aged_file(root / 'target/debug/deps/library.rlib')
+            incremental = aged_file(root / 'target/debug/incremental/old/data')
             with cleanup.directory_lock(file.parents[1] / '.cargo-build-lock'):
-                result = cleanup.clean_build_outputs(root, apply=True)
-            self.assertEqual(result['busy'], [str(file.parents[1])])
-            self.assertTrue(file.exists())
+                for action in [cleanup.clean_build_outputs, cleanup.clean_caches]:
+                    result = action(root, apply=True)
+                    self.assertEqual(result['busy'], [str(file.parents[1])])
+                    self.assertTrue(file.exists())
+                    self.assertTrue(incremental.exists())
             external = aged_file(Path(temp) / 'external/release/deps/library.rlib')
             (root / 'target' / TARGET).symlink_to(external.parents[2], target_is_directory=True)
             cleanup.clean_build_outputs(root, apply=True)
             self.assertTrue(external.exists())
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows empty Cargo lock interoperability')
+    def test_empty_locked_cargo_file_is_busy_without_writing_to_it(self):
+        import msvcrt
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            artifact = aged_file(root / 'target/debug/deps/library.rlib')
+            incremental = aged_file(root / 'target/debug/incremental/old/data')
+            lock = root / 'target/debug/.cargo-build-lock'
+            lock.touch()
+            with lock.open('r+b', buffering=0) as stream:
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                try:
+                    for action in [cleanup.clean_build_outputs, cleanup.clean_caches]:
+                        result = action(root, apply=True)
+                        self.assertEqual(result['busy'], [str(lock.parent)])
+                        self.assertTrue(artifact.exists())
+                        self.assertTrue(incremental.exists())
+                        self.assertEqual(lock.stat().st_size, 0)
+                finally:
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
 
     def test_preview_then_cleanup_keeps_dependencies_profiles_and_recent_cache(self):
         with tempfile.TemporaryDirectory() as temp:

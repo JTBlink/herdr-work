@@ -10,6 +10,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MAX_AGE_DAYS = 7
+CARGO_LOCK_FILES = ('.cargo-lock', '.cargo-build-lock', '.cargo-artifact-lock')
 
 
 @contextmanager
@@ -21,9 +22,8 @@ def directory_lock(path):
     with path.open('a+b') as stream:
         if os.name == 'nt':
             import msvcrt
-            if path.stat().st_size == 0:
-                stream.write(b'\0')
-                stream.flush()
+            # Windows byte locks may extend beyond EOF. Never write a marker:
+            # Cargo can already hold an exclusive lock on this empty file.
             stream.seek(0)
             try:
                 msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
@@ -92,19 +92,24 @@ def build_profiles(root):
     return profiles
 
 
+@contextmanager
+def cargo_profile_lock(profile):
+    with ExitStack() as stack:
+        for name in CARGO_LOCK_FILES:
+            stack.enter_context(directory_lock(profile / name))
+        yield
+
+
 def clean_build_outputs(root=ROOT, *, apply=False):
     """After a successful build, retain only product binaries and Cargo locks."""
     root = Path(root).absolute()
     result = {'items': [], 'busy': []}
-    locks = ('.cargo-lock', '.cargo-build-lock', '.cargo-artifact-lock')
-    keep = {'herdr-work', 'herdr-work.exe', *locks}
+    keep = {'herdr-work', 'herdr-work.exe', *CARGO_LOCK_FILES}
     for profile in build_profiles(root):
         if not local_path(profile, root) or not profile.is_dir():
             continue
         try:
-            with ExitStack() as stack:
-                for name in locks:
-                    stack.enter_context(directory_lock(profile / name))
+            with cargo_profile_lock(profile):
                 for entry in profile.iterdir():
                     if entry.name not in keep and not entry.is_symlink():
                         result['items'].append(remove(entry, apply))
@@ -124,7 +129,7 @@ def clean_caches(root=ROOT, max_age_days=DEFAULT_MAX_AGE_DAYS, *, apply=False):
         if not local_path(cache, root) or not cache.is_dir():
             continue
         try:
-            with directory_lock(profile / '.cargo-lock'):
+            with cargo_profile_lock(profile):
                 for entry in cache.iterdir():
                     if not entry.is_symlink() and tree_stats(entry)[0] < cutoff:
                         result['items'].append(remove(entry, apply))
