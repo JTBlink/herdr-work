@@ -27,9 +27,11 @@ python3 scripts/smoke.py --archives dist
 
 ## 自动清理
 
-编译前清理仓库 `target/` 内超过 7 天未写入的 `debug/release/incremental` 缓存，包含目标平台子目录；脚本目录中超过 7 天的 Python 字节码文件也会清理。时间判断包含增量目录的所有子项，近期仍在使用的缓存保留。
+`scripts/build.py` 每次编译成功后立即清理仓库 `target/` 下所有 `debug/release` 构建目录（含目标平台子目录）：各目录只保留最新 `herdr-work` / `herdr-work.exe` 和 Cargo 锁文件，删除 `deps`、`build`、`.fingerprint`、`incremental`、测试程序及旧程序产物。清理后下次编译需要重新构建依赖。编译失败时不执行这一步，保留产物以便排查。直接运行 `cargo build/test` 不触发脚本清理。
 
-清理增量缓存前非阻塞获取 Cargo 对应 profile 的 `.cargo-lock`；目录正在编译时跳过，不等待或停止进程。清理不跟随符号链接，不清理外部 `CARGO_TARGET_DIR`、Cargo 全局依赖下载、编译后的依赖库、用户配置、任务数据、安装回滚备份或独立插件目录。`.scratch/` 中的规格、截图和验收证据保留。
+编译前仍清理超过 7 天未写入的增量缓存和脚本 Python 字节码；时间判断包含增量目录的所有子项。编译后清理非阻塞获取对应 profile 的 `.cargo-lock`、`.cargo-build-lock` 和 `.cargo-artifact-lock`，目录正在使用时跳过，并在日志 `busy` 字段列出，不等待或停止进程。
+
+清理不跟随符号链接，只处理默认仓库 `target/`，不清理其他 `CARGO_TARGET_DIR`、Cargo 全局依赖下载、用户配置、安装回滚备份或独立插件目录。`.scratch/` 中的规格、截图和验收证据保留。
 
 打包先在输出目录的独立临时目录中生成完整归档和 SHA256，验证文件集、许可和内部校验和，再替换正式产物。写入校验和失败时恢复上一份正式归档；候选构建或验证失败不清理旧归档。正常退出自动删除临时目录；输出目录中超过 7 天的 `.herdr-work-package-*` 中断残留在取得打包锁后清理。
 
@@ -43,7 +45,7 @@ python3 scripts/package.py create --target aarch64-apple-darwin --keep-archives 
 
 ## 手动预览与清理
 
-`sh herdr-work-plugins.sh clean` 会立即清理所有空闲的增量缓存和脚本字节码，各平台只保留最新版本的有效归档；依赖库、当前二进制和安装备份保留。运行中的 Cargo profile 跳过，并在输出的 `busy` 字段列出。日常编译仍保留 7 天内的增量缓存以加快重复构建。
+`sh herdr-work-plugins.sh clean` 会立即清理所有空闲的增量缓存和脚本字节码，各平台只保留最新版本的有效归档；此手动命令保留依赖库、当前二进制和安装备份。运行中的 Cargo profile 跳过，并在输出的 `busy` 字段列出。脚本编译成功后自动执行更彻底的中间产物清理。
 
 ```sh
 # 预览候选路径、估算文件字节数及因编译占用而跳过的目录
@@ -64,4 +66,4 @@ python3 scripts/cleanup.py --apply --max-age-days 0 --keep-archives 2
 python3 -m unittest discover -s scripts/tests -v
 ```
 
-脚本回归覆盖保留近期缓存、嵌套写入时间、占用跳过、符号链接边界、其他平台与无主文件保留、候选失败及归档替换失败恢复。macOS 的真实构建与隔离安装结果单独记录；Linux/Windows 原生编译和文件锁行为仍由对应平台 CI 验证。
+脚本回归覆盖编译成功后清理、失败保留产物、保留最新主程序、占用跳过、符号链接边界、手动清理保留近期缓存、嵌套写入时间、其他平台与无主文件保留、候选失败及归档替换失败恢复。macOS 的真实构建与隔离安装结果单独记录；Linux/Windows 原生编译和文件锁行为仍由对应平台 CI 验证。

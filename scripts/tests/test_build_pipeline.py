@@ -3,6 +3,7 @@ import hashlib
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import time
 import unittest
@@ -39,6 +40,38 @@ def archive_pair(root, version, target=TARGET, days=0):
 
 
 class CacheCleanup(unittest.TestCase):
+    def test_post_build_cleanup_retains_only_latest_binaries_and_locks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for profile in ('debug', 'release', f'{TARGET}/release'):
+                base = root / 'target' / profile
+                binary = aged_file(base / 'herdr-work', b'latest', days=0)
+                windows = aged_file(base / 'herdr-work.exe', b'latest', days=0)
+                stale = [aged_file(base / rel, days=0) for rel in
+                         ('deps/old.rlib', 'incremental/current/data', 'build/output',
+                          '.fingerprint/old/data', 'herdr-work-projects', 'herdr-work.d')]
+                cleanup.clean_build_outputs(root)
+                self.assertTrue(all(path.exists() for path in stale))
+                cleanup.clean_build_outputs(root, apply=True)
+                self.assertTrue(binary.exists())
+                self.assertTrue(windows.exists())
+                self.assertFalse(any(path.exists() for path in stale))
+                self.assertTrue((base / '.cargo-lock').exists())
+
+    @unittest.skipIf(os.name == 'nt', 'Unix flock and symlink boundary')
+    def test_post_build_cleanup_skips_busy_profiles_and_external_targets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'repo'
+            file = aged_file(root / 'target/debug/deps/library.rlib')
+            with cleanup.directory_lock(file.parents[1] / '.cargo-build-lock'):
+                result = cleanup.clean_build_outputs(root, apply=True)
+            self.assertEqual(result['busy'], [str(file.parents[1])])
+            self.assertTrue(file.exists())
+            external = aged_file(Path(temp) / 'external/release/deps/library.rlib')
+            (root / 'target' / TARGET).symlink_to(external.parents[2], target_is_directory=True)
+            cleanup.clean_build_outputs(root, apply=True)
+            self.assertTrue(external.exists())
+
     def test_preview_then_cleanup_keeps_dependencies_profiles_and_recent_cache(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -210,8 +243,11 @@ class UnifiedBuild(unittest.TestCase):
     def test_product_binary_uses_one_locked_cargo_invocation(self):
         with patch.object(build, 'metadata', return_value={}), \
              patch.object(build, 'clean_caches', return_value={'items': [], 'busy': []}), \
+             patch.object(build, 'clean_build_outputs', return_value={'items': [], 'busy': []}) as clean, \
              patch.object(build.subprocess, 'run') as run:
+            run.side_effect = lambda *a, **kw: clean.assert_not_called()
             build.build(TARGET)
+            clean.assert_called_once_with(build.ROOT, apply=True)
         run.assert_called_once()
         command = run.call_args.args[0]
         self.assertIn('--release', command)
@@ -222,9 +258,19 @@ class UnifiedBuild(unittest.TestCase):
     def test_windows_build_omits_unix_backend(self):
         with patch.object(build, 'metadata', return_value={}), \
              patch.object(build, 'clean_caches', return_value={'items': [], 'busy': []}), \
+             patch.object(build, 'clean_build_outputs', return_value={'items': [], 'busy': []}), \
              patch.object(build.subprocess, 'run') as run:
             build.build('x86_64-pc-windows-msvc')
         self.assertEqual(run.call_args.args[0].count('--bin'), 1)
+
+    def test_failed_build_preserves_outputs(self):
+        with patch.object(build, 'metadata', return_value={}), \
+             patch.object(build, 'clean_caches', return_value={'items': [], 'busy': []}), \
+             patch.object(build, 'clean_build_outputs') as clean, \
+             patch.object(build.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'cargo')):
+            with self.assertRaises(subprocess.CalledProcessError):
+                build.build(TARGET)
+            clean.assert_not_called()
 
     def test_target_dir_uses_same_custom_location_for_build_and_package(self):
         with tempfile.TemporaryDirectory() as temp:

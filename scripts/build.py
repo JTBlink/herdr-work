@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tomllib
-from cleanup import clean_caches
+from cleanup import clean_caches, clean_build_outputs
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = {
@@ -46,6 +46,9 @@ def build(target, tag=None):
     command = ['cargo', 'build', '--release', '--locked', '--target', target,
                '--target-dir', str(target_dir()), '-p', 'herdr-work', '--bin', 'herdr-work']
     subprocess.run(command, cwd=ROOT, check=True)
+    cleanup = clean_build_outputs(ROOT, apply=True)
+    if cleanup['items'] or cleanup['busy']:
+        print('Post-build cleanup: ' + json.dumps(cleanup), file=sys.stderr)
     return info
 
 if __name__ == '__main__':

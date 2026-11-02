@@ -1,6 +1,6 @@
 """Prune generated build caches and archives; never traverse user profiles or plugin data."""
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 import hashlib
 import os
 from pathlib import Path
@@ -82,20 +82,44 @@ def remove(path, apply):
     return {'path': str(path), 'bytes': size, 'removed': apply}
 
 
+def build_profiles(root):
+    target = root / 'target'
+    profiles = [target / name for name in ('debug', 'release')]
+    if local_path(target, root) and target.is_dir():
+        for triple in target.iterdir():
+            if re.fullmatch(r'[a-z0-9_]+-[a-z0-9_-]+', triple.name):
+                profiles.extend(triple / name for name in ('debug', 'release'))
+    return profiles
+
+
+def clean_build_outputs(root=ROOT, *, apply=False):
+    """After a successful build, retain only product binaries and Cargo locks."""
+    root = Path(root).absolute()
+    result = {'items': [], 'busy': []}
+    locks = ('.cargo-lock', '.cargo-build-lock', '.cargo-artifact-lock')
+    keep = {'herdr-work', 'herdr-work.exe', *locks}
+    for profile in build_profiles(root):
+        if not local_path(profile, root) or not profile.is_dir():
+            continue
+        try:
+            with ExitStack() as stack:
+                for name in locks:
+                    stack.enter_context(directory_lock(profile / name))
+                for entry in profile.iterdir():
+                    if entry.name not in keep and not entry.is_symlink():
+                        result['items'].append(remove(entry, apply))
+        except BlockingIOError:
+            result['busy'].append(str(profile))
+    return result
+
+
 def clean_caches(root=ROOT, max_age_days=DEFAULT_MAX_AGE_DAYS, *, apply=False):
     if max_age_days < 0:
         raise ValueError('Cache age must be nonnegative')
     root = Path(root).absolute()
     cutoff = time.time() - max_age_days * 86400
     result = {'items': [], 'busy': []}
-    target = root / 'target'
-    profiles = [target / name for name in ('debug', 'release')]
-    # Only Cargo target triples, never arbitrary nested directories or external target-dir caches.
-    if local_path(target, root) and target.is_dir():
-        for triple in target.iterdir():
-            if re.fullmatch(r'[a-z0-9_]+-[a-z0-9_-]+', triple.name):
-                profiles.extend(triple / name for name in ('debug', 'release'))
-    for profile in profiles:
+    for profile in build_profiles(root):
         cache = profile / 'incremental'
         if not local_path(cache, root) or not cache.is_dir():
             continue
