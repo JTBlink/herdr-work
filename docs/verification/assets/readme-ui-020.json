@@ -1,0 +1,21 @@
+{
+  "version": "0.1.20",
+  "explorer": {
+    "text": " ▄▄▄▄                   «\n                     \n ▀▀▀▀         2\n demo-project\n▸  src                ●\n   notes.md           U\n   README.md\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n m / ctrl+rclick for menus\n\n  main ⟳\n",
+    "width": 28,
+    "border_columns": 2
+  },
+  "git": {
+    "text": "           ▄▄▄▄         «\n                     \n           ▀▀▀2\n ▾ demo-project m…  大图\n┌────────────────────────┐\n│Message (⏎ to commit) 󰙴 │\n└────────────────────────┘\n         ✓ Commit\n ▾ Changes             2\n    main.rs src        M\n    notes.md           U\n ▸ Graph        [全部引用]\n ▸ File History\n ▸ Branches\n ▸ Worktrees\n ▸ Remotes\n ▸ Stashes\n ▸ Tags\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n m / ctrl+rclick for menus\n  main ⟳\n",
+    "width": 28,
+    "border_columns": 2
+  },
+  "collapsed": {
+    "text": " »\n\n \n\n \n\n \n\n \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n ×\n",
+    "width": 5,
+    "border_columns": 2
+  },
+  "captured_on": "2026-11-02",
+  "source_sha": "5875342ea400eebfa6796db141feafba6a314fbf",
+  "description": "隔离 Herdr 0.9.5 补丁宿主的真实终端文本快照，演示仓库仅含公开示例内容。"
+}
