@@ -78,6 +78,18 @@ impl LaunchLock {
     }
 }
 
+impl Drop for LaunchLock {
+    fn drop(&mut self) {
+        // Close alone leaves a Unix flock held by copies inherited across a
+        // concurrent fork until the child execs. Release the guard's ownership
+        // explicitly before closing either handle.
+        if let Some(legacy) = &self._legacy {
+            let _ = legacy.unlock();
+        }
+        let _ = self._file.unlock();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,8 +105,12 @@ mod tests {
         ));
         let lock = LaunchLock::acquire_profile(&profile, false).unwrap();
         assert!(LaunchLock::acquire_profile(&profile, false).is_none());
+        // A concurrent subprocess fork can temporarily inherit this open
+        // file description until exec closes it. Model that without timing.
+        let inherited = lock._file.try_clone().unwrap();
         drop(lock);
         assert!(LaunchLock::acquire_profile(&profile, false).is_some());
+        drop(inherited);
         std::fs::remove_dir_all(profile).unwrap();
     }
 }
