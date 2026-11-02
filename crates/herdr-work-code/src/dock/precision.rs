@@ -146,20 +146,24 @@ mod tests {
     #[test]
     fn reported_borders_override_stale_pty_sizes_and_cached_zero_chrome() {
         for right in [false, true] {
-            for width in [1, 3] {
+            for width in [1, 3, 4] {
                 let json = serde_json::json!({"result":{"layout":{
                     "area":{"x":0,"y":0,"width":160,"height":50},
                     "panes":[{"pane_id":"owner","border_columns":2,"rect":{"x":if right {160-width}else{0},"y":0,"width":width,"height":50}}],
                     "splits":[{"direction":"right","ratio":if right {1.0-f64::from(width)/160.0}else{f64::from(width)/160.0},"rect":{"x":0,"y":0,"width":160,"height":50}}]
                 }}}).to_string();
                 for current in [4, 100] {
-                    let plan =
-                        precise_resize_plan(&json, "owner", current, 1, right, Some(0)).unwrap();
-                    assert_eq!(plan.chrome, 2);
-                    assert!(
-                        (plan.ratio - if right { 157.0 / 160.0 } else { 3.0 / 160.0 }).abs() < 1e-9
-                    );
-                    assert_eq!(plan.changed, width != 3);
+                    for target in [1, 2] {
+                        let plan =
+                            precise_resize_plan(&json, "owner", current, target, right, Some(0))
+                                .unwrap();
+                        assert_eq!(plan.chrome, 2);
+                        let share = f64::from(target + 2) / 160.0;
+                        assert!(
+                            (plan.ratio - if right { 1.0 - share } else { share }).abs() < 1e-9
+                        );
+                        assert_eq!(plan.changed, width != i32::from(target + 2));
+                    }
                 }
             }
         }
