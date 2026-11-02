@@ -176,7 +176,7 @@ def check(binary, output, host="herdr", exact_rail=False):
                     initial_layout = rpc('pane.layout', {'pane_id': sidebar})['layout']
                     initial_rect = next(p['rect'] for p in initial_layout['panes'] if p['pane_id'] == sidebar)
                     ready = next(p for p in rpc('pane.list')['panes'] if p['pane_id'] == sidebar).get('tokens', {}).get('herdr-work-ready') == 'true'
-                    if ready and '»' in initial_text and (not exact_rail or initial_rect['width'] == 6):
+                    if ready and '»' in initial_text and (not exact_rail or initial_rect['width'] == 3):
                         break
                     time.sleep(.1)
                 else:
@@ -238,17 +238,17 @@ def check(binary, output, host="herdr", exact_rail=False):
             collapsed = rpc('pane.layout', {'pane_id': sidebar})['layout']
             narrow = next(p['rect'] for p in collapsed['panes'] if p['pane_id'] == sidebar)
             if exact_rail:
-                assert narrow['width'] == 6, (name, 'Four visible content columns plus two borders are required; PTY text alone hides clipping', narrow)
-                wait_for(lambda: max(map(len, visible().splitlines()), default=0) <= 4, 'Rail content must fit four columns after PTY resize')
+                assert narrow['width'] == 3, (name, 'One visible content column plus two borders are required; PTY text alone hides clipping', narrow)
+                wait_for(lambda: max(map(len, visible().splitlines()), default=0) <= 4, 'PTY text must fit four columns after PTY resize')
             assert narrow['width'] <= max(10, after['area']['width'] // 10) and narrow['width'] < rect['width'], (name, 'Collapsed sidebar must be one icon column', narrow)
             if exact_rail:
                 fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 48, 200, 0, 0))
                 wait_for(lambda: rpc('pane.layout', {'pane_id': sidebar})['layout']['area']['width'] > after['area']['width'], 'Outer terminal did not grow')
-                wait_for(lambda: next(p['rect']['width'] for p in rpc('pane.layout', {'pane_id': sidebar})['layout']['panes'] if p['pane_id'] == sidebar) == 6,
+                wait_for(lambda: next(p['rect']['width'] for p in rpc('pane.layout', {'pane_id': sidebar})['layout']['panes'] if p['pane_id'] == sidebar) == 3,
                          'Rail width changed with the outer terminal')
                 fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 48, 160, 0, 0))
                 wait_for(lambda: rpc('pane.layout', {'pane_id': sidebar})['layout']['area']['width'] == after['area']['width'], 'Outer terminal did not return')
-                wait_for(lambda: next(p['rect']['width'] for p in rpc('pane.layout', {'pane_id': sidebar})['layout']['panes'] if p['pane_id'] == sidebar) == 6, 'Rail width was not restored')
+                wait_for(lambda: next(p['rect']['width'] for p in rpc('pane.layout', {'pane_id': sidebar})['layout']['panes'] if p['pane_id'] == sidebar) == 3, 'Rail width was not restored')
             time.sleep(2.2)  # Includes a product layout-recovery timer tick.
             assert '»' in visible(), (name, 'Recovery unexpectedly expanded the sidebar')
             if exact_rail:
@@ -256,12 +256,12 @@ def check(binary, output, host="herdr", exact_rail=False):
                 # physical viewport, rather than accepting offscreen glyphs
                 # that pane.read still returns from that buffer.
                 visible_width = next(p['rect']['width'] for p in rpc('pane.layout', {'pane_id': sidebar})['layout']['panes'] if p['pane_id'] == sidebar) - 2
-                assert visible_width == 4, (name, visible_width)
+                assert visible_width == 1, (name, visible_width)
                 icons = ['\uf07b', '\uf002', '\uf126', '\uf013']
                 text = visible()
                 for icon in icons:
                     line = next(line for line in text.splitlines() if icon in line)
-                    assert line.index(icon) == 1 and len(line) <= visible_width, (name, 'Icon is outside the physical viewport', repr(line), visible_width)
+                    assert line.index(icon) == 0 and len(line.rstrip()) <= visible_width, (name, 'Icon is outside the physical viewport', repr(line), visible_width)
             mouse_at('»')
             wait_for(lambda: '«' in visible(), 'Expansion failed')
             expanded = rpc('pane.layout', {'pane_id': sidebar})['layout']
@@ -295,6 +295,6 @@ if __name__ == '__main__':
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--host', type=Path, help='Use an isolated test host binary')
-    parser.add_argument('--exact-rail', action='store_true', help='Require the host to honor the four-column rail')
+    parser.add_argument('--exact-rail', action='store_true', help='Require the host to honor the one-column rail')
     args = parser.parse_args()
     check(args.binary.resolve(strict=True), args.output.resolve(), args.host.resolve(strict=True) if args.host else 'herdr', args.exact_rail)

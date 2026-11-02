@@ -8,10 +8,11 @@ use ratatui::{
     layout::{Position, Rect},
     widgets::{Clear, Paragraph},
 };
+use unicode_width::UnicodeWidthStr;
 
-// Herdr keeps its PTY buffer at least four columns wide. Going below that
-// clips the buffer in the host viewport, including otherwise valid icons.
-pub(crate) const RAIL_WIDTH: u16 = 4;
+// The visible rail is one column even when Herdr keeps a four-column PTY.
+// Always draw and hit-test its first cell; the host clips the remaining cells.
+pub(crate) const RAIL_WIDTH: u16 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Action {
@@ -31,8 +32,8 @@ pub(crate) fn controls(area: Rect, collapsed: bool) -> Vec<(Rect, Action)> {
     if !collapsed {
         return vec![(ui::collapse_button_area(area), Action::Collapse)];
     }
-    let rail = area;
-    let mut buttons = vec![(Rect::new(area.x, area.y, area.width, 1), Action::Expand)];
+    let rail = Rect::new(area.x, area.y, area.width.min(RAIL_WIDTH), area.height);
+    let mut buttons = vec![(Rect::new(rail.x, rail.y, rail.width, 1), Action::Expand)];
     // Reserve the final two rows even in a short terminal.
     let body_height = area.height.saturating_sub(2);
     let actions = [Action::Files, Action::Search, Action::Git, Action::Settings];
@@ -82,10 +83,10 @@ pub(crate) fn draw(
         let hovered = pointer.is_some_and(|p| rect.contains(p));
         let style = ui::activity_button_style(action == active, hovered);
         let icon = match action {
-            Action::Files => ui::activity_icon(theme, ActivityIcon::Files),
-            Action::Search => ui::activity_icon(theme, ActivityIcon::Search),
-            Action::Git => ui::activity_icon(theme, ActivityIcon::SourceControl),
-            Action::Settings => ui::activity_icon(theme, ActivityIcon::Settings),
+            Action::Files => activity_icon(theme, ActivityIcon::Files, collapsed),
+            Action::Search => activity_icon(theme, ActivityIcon::Search, collapsed),
+            Action::Git => activity_icon(theme, ActivityIcon::SourceControl, collapsed),
+            Action::Settings => activity_icon(theme, ActivityIcon::Settings, collapsed),
             Action::Expand => "»",
             Action::Close => "×",
             Action::Collapse => "«",
@@ -93,17 +94,26 @@ pub(crate) fn draw(
         frame.render_widget(Clear, rect);
         frame.render_widget(Paragraph::new("").style(style), rect);
         let glyph = if collapsed {
-            // Reserve a two-cell glyph slot, with one column on each side.
-            // Material glyphs can paint wider than their reported text width.
-            Rect::new(
-                rect.x + rect.width.saturating_sub(2) / 2,
-                rect.y + rect.height / 2,
-                rect.width.min(2),
-                1,
-            )
+            Rect::new(rect.x, rect.y + rect.height / 2, rect.width, 1)
         } else {
             Rect::new(rect.x + rect.width / 2, rect.y, 1, 1)
         };
         frame.render_widget(Paragraph::new(icon).style(style), glyph);
+    }
+}
+
+// Wide emoji cannot fit a one-column viewport. Keep the configured theme in
+// expanded views and use text-presentation symbols only for the narrow rail.
+fn activity_icon(theme: IconTheme, icon: ActivityIcon, collapsed: bool) -> &'static str {
+    let glyph = ui::activity_icon(theme, icon);
+    if !collapsed || glyph.width() <= usize::from(RAIL_WIDTH) {
+        return glyph;
+    }
+    match icon {
+        ActivityIcon::Files => "▣",
+        ActivityIcon::Search => "⌕",
+        ActivityIcon::SourceControl => "⑂",
+        ActivityIcon::Settings => "⚙",
+        ActivityIcon::Review => "◉",
     }
 }

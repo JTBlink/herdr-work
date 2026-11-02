@@ -62,10 +62,10 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                 automatic.start_collapsed();
                 let startup = text(&render(&mut automatic, 38, 24));
                 assert!(startup.contains('»') && !startup.contains("demo"));
-                automatic.event(Event::Resize(4, 24));
-                let rail = render(&mut automatic, 4, 24);
+                automatic.event(Event::Resize(1, 24));
+                let rail = render(&mut automatic, 1, 24);
                 for row in [2, 5, 8, 11] {
-                    assert_ne!(rail[(1, row)].symbol(), " ");
+                    assert_ne!(rail[(0, row)].symbol(), " ");
                 }
                 if theme == IconTheme::Emoji
                     && !right
@@ -78,11 +78,11 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                         &rail,
                     );
                 }
-                click(&mut automatic, 1, 0);
+                click(&mut automatic, 0, 0);
                 automatic.tick();
                 assert!(!text(&render(&mut automatic, 38, 24)).contains('»'));
                 click(&mut automatic, 36, 0);
-                assert!(text(&render(&mut automatic, 4, 24)).contains('»'));
+                assert!(text(&render(&mut automatic, 1, 24)).contains('»'));
                 // An explicit activity opens the normal view, including an
                 // already-running sidebar that was created automatically.
                 assert!(automatic.activate(&root, initial));
@@ -98,8 +98,8 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                 }
                 assert_eq!(before[(36, 0)].symbol(), "«");
                 click(&mut sidebar, 36, 0);
-                sidebar.event(Event::Resize(4, 24));
-                let rail = render(&mut sidebar, 4, 24);
+                sidebar.event(Event::Resize(1, 24));
+                let rail = render(&mut sidebar, 1, 24);
                 assert!(!text(&rail).contains("demo"));
                 if theme == IconTheme::Emoji
                     && !right
@@ -114,50 +114,65 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                 }
                 sidebar.event(Event::Mouse(MouseEvent {
                     kind: MouseEventKind::Moved,
-                    column: 2,
+                    column: 0,
                     row: 1,
                     modifiers: KeyModifiers::NONE,
                 }));
-                let hovered = text(&render(&mut sidebar, 4, 24));
+                let hovered = text(&render(&mut sidebar, 1, 24));
                 assert!(
                     !hovered.contains("文件")
                         && !hovered.contains("搜索")
                         && !hovered.contains("设置"),
                     "collapsed rail must remain icon-only on hover"
                 );
-                assert_eq!(rail[(1, 0)].symbol(), "»");
-                assert_eq!(rail[(1, 23)].symbol(), "×");
+                assert_eq!(rail[(0, 0)].symbol(), "»");
+                assert_eq!(rail[(0, 23)].symbol(), "×");
                 for (row, icon) in [
                     (2, herdr_work_code::ui::ActivityIcon::Files),
                     (5, herdr_work_code::ui::ActivityIcon::Search),
                     (8, herdr_work_code::ui::ActivityIcon::SourceControl),
                     (11, herdr_work_code::ui::ActivityIcon::Settings),
                 ] {
-                    let row_text = (0..4).map(|x| rail[(x, row)].symbol()).collect::<String>();
-                    assert!(row_text.contains(herdr_work_code::ui::activity_icon(theme, icon)));
-                    assert_eq!(rail[(0, row)].symbol(), " ");
-                    assert_eq!(rail[(3, row)].symbol(), " ");
-                    assert_eq!(
-                        rail[(1, row)].symbol(),
+                    let expected = if theme == IconTheme::Material {
                         herdr_work_code::ui::activity_icon(theme, icon)
-                    );
+                    } else {
+                        match icon {
+                            herdr_work_code::ui::ActivityIcon::Files => "▣",
+                            herdr_work_code::ui::ActivityIcon::Search => "⌕",
+                            herdr_work_code::ui::ActivityIcon::SourceControl => "⑂",
+                            _ => "⚙",
+                        }
+                    };
+                    assert_eq!(rail[(0, row)].symbol(), expected);
+                    // The real host may retain its four-column PTY while only
+                    // the first column is visible. Do not center into clipping.
+                    let pty = render(&mut sidebar, 4, 24);
+                    assert_eq!(pty[(0, row)].symbol(), expected);
+                    for x in 1..4 {
+                        assert_eq!(pty[(x, row)].symbol(), " ");
+                    }
                 }
-                click(&mut sidebar, 2, 0);
+                assert!(!click(&mut sidebar, 1, 0));
+                assert!(
+                    text(&render(&mut sidebar, 4, 24)).contains('»'),
+                    "PTY padding must not expand the rail"
+                );
+                click(&mut sidebar, 0, 0);
                 let after = render(&mut sidebar, 38, 24);
                 assert_eq!(before, after, "expand must preserve the current app");
                 click(&mut sidebar, 36, 0);
-                render(&mut sidebar, 4, 24);
-                click(&mut sidebar, 2, 5);
+                render(&mut sidebar, 1, 24);
+                click(&mut sidebar, 0, 5);
                 assert!(state::load_state().search_active);
                 assert!(!text(&render(&mut sidebar, 38, 24)).contains('»'));
                 click(&mut sidebar, 36, 0);
-                render(&mut sidebar, 4, 24);
-                click(&mut sidebar, 2, 8);
+                render(&mut sidebar, 1, 24);
+                click(&mut sidebar, 0, 8);
                 assert_eq!(state::load_state().active, state::View::SourceControl);
                 render(&mut sidebar, 38, 24);
                 click(&mut sidebar, 36, 0);
-                render(&mut sidebar, 4, 24);
-                click(&mut sidebar, 2, 11);
+                render(&mut sidebar, 1, 24);
+                click(&mut sidebar, 0, 11);
                 assert!(sidebar.busy());
                 let settings = render(&mut sidebar, 38, 24);
                 assert_eq!(settings[(0, 0)].symbol(), "┌");
@@ -179,7 +194,7 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
     assert!(sidebar.busy(), "commit input should retain focus");
     render(&mut sidebar, 38, 24);
     click(&mut sidebar, 36, 0);
-    assert!(text(&render(&mut sidebar, 4, 24)).contains('»'));
+    assert!(text(&render(&mut sidebar, 1, 24)).contains('»'));
     sidebar.event(Event::Key(KeyEvent::new(
         KeyCode::Enter,
         KeyModifiers::NONE,
@@ -195,13 +210,13 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
             !click(&mut sidebar, 36, 0),
             "top button folds instead of closing the terminal"
         );
-        assert!(text(&render(&mut sidebar, 4, 24)).contains('»'));
+        assert!(text(&render(&mut sidebar, 1, 24)).contains('»'));
         let mut sidebar = Sidebar::new(root, Some(InitialView::Explorer));
         render(&mut sidebar, 38, 24);
         click(&mut sidebar, 36, 0);
-        render(&mut sidebar, 4, 24);
+        render(&mut sidebar, 1, 24);
         assert!(
-            click(&mut sidebar, 2, 23),
+            click(&mut sidebar, 0, 23),
             "collapsed × must also request terminal shutdown"
         );
     }

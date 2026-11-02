@@ -159,12 +159,13 @@ def check(binary, theme):
             assert grid[0][sidebar.width-2] == '«', 'top close button must become fold'
             assert all('«' not in row for row in grid[1:]), 'remove the bottom fold button'
             sidebar.click(sidebar.width-2, 0)
+            # Match the host PTY minimum; only column zero belongs to the rail.
             sidebar.base_width = 4
             sidebar.resize(4)
             grid = sidebar.frame('»')
             assert sidebar.process.poll() is None, 'fold must retain the running sidebar'
-            assert grid[0][1] == '»', 'expand stays at the top'
-            sidebar.click(1, 0)
+            assert grid[0][0] == '»', 'expand stays at the top'
+            sidebar.click(0, 0)
             sidebar.base_width = 40
             sidebar.resize(40)
             sidebar.frame('example.rs')

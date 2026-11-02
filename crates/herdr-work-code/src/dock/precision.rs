@@ -111,10 +111,10 @@ mod tests {
                     {"direction":"right","ratio":if right {112.0/140.0}else{28.0/140.0},"rect":{"x":100,"y":0,"width":140,"height":50}}
                 ]}}}).to_string();
             for current in [25, 26] {
-                let plan = precise_resize_plan(&json, "owner", current, 4, right, None).unwrap();
+                let plan = precise_resize_plan(&json, "owner", current, 1, right, None).unwrap();
                 assert_eq!(plan.path, vec![true]);
                 assert!(
-                    (plan.ratio - (if right { 134.0 / 140.0 } else { 6.0 / 140.0 })).abs() < 1e-9
+                    (plan.ratio - (if right { 137.0 / 140.0 } else { 3.0 / 140.0 })).abs() < 1e-9
                 );
                 assert_eq!(plan.chrome, 2);
                 assert!(plan.changed);
@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn cached_chrome_repairs_a_viewport_below_the_pty_minimum() {
-        for width in [4, 5, 6] {
+        for width in [2, 3, 4, 5, 6] {
             let json = serde_json::json!({"result":{"layout":{
                 "area":{"x":0,"y":0,"width":160,"height":50},
                 "panes":[{"pane_id":"owner","rect":{"x":0,"y":0,"width":width,"height":50}}],
@@ -132,9 +132,9 @@ mod tests {
             }}}).to_string();
             // The PTY still reports four columns when the bordered viewport
             // has only two or three. Its size cannot measure the chrome now.
-            let plan = precise_resize_plan(&json, "owner", 4, 4, false, Some(2)).unwrap();
-            assert!((plan.ratio - 6.0 / 160.0).abs() < 1e-9);
-            assert_eq!(plan.changed, width != 6);
+            let plan = precise_resize_plan(&json, "owner", 4, 1, false, Some(2)).unwrap();
+            assert!((plan.ratio - 3.0 / 160.0).abs() < 1e-9);
+            assert_eq!(plan.changed, width != 3);
         }
     }
 }
