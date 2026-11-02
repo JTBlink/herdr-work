@@ -133,15 +133,11 @@ fn collapse_keeps_a_clickable_rail_and_restores_views_without_losing_tree_state(
                     (8, herdr_work_code::ui::ActivityIcon::SourceControl),
                     (11, herdr_work_code::ui::ActivityIcon::Settings),
                 ] {
-                    let expected = if theme == IconTheme::Material {
-                        herdr_work_code::ui::activity_icon(theme, icon)
-                    } else {
-                        match icon {
-                            herdr_work_code::ui::ActivityIcon::Files => "▣",
-                            herdr_work_code::ui::ActivityIcon::Search => "⌕",
-                            herdr_work_code::ui::ActivityIcon::SourceControl => "⑂",
-                            _ => "⚙",
-                        }
+                    let expected = match icon {
+                        herdr_work_code::ui::ActivityIcon::Files => "▣",
+                        herdr_work_code::ui::ActivityIcon::Search => "⌕",
+                        herdr_work_code::ui::ActivityIcon::SourceControl => "⑂",
+                        _ => "⚙︎",
                     };
                     assert_eq!(rail[(0, row)].symbol(), expected);
                     // The real host may retain its four-column PTY while only

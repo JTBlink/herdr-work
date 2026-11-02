@@ -8,7 +8,6 @@ use ratatui::{
     layout::{Position, Rect},
     widgets::{Clear, Paragraph},
 };
-use unicode_width::UnicodeWidthStr;
 
 // The visible rail is one column even when Herdr keeps a four-column PTY.
 // Always draw and hit-test its first cell; the host clips the remaining cells.
@@ -102,18 +101,17 @@ pub(crate) fn draw(
     }
 }
 
-// Wide emoji cannot fit a one-column viewport. Keep the configured theme in
-// expanded views and use text-presentation symbols only for the narrow rail.
+// Nerd Font glyphs can paint across two cells despite reporting width one.
+// The narrow rail always uses text symbols; expanded views keep their theme.
 fn activity_icon(theme: IconTheme, icon: ActivityIcon, collapsed: bool) -> &'static str {
-    let glyph = ui::activity_icon(theme, icon);
-    if !collapsed || glyph.width() <= usize::from(RAIL_WIDTH) {
-        return glyph;
+    if !collapsed {
+        return ui::activity_icon(theme, icon);
     }
     match icon {
         ActivityIcon::Files => "▣",
         ActivityIcon::Search => "⌕",
         ActivityIcon::SourceControl => "⑂",
-        ActivityIcon::Settings => "⚙",
+        ActivityIcon::Settings => "⚙︎",
         ActivityIcon::Review => "◉",
     }
 }

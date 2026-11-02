@@ -18,12 +18,11 @@ pub fn precise_resize_plan(
 ) -> Option<PreciseResize> {
     let message: LayoutMsg = serde_json::from_str(strip_bom(json)).ok()?;
     let layout = message.result.layout;
-    let me = layout
+    let pane = layout
         .panes
         .iter()
-        .find(|pane| pane.pane_id.as_deref() == Some(owner))?
-        .rect
-        .as_ref()?;
+        .find(|pane| pane.pane_id.as_deref() == Some(owner))?;
+    let me = pane.rect.as_ref()?;
     let edge = if right { me.x } else { me.x + me.width };
     let split = layout
         .splits
@@ -45,7 +44,13 @@ pub fn precise_resize_plan(
     // A sidebar runs in the alternate screen: at most two border columns.
     // Its first frame can still carry the pre-alternate-screen scrollbar
     // width, so do not cache that transient extra column as pane chrome.
-    let chrome = chrome.unwrap_or((me.width - i64::from(current)).clamp(0, 2) as u16);
+    // A patched host reports the actual borders even when clients alternate
+    // sizes or the viewport is already narrower than the PTY minimum.
+    let chrome = pane
+        .border_columns
+        .map(|columns| columns.min(2))
+        .or(chrome)
+        .unwrap_or((me.width - i64::from(current)).clamp(0, 2) as u16);
     let requested = i64::from(target) + i64::from(chrome);
     if requested <= 0 || requested >= split_area.width {
         return None;
@@ -135,6 +140,28 @@ mod tests {
             let plan = precise_resize_plan(&json, "owner", 4, 1, false, Some(2)).unwrap();
             assert!((plan.ratio - 3.0 / 160.0).abs() < 1e-9);
             assert_eq!(plan.changed, width != 3);
+        }
+    }
+
+    #[test]
+    fn reported_borders_override_stale_pty_sizes_and_cached_zero_chrome() {
+        for right in [false, true] {
+            for width in [1, 3] {
+                let json = serde_json::json!({"result":{"layout":{
+                    "area":{"x":0,"y":0,"width":160,"height":50},
+                    "panes":[{"pane_id":"owner","border_columns":2,"rect":{"x":if right {160-width}else{0},"y":0,"width":width,"height":50}}],
+                    "splits":[{"direction":"right","ratio":if right {1.0-f64::from(width)/160.0}else{f64::from(width)/160.0},"rect":{"x":0,"y":0,"width":160,"height":50}}]
+                }}}).to_string();
+                for current in [4, 100] {
+                    let plan =
+                        precise_resize_plan(&json, "owner", current, 1, right, Some(0)).unwrap();
+                    assert_eq!(plan.chrome, 2);
+                    assert!(
+                        (plan.ratio - if right { 157.0 / 160.0 } else { 3.0 / 160.0 }).abs() < 1e-9
+                    );
+                    assert_eq!(plan.changed, width != 3);
+                }
+            }
         }
     }
 }

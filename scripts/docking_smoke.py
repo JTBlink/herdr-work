@@ -257,11 +257,11 @@ def check(binary, output, host="herdr", exact_rail=False):
                 # that pane.read still returns from that buffer.
                 visible_width = next(p['rect']['width'] for p in rpc('pane.layout', {'pane_id': sidebar})['layout']['panes'] if p['pane_id'] == sidebar) - 2
                 assert visible_width == 1, (name, visible_width)
-                icons = ['\uf07b', '\uf002', '\uf126', '\uf013']
+                icons = ['▣', '⌕', '⑂', '⚙︎']
                 text = visible()
                 for icon in icons:
                     line = next(line for line in text.splitlines() if icon in line)
-                    assert line.index(icon) == 0 and len(line.rstrip()) <= visible_width, (name, 'Icon is outside the physical viewport', repr(line), visible_width)
+                    assert line.index(icon) == 0 and line.rstrip() == icon, (name, 'Icon is outside the physical viewport', repr(line), visible_width)
             mouse_at('»')
             wait_for(lambda: '«' in visible(), 'Expansion failed')
             expanded = rpc('pane.layout', {'pane_id': sidebar})['layout']

@@ -64,12 +64,14 @@ class Viewer:
                              f'frame={["".join(row) for row in grid]}, output={bytes(captured[-2000:])!r}')
 
     def close(self):
+        # Release the PTY before waiting: on macOS a child blocked on terminal
+        # output can otherwise remain unreaped even after termination.
+        os.close(self.master)
         self.process.terminate()
         try: self.process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             self.process.kill()
-            self.process.wait()
-        os.close(self.master)
+            self.process.wait(timeout=5)
 
 
 def check(binary, theme):

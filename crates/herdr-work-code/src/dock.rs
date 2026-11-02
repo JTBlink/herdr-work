@@ -39,6 +39,7 @@ pub(crate) struct LayoutSplit {
 pub(crate) struct LayoutPane {
     pub(crate) pane_id: Option<String>,
     pub(crate) rect: Option<Rect>,
+    pub(crate) border_columns: Option<u16>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]

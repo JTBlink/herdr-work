@@ -102,3 +102,23 @@ diff --git a/src/app/api/layouts.rs b/src/app/api/layouts.rs
 +                tab.layout
 +                    .set_precise_ratio_at(&params.path, params.ratio, area)
 +            });
+diff --git a/src/api/schema/panes.rs b/src/api/schema/panes.rs
+--- a/src/api/schema/panes.rs
++++ b/src/api/schema/panes.rs
+@@ -615,0 +616,3 @@
++    /// Reserved border columns, independent of the PTY buffer minimum.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub border_columns: Option<u16>,
+diff --git a/src/api/schema/tests.rs b/src/api/schema/tests.rs
+--- a/src/api/schema/tests.rs
++++ b/src/api/schema/tests.rs
+@@ -591,0 +592 @@
++                        border_columns: None,
+diff --git a/src/app/api/panes.rs b/src/app/api/panes.rs
+--- a/src/app/api/panes.rs
++++ b/src/app/api/panes.rs
+@@ -2142,0 +2143,4 @@
++                border_columns: Some(
++                    u16::from(pane.borders.contains(ratatui::widgets::Borders::LEFT))
++                        + u16::from(pane.borders.contains(ratatui::widgets::Borders::RIGHT)),
++                ),
