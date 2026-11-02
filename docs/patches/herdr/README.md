@@ -1,9 +1,14 @@
 # Herdr 精确列宽补丁
 
-适用来源：Herdr `v0.9.3`，固定 commit `7b116c05bfda646af39d2524c54e70c751f57ee8`，私有协议 22。
+适用来源：Herdr `v0.9.3` 与 `v0.9.5`，私有协议 22。两版官方程序仍将显式分栏比例限制为 10%–90%。
+
+| 宿主版本 | 固定 commit | 对应补丁 |
+| --- | --- | --- |
+| `v0.9.5` | `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01` | [0.9.5 补丁](precise-split-ratio-v0.9.5.patch) |
+| `v0.9.3` | `7b116c05bfda646af39d2524c54e70c751f57ee8` | [0.9.3 补丁](precise-split-ratio.patch) |
 
 - [上游源码](https://github.com/herdrdev/herdr/tree/7b116c05bfda646af39d2524c54e70c751f57ee8)
-- [补丁](precise-split-ratio.patch)
+- [0.9.3 补丁](precise-split-ratio.patch)
 - [原 Apache-2.0 许可证](LICENSE)
 
 官方宿主将 `pane.resize` 和显式比例设置都限制在 10%–90%，因此 HerdrWork 请求 4 列后仍会得到宽图标栏。补丁只让 `layout.set_split_ratio` 使用精确比例，按当前几何保证子窗格至少保留一个单元格；原鼠标拖拽、键盘缩放和普通 `pane.resize` 的限制不变。不修改协议字段或序列化格式。
@@ -12,19 +17,32 @@ HerdrWork 使用明确的分隔线路径设置列宽，保留相邻工作区分�
 
 ## 应用与构建
 
-补丁不是 HerdrWork workspace 成员，也不包含在普通发行包的程序中。普通安装不会替换用户的 Herdr 宿主。请在匹配的独立 Herdr 源码副本中应用：
+补丁不是 HerdrWork workspace 成员，也不包含在普通发行包的程序中。普通安装不会替换用户的 Herdr 宿主。请在匹配的独立 Herdr 源码副本中应用。以下以 0.9.5 为例：
 
 ```sh
 git rev-parse HEAD
-# 必须为 7b116c05bfda646af39d2524c54e70c751f57ee8
-git apply --check --unidiff-zero <herdr-work>/docs/patches/herdr/precise-split-ratio.patch
-git apply --unidiff-zero <herdr-work>/docs/patches/herdr/precise-split-ratio.patch
+# 必须为 2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01
+git apply --check --unidiff-zero <herdr-work>/docs/patches/herdr/precise-split-ratio-v0.9.5.patch
+git apply --unidiff-zero <herdr-work>/docs/patches/herdr/precise-split-ratio-v0.9.5.patch
 # 按 Herdr 自身规范准备 Rust、Zig 0.16.0，再构建和验证。
 ```
 
 补丁保留来源许可证与版权，不代表上游已接受或发布。HerdrWork 未向上游提交 issue、PR 或发布宿主二进制。
 
-## 本机验证与启用边界
+## 0.9.5 验证（2026-11-02）
+
+- 官方 0.9.5 私有会话复现：可用宽度 130 列时，折叠侧栏外框仍为 13 列。
+- 使用 0.9.5 固定源码构建测试版宿主，Rust 1.96.1、Zig 0.16.0；构建成功。未修改版本号、协议或序列化字段，也未发布上游宿主。
+- 独立布局测试 29 项通过、1 项既有性能测试忽略，覆盖左右边缘、嵌套分隔线、焦点、无效比例与无客户端几何；普通键鼠缩放继续保留原限制。
+- `scripts/docking_smoke.py --host <测试版-herdr> --exact-rail` 的 12 组私有会话通过：自动启动、显式打开、左右停靠、嵌套分栏、复用已有侧栏、关闭恢复及 160/200 列窗口变化。
+- 实际外框为 6 列，其中 4 列内容 = 2 列图标槽 + 左右各 1 列边距；四个活动/设置图标均位于可见范围。
+- 没有运行 Herdr 全量测试，也没有验证 Linux/Windows 宿主补丁。用户当前会话未被替换。
+
+![官方与精确列宽补丁对比](../../verification/assets/sidebar-width-095.png)
+
+图使用隔离宿主的真实布局与侧栏文本快照，按等宽字格渲染，中间空白省略；没有账号、用户目录或 Agent 会话。
+
+## 0.9.3 历史验证与启用边界
 
 macOS Apple Silicon 已完成宿主 release 构建；单独编译原 `layout.rs` 的布局测试，26 项通过、1 项按既有配置忽略。未运行 Herdr 全量测试，未验证 Linux/Windows 宿主补丁。
 

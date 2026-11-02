@@ -1,0 +1,104 @@
+diff --git a/src/layout.rs b/src/layout.rs
+--- a/src/layout.rs
++++ b/src/layout.rs
+@@ -295,0 +296,23 @@
++    }
++
++    /// Explicit API ratios support utility panes smaller than the interactive floor.
++    /// Keep both children visible without changing keyboard or mouse resizing.
++    pub fn set_precise_ratio_at(&mut self, path: &[bool], ratio: f32, area: Rect) -> bool {
++        if !ratio.is_finite() {
++            return false;
++        }
++        let splits = self.splits(area);
++        let Some(split) = splits.iter().find(|split| split.path == path) else {
++            return false;
++        };
++        let cells = match split.direction {
++            Direction::Horizontal => split.area.width,
++            Direction::Vertical => split.area.height,
++        };
++        // Preserve an explicit request until a client provides usable geometry.
++        let min = if cells < 2 {
++            f32::EPSILON
++        } else {
++            1.0 / f32::from(cells)
++        };
++        set_ratio_at(&mut self.root, path, ratio.clamp(min, 1.0 - min))
+@@ -1348 +1371,64 @@
+-}
++
++    #[test]
++    fn precise_api_ratio_keeps_a_four_column_rail_with_two_borders_on_either_edge() {
++        let (mut layout, left) = TileLayout::new();
++        let right = layout.split_focused(Direction::Horizontal);
++        let area = Rect::new(0, 0, 200, 50);
++        for (ratio, pane) in [(6.0 / 200.0, left), (194.0 / 200.0, right)] {
++            assert!(layout.set_precise_ratio_at(&[], ratio, area));
++            assert_eq!(
++                layout
++                    .panes(area)
++                    .iter()
++                    .find(|p| p.id == pane)
++                    .unwrap()
++                    .rect
++                    .width,
++                6
++            );
++        }
++        assert!(layout.set_ratio_at(&[], 0.03));
++        assert_eq!(
++            layout
++                .panes(area)
++                .iter()
++                .find(|p| p.id == left)
++                .unwrap()
++                .rect
++                .width,
++            20
++        );
++    }
++
++    #[test]
++    fn precise_api_ratio_preserves_outer_splits_and_focus() {
++        let (mut layout, outer) = TileLayout::new();
++        let inside = layout.split_focused(Direction::Horizontal);
++        layout
++            .split_pane(inside, Direction::Horizontal, 0.5)
++            .unwrap();
++        let focus = layout.focus;
++        let area = Rect::new(0, 0, 200, 50);
++        assert!(layout.set_precise_ratio_at(&[true], 0.06, area));
++        let panes = layout.panes(area);
++        assert_eq!(
++            panes.iter().find(|p| p.id == outer).unwrap().rect.width,
++            100
++        );
++        assert_eq!(panes.iter().find(|p| p.id == inside).unwrap().rect.width, 6);
++        assert_eq!(layout.focus, focus);
++    }
++
++    #[test]
++    fn precise_api_ratio_handles_invalid_paths_tiny_splits_and_headless_geometry() {
++        let (mut layout, _) = TileLayout::new();
++        layout.split_focused(Direction::Vertical);
++        let area = Rect::new(0, 0, 200, 50);
++        assert!(!layout.set_precise_ratio_at(&[], f32::NAN, area));
++        assert!(!layout.set_precise_ratio_at(&[true], 0.5, area));
++        assert!(layout.set_precise_ratio_at(&[], 0.0, area));
++        assert!(layout.panes(area).iter().all(|p| p.rect.height >= 1));
++        assert!(layout.set_precise_ratio_at(&[], 0.72, Rect::default()));
++        assert!((layout.splits(area)[0].ratio - 0.72).abs() < f32::EPSILON);
++    }
++}
+diff --git a/src/app/api/layouts.rs b/src/app/api/layouts.rs
+--- a/src/app/api/layouts.rs
++++ b/src/app/api/layouts.rs
+@@ -243,0 +244 @@
++        let area = self.state.view.terminal_area;
+@@ -249 +250,4 @@
+-            .is_some_and(|tab| tab.layout.set_ratio_at(&params.path, params.ratio));
++            .is_some_and(|tab| {
++                tab.layout
++                    .set_precise_ratio_at(&params.path, params.ratio, area)
++            });

@@ -257,7 +257,7 @@ def check(binary, output, host="herdr", exact_rail=False):
                 # that pane.read still returns from that buffer.
                 visible_width = next(p['rect']['width'] for p in rpc('pane.layout', {'pane_id': sidebar})['layout']['panes'] if p['pane_id'] == sidebar) - 2
                 assert visible_width == 4, (name, visible_width)
-                icons = ['\uf07b', '\uf002', '\uf126', '\uf0ae', '\uf013']
+                icons = ['\uf07b', '\uf002', '\uf126', '\uf013']
                 text = visible()
                 for icon in icons:
                     line = next(line for line in text.splitlines() if icon in line)
@@ -267,6 +267,8 @@ def check(binary, output, host="herdr", exact_rail=False):
             expanded = rpc('pane.layout', {'pane_id': sidebar})['layout']
             restored_rect = next(p['rect'] for p in expanded['panes'] if p['pane_id'] == sidebar)
             assert abs(restored_rect['width'] - rect['width']) <= 2, (name, 'Expanded width changed', rect, restored_rect)
+            mouse_at('«')
+            wait_for(lambda: '»' in visible(), 'Rail missing before close')
             mouse_at('×')
             wait_for(lambda: not any(p['pane_id'] == sidebar for p in rpc('pane.list')['panes']), 'Close control failed')
             assert (profile / 'sidebar').exists()

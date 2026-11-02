@@ -42,6 +42,7 @@ class ProductWorkspace(unittest.TestCase):
             for name in ['scripts/install.py', 'README.md',
                          'herdr-plugin.toml', 'LICENSE', 'CHANGELOG.md',
                          'docs/verification/assets/workbench.png',
+                         'docs/verification/assets/sidebar-width-095.png',
                          'crates/herdr-work-code/LICENSE',
                          'crates/herdr-work-engine/LICENSE-process-runtime']:
                 path = root / name
@@ -57,5 +58,6 @@ class ProductWorkspace(unittest.TestCase):
                          for m in tar.getmembers() if m.isfile()}
                 self.assertEqual({p for p in paths if p.startswith('bin/')},
                                  {'bin/herdr-work'})
+                self.assertIn('docs/verification/assets/sidebar-width-095.png', paths)
                 member = next(m for m in tar.getmembers() if m.name.endswith('licenses/herdr-sidebar.txt'))
                 self.assertEqual(tar.extractfile(member).read(), b'preserved Sidebar copyright')

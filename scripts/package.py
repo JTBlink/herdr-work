@@ -76,9 +76,10 @@ def create_archive(target, output, tag=None):
             shutil.copy2(source, dest)
         shutil.copy2(ROOT / 'scripts/install.py', stage / 'install.py')
         shutil.copy2(ROOT / 'README.md', stage / 'README.md')
-        screenshot = Path('docs/verification/assets/workbench.png')
-        (stage / screenshot).parent.mkdir(parents=True)
-        shutil.copy2(ROOT / screenshot, stage / screenshot)
+        for screenshot in [Path('docs/verification/assets/workbench.png'),
+                           Path('docs/verification/assets/sidebar-width-095.png')]:
+            (stage / screenshot).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / screenshot, stage / screenshot)
         shutil.copy2(ROOT / 'herdr-plugin.toml', stage / 'herdr-plugin.toml')
         shutil.copy2(ROOT / 'LICENSE', stage / 'LICENSE')
         shutil.copy2(ROOT / 'CHANGELOG.md', stage / 'CHANGELOG.md')
