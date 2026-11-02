@@ -874,6 +874,8 @@ dependencies = [
  "sha2",
  "similar",
  "tempfile",
+ "winapi-util",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

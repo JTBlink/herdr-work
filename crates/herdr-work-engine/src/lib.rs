@@ -54,15 +54,32 @@ impl Drop for Profile {
 impl HerdrWork {
     pub fn worktree_identity(root: &Path) -> Result<String> {
         let root = root.canonicalize()?;
-        let meta = root.metadata()?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
+            let meta = root.metadata()?;
             Ok(format!("{}:{}:{}", root.display(), meta.dev(), meta.ino()))
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
         {
-            Ok(format!("{}:{:?}", root.display(), meta.created()?))
+            // Creation times can survive replacement at the same path.
+            // Use the filesystem's volume/file identifier, like Unix dev/ino.
+            let handle = winapi_util::Handle::from_path_any(&root)?;
+            let info = winapi_util::file::information(&handle)?;
+            Ok(format!(
+                "{}:{}:{}",
+                root.display(),
+                info.volume_serial_number(),
+                info.file_index()
+            ))
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            Ok(format!(
+                "{}:{:?}",
+                root.display(),
+                root.metadata()?.created()?
+            ))
         }
     }
     pub fn validate_execution(execution: &herdr_work_core::Execution) -> Result<()> {

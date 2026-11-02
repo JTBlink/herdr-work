@@ -1036,6 +1036,43 @@ fn workspace_state_does_not_follow_a_replaced_directory_instance() {
     std::fs::rename(&root, home.path().join("old-root")).unwrap();
     std::fs::create_dir(&root).unwrap();
     std::fs::write(root.join("same.txt"), "two").unwrap();
+    #[cfg(windows)]
+    {
+        use std::os::windows::{
+            fs::{MetadataExt, OpenOptionsExt},
+            io::AsRawHandle,
+        };
+        use windows_sys::Win32::{
+            Foundation::FILETIME,
+            Storage::FileSystem::{FILE_FLAG_BACKUP_SEMANTICS, FILE_WRITE_ATTRIBUTES, SetFileTime},
+        };
+        // Deterministically reproduce Windows retaining a creation timestamp
+        // at a reused path; waiting for the clock would hide the identity bug.
+        let stamp = std::fs::metadata(home.path().join("old-root"))
+            .unwrap()
+            .creation_time();
+        let handle = std::fs::OpenOptions::new()
+            .access_mode(FILE_WRITE_ATTRIBUTES)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(&root)
+            .unwrap();
+        let time = FILETIME {
+            dwLowDateTime: stamp as u32,
+            dwHighDateTime: (stamp >> 32) as u32,
+        };
+        // SAFETY: handle is a live directory handle opened for attribute
+        // writes; time is initialized, and null leaves the other times alone.
+        let result = unsafe {
+            SetFileTime(
+                handle.as_raw_handle(),
+                &time,
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        };
+        assert_ne!(result, 0, "{}", std::io::Error::last_os_error());
+        assert_eq!(root.metadata().unwrap().creation_time(), stamp);
+    }
     let fresh = desk.workspace_ui_state(&root).unwrap();
     assert_ne!(fresh.identity, state.identity);
     assert!(fresh.activity.is_empty());
