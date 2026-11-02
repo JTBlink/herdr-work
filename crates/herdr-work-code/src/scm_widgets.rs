@@ -305,8 +305,9 @@ pub fn row_hit_with_heights(
     None
 }
 
-/// Visible rows including a partially clipped last row. Same selection/scroll
-/// rule as the source list; callers reuse it for drawing and pointer hit tests.
+/// Visible rows including a partially clipped last row. Clamp to the last
+/// full page so wheel input, restored state and resizing cannot leave an
+/// otherwise populated list scrolled down to a lone final drawer.
 pub fn list_window(
     heights: &[u16],
     scroll: usize,
@@ -314,7 +315,17 @@ pub fn list_window(
     height: u16,
 ) -> std::ops::Range<usize> {
     let h = usize::from(height).max(1);
-    let mut start = scroll.min(heights.len().saturating_sub(1));
+    let mut last_page = heights.len().saturating_sub(1);
+    let mut used = 0;
+    for (index, row_height) in heights.iter().enumerate().rev() {
+        let row_height = usize::from(*row_height);
+        if used + row_height > h {
+            break;
+        }
+        used += row_height;
+        last_page = index;
+    }
+    let mut start = scroll.min(last_page);
     if let Some(selected) = selected.filter(|index| *index < heights.len()) {
         if selected < start {
             start = selected;
@@ -348,6 +359,16 @@ pub fn message_box_height(message: &[char], cursor: usize, width: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn list_scroll_stops_at_a_full_last_page() {
+        assert_eq!(list_window(&[1; 10], 99, None, 20), 0..10);
+        assert_eq!(list_window(&[1; 10], 99, None, 4), 6..10);
+        assert_eq!(list_window(&[1, 3, 1, 1], 99, None, 5), 1..4);
+        assert_eq!(list_window(&[1, 3, 1, 1], 99, Some(0), 5), 0..3);
+        assert_eq!(list_window(&[1, 8], 99, None, 4), 1..2);
+        assert_eq!(list_window(&[], 99, None, 4), 0..0);
+    }
+
     #[test]
     fn empty_repo_input_keeps_its_placeholder_when_focused() {
         use ratatui::{Terminal, backend::TestBackend, widgets::List};

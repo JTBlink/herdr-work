@@ -1,0 +1,14 @@
+{
+  "version": "0.1.20 + 本地修复",
+  "captured_on": "2026-11-02",
+  "explorer": {
+    "text": "           ▄▄▄▄         «\n                     \n           ▀▀▀2\n ▾ demo…         大图\n┌────────────────────────┐\n│Message (⏎ to commit) 󰙴 │\n└────────────────────────┘\n         ✓ Commit\n ▸ Tags                  │\n                         │\n                         │\n                         │\n                         │\n                         │\n                         │\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n                         ┃\n m / ctrl+rclick for menus\n  main ⟳\n",
+    "width": 28,
+    "border_columns": 2
+  },
+  "git": {
+    "text": "           ▄▄▄▄         «\n                     \n           ▀▀▀2\n ▾ demo…         大图\n┌────────────────────────┐\n│Message (⏎ to commit) 󰙴 │\n└────────────────────────┘\n         ✓ Commit\n ▾ Changes             2\n    main.rs src        M\n    notes.md           U\n ▸ Graph        [全部引用]\n ▸ File History\n ▸ Branches\n ▸ Worktrees\n ▸ Remotes\n ▸ Stashes\n ▸ Tags\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n m / ctrl+rclick for menus\n  main ⟳\n",
+    "width": 28,
+    "border_columns": 2
+  }
+}
